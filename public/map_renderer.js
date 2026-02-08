@@ -90,34 +90,6 @@ class MapRenderer {
   }
 
   setupInteractions() {
-    // Mouse wheel for zoom
-    this.canvas.addEventListener("wheel", (e) => {
-      e.preventDefault();
-      const rect = this.canvas.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-
-      const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
-      const newZoom = Math.max(
-        this.minZoom,
-        Math.min(this.maxZoom, this.zoom * zoomFactor),
-      );
-
-      // Calculate the zoom change and adjust offset to zoom toward mouse
-      // The point under the mouse should stay stationary
-      const zoomChange = newZoom / this.zoom;
-
-      // Adjust offsets: the canvas point under mouse should map to the same geo point
-      // We need to scale the distance from mouse to origin
-      this.offsetX = mouseX - (mouseX - this.offsetX) * zoomChange;
-      this.offsetY = mouseY - (mouseY - this.offsetY) * zoomChange;
-
-      this.zoom = newZoom;
-
-      this.debouncedRender();
-      this.updateStats();
-    });
-
     // Mouse drag for pan
     this.canvas.addEventListener("mousedown", (e) => {
       this.isPanning = true;
