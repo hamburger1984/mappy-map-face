@@ -379,8 +379,8 @@ class MapRenderer {
     // mode: "hovered" or "selected"
     const isSelected = mode === "selected";
 
-    // For selected features that persist across zoom/pan, recalculate screen coordinates
-    if (isSelected && feature.feature) {
+    // Recalculate screen coordinates for current viewport
+    if (feature.feature) {
       this.updateFeatureScreenCoords(feature, bounds);
     }
 
