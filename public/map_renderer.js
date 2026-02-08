@@ -181,6 +181,61 @@ class MapRenderer {
         this.renderMap();
       }
     });
+
+    // Double-click to zoom in on that location
+    this.canvas.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      const rect = this.canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      // Zoom in by 1.5x toward the double-clicked point
+      const zoomFactor = 1.5;
+      const newZoom = Math.min(this.maxZoom, this.zoom * zoomFactor);
+
+      if (newZoom !== this.zoom) {
+        const zoomRatio = newZoom / this.zoom;
+        this.offsetX = mouseX - (mouseX - this.offsetX) * zoomRatio;
+        this.offsetY = mouseY - (mouseY - this.offsetY) * zoomRatio;
+        this.zoom = newZoom;
+        this.renderMap(); // Render immediately for responsive feel
+        this.updateStats();
+      }
+    });
+  }
+
+  zoomIn() {
+    // Zoom toward center of canvas
+    const centerX = this.canvasWidth / 2;
+    const centerY = this.canvasHeight / 2;
+    const zoomFactor = 1.3;
+    const newZoom = Math.min(this.maxZoom, this.zoom * zoomFactor);
+
+    if (newZoom !== this.zoom) {
+      const zoomRatio = newZoom / this.zoom;
+      this.offsetX = centerX - (centerX - this.offsetX) * zoomRatio;
+      this.offsetY = centerY - (centerY - this.offsetY) * zoomRatio;
+      this.zoom = newZoom;
+      this.renderMap();
+      this.updateStats();
+    }
+  }
+
+  zoomOut() {
+    // Zoom away from center of canvas
+    const centerX = this.canvasWidth / 2;
+    const centerY = this.canvasHeight / 2;
+    const zoomFactor = 1 / 1.3;
+    const newZoom = Math.max(this.minZoom, this.zoom * zoomFactor);
+
+    if (newZoom !== this.zoom) {
+      const zoomRatio = newZoom / this.zoom;
+      this.offsetX = centerX - (centerX - this.offsetX) * zoomRatio;
+      this.offsetY = centerY - (centerY - this.offsetY) * zoomRatio;
+      this.zoom = newZoom;
+      this.renderMap();
+      this.updateStats();
+    }
   }
 
   checkFeatureHover(e) {
@@ -993,6 +1048,14 @@ async function initApp() {
 
   document.getElementById("exportBtn").addEventListener("click", () => {
     renderer.exportAsPNG();
+  });
+
+  document.getElementById("zoomInBtn").addEventListener("click", () => {
+    renderer.zoomIn();
+  });
+
+  document.getElementById("zoomOutBtn").addEventListener("click", () => {
+    renderer.zoomOut();
   });
 
   // Auto-render on load
