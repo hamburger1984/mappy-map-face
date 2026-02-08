@@ -1287,6 +1287,14 @@ class MapRenderer {
     const tieWidth = 2.5; // Width of tie line
     const railOffset = Math.max(width, 4); // Distance from center to each rail (minimum 4px apart)
 
+    // Debug: verify this function is being called
+    if (Math.random() < 0.01) {
+      // Log 1% of the time to avoid spam
+      console.log(
+        `Drawing railway pattern: width=${width}, railOffset=${railOffset}`,
+      );
+    }
+
     this.ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a / 255})`;
     this.ctx.lineCap = "butt";
     this.ctx.lineJoin = "miter";
