@@ -169,8 +169,10 @@ class MapRenderer {
   zoomIn() {
     // Zoom toward center of viewport
     // Simply increase zoom without changing offset
+    console.log("zoomIn: current zoom =", this.zoom);
     const zoomFactor = 1.3;
     const newZoom = Math.min(this.maxZoom, this.zoom * zoomFactor);
+    console.log("zoomIn: new zoom =", newZoom);
 
     if (newZoom !== this.zoom) {
       this.zoom = newZoom;
