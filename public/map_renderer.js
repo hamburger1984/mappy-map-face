@@ -1445,7 +1445,7 @@ class MapRenderer {
     if (props.landuse === "commercial" || props.landuse === "retail") {
       return {
         layer: "landuse_areas",
-        color: { r: 242, g: 216, b: 217, a: 255 }, // Light pink/rose
+        color: { r: 243, g: 233, b: 234, a: 255 }, // Very subtle pink/rose
         minLOD: 1,
         fill: true,
       };

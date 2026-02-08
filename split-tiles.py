@@ -372,10 +372,18 @@ def get_render_metadata(props, geom_type):
         }
 
     # Commercial/industrial areas
-    if props.get("landuse") in ["commercial", "industrial", "retail"]:
+    if props.get("landuse") in ["commercial", "retail"]:
         return {
-            "layer": "areas",
-            "color": {"r": 240, "g": 225, "b": 225, "a": 255},
+            "layer": "landuse_areas",
+            "color": {"r": 243, "g": 233, "b": 234, "a": 255},
+            "minLOD": 2,
+            "fill": True,
+        }
+
+    if props.get("landuse") == "industrial":
+        return {
+            "layer": "landuse_areas",
+            "color": {"r": 235, "g": 219, "b": 232, "a": 255},
             "minLOD": 2,
             "fill": True,
         }
