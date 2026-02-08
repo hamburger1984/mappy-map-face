@@ -40,9 +40,9 @@ clean-all: clean
 
 # Start local web server
 serve:
-    @echo "Starting web server on http://localhost:8080"
+    @echo "Starting web server on http://localhost:8888"
     @echo "Press Ctrl+C to stop"
-    cd public && python3 -m http.server 8080
+    cd public && python3 -m http.server 8888
 
 # Run in development mode (build + serve)
 dev: build
