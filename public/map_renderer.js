@@ -1078,14 +1078,15 @@ class MapRenderer {
       // Width should scale: 1px minimum, real width when zoomed in enough
       const metersPerPixel = 20000 / (this.zoom * 1200);
       const calculatedWidth = realWidthMeters / metersPerPixel;
-      const width = Math.max(1, Math.min(10, calculatedWidth)); // Clamp between 1-10px
+      let width = Math.max(1, Math.min(10, calculatedWidth)); // Clamp between 1-10px
 
       // Use actual width from OSM if available (in meters)
       if (props.width) {
         const widthMeters = parseFloat(props.width);
         if (!isNaN(widthMeters)) {
-          // Scale width: ~10m road = 3px at standard zoom
-          width = Math.max(1, Math.min(8, widthMeters / 3));
+          // Scale width based on actual OSM width
+          const osmCalculatedWidth = widthMeters / metersPerPixel;
+          width = Math.max(1, Math.min(10, osmCalculatedWidth));
         }
       }
 
