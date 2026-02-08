@@ -26,9 +26,10 @@ class MapRenderer {
     this.lastPanX = 0;
     this.lastPanY = 0;
 
-    // Feature detection for tooltips
+    // Feature detection for tooltips and selection
     this.renderedFeatures = [];
     this.hoveredFeature = null;
+    this.selectedFeature = null;
 
     // Performance optimizations
     this.renderTimeout = null;
@@ -65,10 +66,13 @@ class MapRenderer {
 
   setupInteractions() {
     // Mouse drag for pan
+    let mouseDownPos = null;
+
     this.canvas.addEventListener("mousedown", (e) => {
       this.isPanning = true;
       this.lastPanX = e.clientX;
       this.lastPanY = e.clientY;
+      mouseDownPos = { x: e.clientX, y: e.clientY };
       this.canvas.style.cursor = "grabbing";
     });
 
@@ -82,20 +86,47 @@ class MapRenderer {
         this.lastPanY = e.clientY;
         this.debouncedRender();
       } else {
-        // Check for feature hover
-        this.checkFeatureHover(e);
+        // Check for feature hover (only if nothing is selected)
+        if (!this.selectedFeature) {
+          this.checkFeatureHover(e);
+        }
       }
     });
 
-    this.canvas.addEventListener("mouseup", () => {
+    this.canvas.addEventListener("mouseup", (e) => {
+      // Check if this was a click (not a drag)
+      if (
+        mouseDownPos &&
+        Math.abs(e.clientX - mouseDownPos.x) < 5 &&
+        Math.abs(e.clientY - mouseDownPos.y) < 5
+      ) {
+        // It's a click, not a drag
+        if (this.hoveredFeature) {
+          this.selectedFeature = this.hoveredFeature;
+          this.renderMap(); // Re-render to show selection highlight
+        }
+      }
+
       this.isPanning = false;
       this.canvas.style.cursor = "crosshair";
+      mouseDownPos = null;
     });
 
     this.canvas.addEventListener("mouseleave", () => {
       this.isPanning = false;
       this.canvas.style.cursor = "crosshair";
-      this.hideTooltip();
+      if (!this.selectedFeature) {
+        this.hideTooltip();
+      }
+    });
+
+    // ESC key to deselect
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && this.selectedFeature) {
+        this.selectedFeature = null;
+        this.hideTooltip();
+        this.renderMap(); // Re-render to remove selection highlight
+      }
     });
 
     // Touch support for mobile
@@ -189,13 +220,20 @@ class MapRenderer {
     }
 
     if (found !== this.hoveredFeature) {
+      const previousHover = this.hoveredFeature;
       this.hoveredFeature = found;
+
       if (found) {
         this.showTooltip(e.clientX, e.clientY, found);
         this.updateInfoPanel(found);
       } else {
         this.hideTooltip();
         this.clearInfoPanel();
+      }
+
+      // Re-render to show/hide highlight (only if hover changed)
+      if (previousHover || found) {
+        this.renderMap();
       }
     }
   }
@@ -301,6 +339,70 @@ class MapRenderer {
     if (panel) {
       panel.innerHTML =
         "<h3>Feature Information</h3><p>Hover over map features to see details</p>";
+    }
+  }
+
+  highlightFeature(feature, bounds, mode) {
+    // mode: "hovered" or "selected"
+    const isSelected = mode === "selected";
+
+    // Highlight color: yellow for hover, orange for selected
+    const highlightColor = isSelected
+      ? "rgba(255, 140, 0, 0.8)" // Orange for selected
+      : "rgba(255, 255, 0, 0.6)"; // Yellow for hover
+
+    const highlightWidth = isSelected ? 6 : 4;
+
+    if (feature.type === "Point") {
+      // Highlight point with a circle
+      this.ctx.strokeStyle = highlightColor;
+      this.ctx.lineWidth = highlightWidth;
+      this.ctx.fillStyle = isSelected
+        ? "rgba(255, 140, 0, 0.3)"
+        : "rgba(255, 255, 0, 0.2)";
+      this.ctx.beginPath();
+      this.ctx.arc(feature.screenX, feature.screenY, 8, 0, Math.PI * 2);
+      this.ctx.fill();
+      this.ctx.stroke();
+    } else if (feature.type === "LineString" && feature.screenCoords) {
+      // Highlight line with thicker stroke
+      this.ctx.strokeStyle = highlightColor;
+      this.ctx.lineWidth = highlightWidth;
+      this.ctx.lineCap = "round";
+      this.ctx.lineJoin = "round";
+      this.ctx.beginPath();
+
+      for (let i = 0; i < feature.screenCoords.length; i++) {
+        const coord = feature.screenCoords[i];
+        if (i === 0) {
+          this.ctx.moveTo(coord.x, coord.y);
+        } else {
+          this.ctx.lineTo(coord.x, coord.y);
+        }
+      }
+      this.ctx.stroke();
+    } else if (feature.type === "Polygon" && feature.screenCoords) {
+      // Highlight polygon with thicker outline
+      this.ctx.strokeStyle = highlightColor;
+      this.ctx.lineWidth = highlightWidth;
+      this.ctx.fillStyle = isSelected
+        ? "rgba(255, 140, 0, 0.15)"
+        : "rgba(255, 255, 0, 0.1)";
+      this.ctx.lineCap = "round";
+      this.ctx.lineJoin = "round";
+      this.ctx.beginPath();
+
+      for (let i = 0; i < feature.screenCoords.length; i++) {
+        const coord = feature.screenCoords[i];
+        if (i === 0) {
+          this.ctx.moveTo(coord.x, coord.y);
+        } else {
+          this.ctx.lineTo(coord.x, coord.y);
+        }
+      }
+      this.ctx.closePath();
+      this.ctx.fill();
+      this.ctx.stroke();
     }
   }
 
@@ -747,6 +849,13 @@ class MapRenderer {
 
     // 10. Points (always on top)
     this.renderLayer(layers.points, adjustedBounds, false);
+
+    // 11. Highlight hovered or selected feature on top of everything
+    if (this.selectedFeature) {
+      this.highlightFeature(this.selectedFeature, adjustedBounds, "selected");
+    } else if (this.hoveredFeature) {
+      this.highlightFeature(this.hoveredFeature, adjustedBounds, "hovered");
+    }
 
     featureCount = Object.values(layers).reduce(
       (sum, layer) => sum + layer.length,
