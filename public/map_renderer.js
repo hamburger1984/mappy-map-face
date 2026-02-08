@@ -1453,7 +1453,7 @@ class MapRenderer {
     if (props.landuse === "industrial") {
       return {
         layer: "landuse_areas",
-        color: { r: 235, g: 219, b: 232, a: 255 }, // Light purple
+        color: { r: 240, g: 233, b: 240, a: 255 }, // Very subtle purple
         minLOD: 1,
         fill: true,
       };
@@ -1469,7 +1469,7 @@ class MapRenderer {
     ) {
       return {
         layer: "landuse_areas",
-        color: { r: 205, g: 235, b: 176, a: 255 }, // Light green (distinct from parks)
+        color: { r: 218, g: 238, b: 205, a: 255 }, // Very subtle green
         minLOD: 1,
         fill: true,
       };

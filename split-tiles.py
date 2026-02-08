@@ -383,7 +383,7 @@ def get_render_metadata(props, geom_type):
     if props.get("landuse") == "industrial":
         return {
             "layer": "landuse_areas",
-            "color": {"r": 235, "g": 219, "b": 232, "a": 255},
+            "color": {"r": 240, "g": 233, "b": 240, "a": 255},
             "minLOD": 2,
             "fill": True,
         }
