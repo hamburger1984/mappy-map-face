@@ -849,6 +849,7 @@ class MapRenderer {
           fill: featureInfo.fill,
           width: featureInfo.width,
           isRailway: featureInfo.isRailway,
+          roadPriority: featureInfo.roadPriority,
         });
       }
     }
@@ -873,19 +874,19 @@ class MapRenderer {
     this.renderLayer(layers.buildings, adjustedBounds, true);
 
     // 5. Tunnels (underground, semi-transparent)
-    this.renderLayer(layers.tunnels, adjustedBounds, false);
+    this.renderRoadLayer(layers.tunnels, adjustedBounds);
 
     // 6. Waterways (rivers, streams as lines)
     this.renderLayer(layers.waterways, adjustedBounds, false);
 
-    // 7. Surface roads
-    this.renderLayer(layers.surface_roads, adjustedBounds, false);
+    // 7. Surface roads (sorted by priority, with outlines)
+    this.renderRoadLayer(layers.surface_roads, adjustedBounds);
 
     // 8. Surface railways
     this.renderLayer(layers.surface_railways, adjustedBounds, false);
 
-    // 9. Bridges (on top of water!)
-    this.renderLayer(layers.bridges, adjustedBounds, false);
+    // 9. Bridges (on top of water!, sorted by priority, with outlines)
+    this.renderRoadLayer(layers.bridges, adjustedBounds);
 
     // 10. Points (always on top)
     this.renderLayer(layers.points, adjustedBounds, false);
@@ -1056,22 +1057,28 @@ class MapRenderer {
       let minLOD;
       let realWidthMeters; // Real-world width in meters
 
+      let roadPriority; // Lower = drawn first (underneath), higher = drawn on top
+
       if (props.highway === "motorway" || props.highway === "trunk") {
         color = { r: 233, g: 115, b: 103, a: 255 }; // OSM motorway orange
         realWidthMeters = 14; // ~4 lanes
         minLOD = 0;
+        roadPriority = 7;
       } else if (props.highway === "primary") {
         color = { r: 249, g: 207, b: 144, a: 255 }; // OSM primary yellow
         realWidthMeters = 7; // ~2 lanes
         minLOD = 1;
+        roadPriority = 6;
       } else if (props.highway === "secondary") {
         color = { r: 248, g: 234, b: 164, a: 255 }; // OSM secondary light yellow
         realWidthMeters = 7; // ~2 lanes
         minLOD = 1;
+        roadPriority = 5;
       } else if (props.highway === "tertiary") {
         color = { r: 255, g: 255, b: 255, a: 255 }; // OSM tertiary white
         realWidthMeters = 6; // ~1.5 lanes
         minLOD = 2;
+        roadPriority = 4;
       } else if (
         props.highway === "residential" ||
         props.highway === "unclassified"
@@ -1079,10 +1086,12 @@ class MapRenderer {
         color = { r: 255, g: 255, b: 255, a: 255 }; // OSM residential white
         realWidthMeters = 5; // ~1-2 lanes
         minLOD = 2;
+        roadPriority = 3;
       } else if (props.highway === "service" || props.highway === "track") {
         color = { r: 255, g: 255, b: 255, a: 255 }; // OSM service white
         realWidthMeters = 3.5; // 1 lane
         minLOD = 3;
+        roadPriority = 2;
       } else if (
         props.highway === "footway" ||
         props.highway === "path" ||
@@ -1092,10 +1101,12 @@ class MapRenderer {
         color = { r: 250, g: 190, b: 165, a: 255 }; // OSM footway salmon/pink
         realWidthMeters = 2; // Footpaths
         minLOD = 1;
+        roadPriority = 0;
       } else if (props.highway === "cycleway") {
         color = { r: 120, g: 150, b: 255, a: 255 }; // OSM cycleway blue
         realWidthMeters = 2; // Cycle paths
         minLOD = 3;
+        roadPriority = 1;
       } else {
         // Unknown highway type - skip it to avoid rendering unexpected features
         return { layer: null, minLOD: 999, fill: false };
@@ -1121,11 +1132,32 @@ class MapRenderer {
       // Assign to appropriate layer based on vertical position
       if (isTunnel) {
         color.a = 80; // 30% opacity for tunnels
-        return { layer: "tunnels", color, minLOD, width, fill: false };
+        return {
+          layer: "tunnels",
+          color,
+          minLOD,
+          width,
+          fill: false,
+          roadPriority,
+        };
       } else if (isBridge) {
-        return { layer: "bridges", color, minLOD, width, fill: false };
+        return {
+          layer: "bridges",
+          color,
+          minLOD,
+          width,
+          fill: false,
+          roadPriority,
+        };
       } else {
-        return { layer: "surface_roads", color, minLOD, width, fill: false };
+        return {
+          layer: "surface_roads",
+          color,
+          minLOD,
+          width,
+          fill: false,
+          roadPriority,
+        };
       }
     }
 
@@ -1209,6 +1241,130 @@ class MapRenderer {
 
     // Default: skip
     return { layer: null, minLOD: 999, fill: false };
+  }
+
+  renderRoadLayer(layerFeatures, bounds) {
+    // Sort by road priority: lower priority drawn first (underneath)
+    const sorted = layerFeatures
+      .slice()
+      .sort((a, b) => (a.roadPriority || 0) - (b.roadPriority || 0));
+
+    // Group features by priority level
+    const byPriority = new Map();
+    for (const item of sorted) {
+      const p = item.roadPriority || 0;
+      if (!byPriority.has(p)) byPriority.set(p, []);
+      byPriority.get(p).push(item);
+    }
+
+    // Pre-compute bounds scaling
+    const lonRange = bounds.maxLon - bounds.minLon;
+    const latRange = bounds.maxLat - bounds.minLat;
+    const scaleX = this.canvasWidth / lonRange;
+    const scaleY = this.canvasHeight / latRange;
+    const minLon = bounds.minLon;
+    const minLat = bounds.minLat;
+    const canvasHeight = this.canvasHeight;
+    const toScreenX = (lon) => (lon - minLon) * scaleX;
+    const toScreenY = (lat) => canvasHeight - (lat - minLat) * scaleY;
+
+    // For each priority level (low to high): draw outlines, then fills
+    // This ensures same-priority roads join cleanly at intersections
+    for (const [priority, items] of byPriority) {
+      // Collect flat screen coords for each feature in this priority group
+      const featureCoords = [];
+      for (const item of items) {
+        const { feature, props, type, color, width } = item;
+        const geom = feature.geometry;
+        if (!geom || !geom.coordinates) continue;
+
+        const coordArrays =
+          type === "LineString"
+            ? [geom.coordinates]
+            : type === "MultiLineString"
+              ? geom.coordinates
+              : null;
+        if (!coordArrays) continue;
+
+        for (const coords of coordArrays) {
+          if (coords.length < 2) continue;
+          const flat = new Array(coords.length * 2);
+          const screenCoords =
+            this.hoverInfoEnabled || this.selectedFeature
+              ? new Array(coords.length)
+              : null;
+          for (let i = 0; i < coords.length; i++) {
+            const sx = toScreenX(coords[i][0]);
+            const sy = toScreenY(coords[i][1]);
+            flat[i * 2] = sx;
+            flat[i * 2 + 1] = sy;
+            if (screenCoords) screenCoords[i] = { x: sx, y: sy };
+          }
+          featureCoords.push({ flat, color, width: width || 1 });
+          if (screenCoords) {
+            this.renderedFeatures.push({
+              type: "LineString",
+              screenCoords,
+              properties: props,
+              feature,
+              geometry: geom,
+            });
+          }
+        }
+      }
+
+      if (featureCoords.length === 0) continue;
+
+      // Pass 1: Draw dark outlines (casing) - batch by width
+      // Only draw outlines when roads are wide enough (> 2px)
+      const outlineBatches = new Map();
+      for (const fc of featureCoords) {
+        if (fc.width <= 2) continue;
+        const outlineWidth = fc.width + 2; // 1px casing on each side
+        const key = outlineWidth;
+        if (!outlineBatches.has(key)) outlineBatches.set(key, []);
+        outlineBatches.get(key).push(fc.flat);
+      }
+
+      for (const [outlineWidth, flats] of outlineBatches) {
+        this.ctx.strokeStyle = "rgba(0,0,0,0.4)";
+        this.ctx.lineWidth = outlineWidth;
+        this.ctx.lineCap = "round";
+        this.ctx.lineJoin = "round";
+        this.ctx.beginPath();
+        for (const flat of flats) {
+          this.ctx.moveTo(flat[0], flat[1]);
+          for (let i = 2; i < flat.length; i += 2) {
+            this.ctx.lineTo(flat[i], flat[i + 1]);
+          }
+        }
+        this.ctx.stroke();
+      }
+
+      // Pass 2: Draw road fills on top - batch by color+width
+      const fillBatches = new Map();
+      for (const fc of featureCoords) {
+        const key = `${fc.color.r},${fc.color.g},${fc.color.b},${fc.color.a}|${fc.width}`;
+        if (!fillBatches.has(key))
+          fillBatches.set(key, { color: fc.color, width: fc.width, flats: [] });
+        fillBatches.get(key).flats.push(fc.flat);
+      }
+
+      for (const [key, batch] of fillBatches) {
+        this.ctx.strokeStyle = `rgba(${batch.color.r},${batch.color.g},${batch.color.b},${batch.color.a / 255})`;
+        this.ctx.lineWidth = batch.width;
+        this.ctx.lineCap = "round";
+        this.ctx.lineJoin = "round";
+        this.ctx.beginPath();
+        for (const flat of batch.flats) {
+          this.ctx.moveTo(flat[0], flat[1]);
+          for (let i = 2; i < flat.length; i += 2) {
+            this.ctx.lineTo(flat[i], flat[i + 1]);
+          }
+        }
+        this.ctx.stroke();
+      }
+    }
   }
 
   renderLayer(layerFeatures, bounds, useFill) {
