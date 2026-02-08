@@ -1083,12 +1083,12 @@ class MapRenderer {
         let color = { r: 153, g: 153, b: 153, a: 255 };
         const minLOD = 1;
 
-        // Railway width based on type
-        let width = 3; // Standard railway (~5-6m wide including tracks and bed)
+        // Railway width based on type (controls spacing between rails and tie length)
+        let width = 8; // Standard railway (~5-6m wide including tracks and bed)
         if (props.railway === "tram" || props.railway === "light_rail") {
-          width = 2; // Trams are narrower
+          width = 6; // Trams are narrower
         } else if (props.railway === "narrow_gauge") {
-          width = 2; // Narrow gauge railways
+          width = 6; // Narrow gauge railways
         }
 
         if (isTunnel) {
@@ -1282,10 +1282,10 @@ class MapRenderer {
 
   drawRailwayPattern(screenCoords, color, width) {
     // Railway pattern: two parallel rails with perpendicular ties
-    const railWidth = 1; // Width of each rail line
-    const tieSpacing = 8; // Distance between ties in pixels
-    const tieWidth = 2; // Width of tie line
-    const railOffset = width / 2; // Distance from center to each rail
+    const railWidth = 1.5; // Width of each rail line
+    const tieSpacing = 10; // Distance between ties in pixels
+    const tieWidth = 2.5; // Width of tie line
+    const railOffset = Math.max(width, 4); // Distance from center to each rail (minimum 4px apart)
 
     this.ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a / 255})`;
     this.ctx.lineCap = "butt";
