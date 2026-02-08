@@ -18,7 +18,7 @@ class MapRenderer {
     this.offsetX = 0;
     this.offsetY = 0;
     this.minZoom = 0.5; // Shows full ~30km dataset
-    this.maxZoom = 40.0; // Max zoom: ~500m across screen
+    this.maxZoom = 120.0; // Max zoom: ~100m across screen
 
     // Hamburg city center coordinates
     this.centerLat = 53.55;
@@ -595,10 +595,11 @@ class MapRenderer {
     // minLOD: 0=always show, 1=medium zoom, 2=high zoom, 3=very high zoom
 
     // Water bodies (always visible, filled)
+    // Includes lakes, ponds, reservoirs, and riverbanks
     if (
       props.natural === "water" ||
-      props.water === "lake" ||
-      props.water === "reservoir"
+      props.water ||
+      props.waterway === "riverbank"
     ) {
       return {
         layer: "background",
@@ -608,8 +609,8 @@ class MapRenderer {
       };
     }
 
-    // Rivers and streams (visible from medium zoom)
-    if (props.waterway) {
+    // Rivers and streams as lines (visible from medium zoom)
+    if (props.waterway && props.waterway !== "riverbank") {
       const importance = ["river", "canal"].includes(props.waterway) ? 1 : 2;
       return {
         layer: "waterways",
@@ -735,14 +736,22 @@ class MapRenderer {
       };
     }
 
-    // Points of interest
-    if (props.amenity || props.shop || props.tourism) {
-      return {
-        layer: "points",
-        color: { r: 100, g: 100, b: 100, a: 255 },
-        minLOD: 3,
-        fill: false,
-      };
+    // Points of interest (only show named/important ones at high zoom)
+    if (type === "Point") {
+      // Only show meaningful POIs with names at very high zoom
+      if (
+        props.name &&
+        (props.amenity || props.shop || props.tourism || props.historic)
+      ) {
+        return {
+          layer: "points",
+          color: { r: 100, g: 100, b: 100, a: 255 },
+          minLOD: 3,
+          fill: false,
+        };
+      }
+      // Skip all other points (traffic signals, crossings, etc.)
+      return { layer: null, minLOD: 999 };
     }
 
     // Default: skip unless very zoomed in
