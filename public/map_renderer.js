@@ -1086,9 +1086,6 @@ class MapRenderer {
       screenCoords.push(screen);
     }
 
-    console.log(
-      `renderPolygon: filling polygon with ${coordinates.length} coords, color rgb(${color.r},${color.g},${color.b})`,
-    );
     this.wasm.fillPolygon(
       this.coordBufferPtr,
       coordinates.length * 2,
