@@ -205,16 +205,12 @@ class MapRenderer {
   }
 
   zoomIn() {
-    // Zoom toward center of canvas
-    const centerX = this.canvasWidth / 2;
-    const centerY = this.canvasHeight / 2;
+    // Zoom toward center of viewport
+    // Simply increase zoom without changing offset
     const zoomFactor = 1.3;
     const newZoom = Math.min(this.maxZoom, this.zoom * zoomFactor);
 
     if (newZoom !== this.zoom) {
-      const zoomRatio = newZoom / this.zoom;
-      this.offsetX = centerX - (centerX - this.offsetX) * zoomRatio;
-      this.offsetY = centerY - (centerY - this.offsetY) * zoomRatio;
       this.zoom = newZoom;
       this.renderMap();
       this.updateStats();
@@ -222,16 +218,12 @@ class MapRenderer {
   }
 
   zoomOut() {
-    // Zoom away from center of canvas
-    const centerX = this.canvasWidth / 2;
-    const centerY = this.canvasHeight / 2;
+    // Zoom away from center of viewport
+    // Simply decrease zoom without changing offset
     const zoomFactor = 1 / 1.3;
     const newZoom = Math.max(this.minZoom, this.zoom * zoomFactor);
 
     if (newZoom !== this.zoom) {
-      const zoomRatio = newZoom / this.zoom;
-      this.offsetX = centerX - (centerX - this.offsetX) * zoomRatio;
-      this.offsetY = centerY - (centerY - this.offsetY) * zoomRatio;
       this.zoom = newZoom;
       this.renderMap();
       this.updateStats();
