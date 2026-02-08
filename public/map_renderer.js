@@ -804,19 +804,6 @@ class MapRenderer {
 
       // Add to appropriate layer
       if (featureInfo.layer) {
-        // Debug: log Stadthausbrücke specifically
-        if (props.name && props.name.includes("Stadthaus")) {
-          console.log(`Found Stadthausbrücke:`, {
-            name: props.name,
-            highway: props.highway,
-            bridge: props.bridge,
-            layer: featureInfo.layer,
-            width: featureInfo.width,
-            color: featureInfo.color,
-            type: type,
-          });
-        }
-
         layers[featureInfo.layer].push({
           feature,
           props,
