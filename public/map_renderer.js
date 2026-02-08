@@ -406,7 +406,15 @@ class MapRenderer {
   async loadMapData() {
     try {
       console.log("Fetching map data...");
-      const response = await fetch("hamburg.geojson");
+
+      // Try to fetch gzipped version first, fall back to uncompressed
+      let response = await fetch("hamburg.geojson.gz");
+      let isGzipped = response.ok;
+
+      if (!isGzipped) {
+        console.log("Gzipped file not found, trying uncompressed...");
+        response = await fetch("hamburg.geojson");
+      }
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -415,14 +423,27 @@ class MapRenderer {
       const contentLength = response.headers.get("content-length");
       if (contentLength) {
         console.log(
-          `Downloading ${(contentLength / 1024 / 1024).toFixed(1)} MB...`,
+          `Downloading ${(contentLength / 1024 / 1024).toFixed(1)} MB${isGzipped ? " (gzipped)" : ""}...`,
         );
       }
 
       console.log(
         "Parsing GeoJSON (this may take a moment for large files)...",
       );
-      this.mapData = await response.json();
+
+      if (isGzipped) {
+        // Decompress gzipped data
+        const compressedData = await response.arrayBuffer();
+        const decompressedStream = new Response(
+          new Response(compressedData).body.pipeThrough(
+            new DecompressionStream("gzip"),
+          ),
+        );
+        this.mapData = await decompressedStream.json();
+      } else {
+        this.mapData = await response.json();
+      }
+
       console.log(
         `✓ Loaded ${this.mapData.features.length} features from GeoJSON`,
       );

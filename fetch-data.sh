@@ -57,11 +57,18 @@ echo ""
 
 # Convert to GeoJSON with simplification
 HAMBURG_GEOJSON="$PUBLIC_DIR/hamburg.geojson"
+HAMBURG_GEOJSON_GZ="$PUBLIC_DIR/hamburg.geojson.gz"
 echo "Converting to GeoJSON format (with geometry simplification)..."
 osmium export "$HAMBURG_CENTER" -o "$HAMBURG_GEOJSON" --overwrite \
     --config=osmium-export-config.json 2>/dev/null || \
     osmium export "$HAMBURG_CENTER" -o "$HAMBURG_GEOJSON" --overwrite
 echo "✓ Converted to GeoJSON ($(du -h "$HAMBURG_GEOJSON" | cut -f1))"
+echo ""
+
+# Compress GeoJSON for faster loading
+echo "Compressing GeoJSON with gzip..."
+gzip -k -9 -f "$HAMBURG_GEOJSON"
+echo "✓ Compressed to $(du -h "$HAMBURG_GEOJSON_GZ" | cut -f1) ($(python3 -c "import os; print(f'{os.path.getsize(\"$HAMBURG_GEOJSON_GZ\")/os.path.getsize(\"$HAMBURG_GEOJSON\")*100:.0f}%')") of original)"
 echo ""
 
 echo "================================================"
