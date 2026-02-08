@@ -353,26 +353,55 @@ class MapRenderer {
 
   updateFeatureScreenCoords(feature, bounds) {
     // Recalculate screen coordinates for a feature based on current viewport
+    // Uses the stored renderedFeature type (not geom.type, which may differ for Multi* types)
     if (!feature.feature || !feature.feature.geometry) return;
 
     const geom = feature.feature.geometry;
-    const type = geom.type;
 
-    if (type === "Point") {
+    if (feature.type === "Point") {
       const [lon, lat] = geom.coordinates;
       const screenPos = this.latLonToScreen(lat, lon, bounds);
       feature.screenX = screenPos.x;
       feature.screenY = screenPos.y;
-    } else if (type === "LineString") {
-      feature.screenCoords = geom.coordinates.map(([lon, lat]) =>
-        this.latLonToScreen(lat, lon, bounds),
-      );
-    } else if (type === "Polygon") {
-      // Use outer ring for highlighting
-      feature.screenCoords = geom.coordinates[0].map(([lon, lat]) =>
-        this.latLonToScreen(lat, lon, bounds),
-      );
+    } else if (feature.type === "LineString") {
+      // For MultiLineString, geom.coordinates is array of line arrays
+      // The renderedFeature was created from one line, but we stored the full geometry
+      // Use the screenCoords length to find the matching ring
+      const coords =
+        geom.type === "LineString"
+          ? geom.coordinates
+          : this.findMatchingCoords(
+              feature.screenCoords.length,
+              geom.coordinates,
+            );
+      if (coords) {
+        feature.screenCoords = coords.map(([lon, lat]) =>
+          this.latLonToScreen(lat, lon, bounds),
+        );
+      }
+    } else if (feature.type === "Polygon") {
+      // For MultiPolygon, each polygon's outer ring was stored separately
+      const ring =
+        geom.type === "Polygon"
+          ? geom.coordinates[0]
+          : this.findMatchingCoords(
+              feature.screenCoords.length,
+              geom.coordinates.map((p) => p[0]),
+            );
+      if (ring) {
+        feature.screenCoords = ring.map(([lon, lat]) =>
+          this.latLonToScreen(lat, lon, bounds),
+        );
+      }
     }
+  }
+
+  findMatchingCoords(targetLength, coordArrays) {
+    // Find the coordinate array that matches the expected length
+    for (const coords of coordArrays) {
+      if (coords.length === targetLength) return coords;
+    }
+    return coordArrays[0]; // Fallback to first
   }
 
   highlightFeature(feature, bounds, mode) {
