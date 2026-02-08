@@ -1,13 +1,10 @@
-// Hamburg Map Renderer - WebAssembly Integration with Zoom/Pan/Tooltips
+// Hamburg Map Renderer - Canvas2D with Zoom/Pan/Tooltips
 
 class MapRenderer {
   constructor() {
-    this.wasm = null;
     this.canvas = null;
     this.ctx = null;
     this.mapData = null;
-    this.memory = null;
-    this.bufferPtr = null;
     this.canvasWidth = 1200;
     this.canvasHeight = 800;
 
@@ -52,28 +49,6 @@ class MapRenderer {
 
   async init() {
     try {
-      // Load WASM module
-      const response = await fetch("map_renderer.wasm");
-      const wasmBytes = await response.arrayBuffer();
-
-      // Instantiate WASM - it will create its own memory
-      const wasmModule = await WebAssembly.instantiate(wasmBytes, {});
-      this.wasm = wasmModule.instance.exports;
-
-      // Get the WASM module's memory
-      this.memory = this.wasm.memory;
-
-      // Initialize canvas in WASM
-      const success = this.wasm.initCanvas(this.canvasWidth, this.canvasHeight);
-      if (!success) {
-        throw new Error("Failed to initialize canvas in WASM");
-      }
-
-      // Get buffer pointers
-      this.bufferPtr = this.wasm.getBufferPtr();
-      this.coordBufferPtr = this.wasm.getCoordBufferPtr();
-      this.coordBufferSize = this.wasm.getCoordBufferSize();
-
       // Set up HTML canvas
       this.canvas = document.getElementById("mapCanvas");
       this.ctx = this.canvas.getContext("2d");
@@ -81,10 +56,9 @@ class MapRenderer {
       // Set up event listeners for zoom and pan
       this.setupInteractions();
 
-      // WASM initialized
       return true;
     } catch (error) {
-      console.error("Failed to initialize WASM:", error);
+      console.error("Failed to initialize canvas:", error);
       return false;
     }
   }
@@ -700,18 +674,24 @@ class MapRenderer {
     // At high zoom: all details
     const lod = this.getLOD();
 
-    // Render in layers: background fills first, then lines, then points
-    // Order matters: earlier layers render first (behind later layers)
+    // Layer structure following proper cartographic z-ordering
+    // Render order: background to foreground (bottom to top)
     const layers = {
-      parks: [], // Parks, meadows (large green areas - render first)
-      forests: [], // Forests, woods (render on top of parks)
-      water: [], // Water bodies (render on top of forests)
-      areas: [], // Buildings, landuse (filled)
-      waterways: [], // Rivers, streams (linear water features)
-      railways: [], // Rail lines
-      major_roads: [], // Motorways, trunks
-      roads: [], // Other roads
-      points: [], // POIs
+      // FILLED AREAS (background)
+      natural_background: [], // Parks, forests, farmland, meadows
+      water_areas: [], // Lakes, rivers, ponds (filled areas)
+      landuse_areas: [], // Commercial, industrial, residential zones
+      buildings: [], // Building footprints
+
+      // LINEAR FEATURES (by vertical layer)
+      tunnels: [], // Underground roads/railways (semi-transparent)
+      waterways: [], // Rivers, streams (linear features)
+      surface_roads: [], // Ground-level roads
+      surface_railways: [], // Ground-level railways
+      bridges: [], // Elevated roads/railways (on top of water)
+
+      // POINTS (foreground)
+      points: [], // POIs, always on top
     };
 
     // Classify and filter features by LOD
@@ -746,36 +726,42 @@ class MapRenderer {
       }
     }
 
-    // Render layers in order (back to front)
-    // Parks/farmland render first (background), then forests on top, then water, then buildings, then roads
-    // Render lines/points to WASM buffer first
+    // Clear canvas background
+    this.ctx.fillStyle = "rgb(240, 248, 255)"; // Light blue background
+    this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
+
+    // Render all layers in correct z-order using Canvas2D
+    // Background to foreground (bottom to top)
+
+    // 1. Natural background (parks, forests, farmland)
+    this.renderLayer(layers.natural_background, adjustedBounds, true);
+
+    // 2. Water areas (lakes, rivers)
+    this.renderLayer(layers.water_areas, adjustedBounds, true);
+
+    // 3. Landuse areas (commercial, industrial, residential)
+    this.renderLayer(layers.landuse_areas, adjustedBounds, true);
+
+    // 4. Buildings
+    this.renderLayer(layers.buildings, adjustedBounds, true);
+
+    // 5. Tunnels (underground, semi-transparent)
+    this.renderLayer(layers.tunnels, adjustedBounds, false);
+
+    // 6. Waterways (rivers, streams as lines)
     this.renderLayer(layers.waterways, adjustedBounds, false);
-    this.renderLayer(layers.railways, adjustedBounds, false);
-    this.renderLayer(layers.major_roads, adjustedBounds, false);
-    this.renderLayer(layers.roads, adjustedBounds, false);
+
+    // 7. Surface roads
+    this.renderLayer(layers.surface_roads, adjustedBounds, false);
+
+    // 8. Surface railways
+    this.renderLayer(layers.surface_railways, adjustedBounds, false);
+
+    // 9. Bridges (on top of water!)
+    this.renderLayer(layers.bridges, adjustedBounds, false);
+
+    // 10. Points (always on top)
     this.renderLayer(layers.points, adjustedBounds, false);
-
-    // Copy WASM buffer to canvas (lines/points)
-    this.updateCanvas();
-
-    // NOW render filled polygons directly to Canvas2D on top
-    // Order: background fills first, then buildings on top
-    this.renderLayer(layers.parks, adjustedBounds, true);
-    this.renderLayer(layers.forests, adjustedBounds, true);
-    this.renderLayer(layers.water, adjustedBounds, true);
-
-    // Separate buildings from other areas for proper layering
-    const buildings = layers.areas.filter(
-      (item) => item.props.building || item.props.landuse === undefined,
-    );
-    const landuse = layers.areas.filter(
-      (item) => !item.props.building && item.props.landuse,
-    );
-
-    // Render landuse areas first (commercial, residential, etc.)
-    this.renderLayer(landuse, adjustedBounds, true);
-    // Then buildings on top
-    this.renderLayer(buildings, adjustedBounds, true);
 
     featureCount = Object.values(layers).reduce(
       (sum, layer) => sum + layer.length,
@@ -809,60 +795,88 @@ class MapRenderer {
     // Classify feature and determine: color, layer, minLOD (minimum zoom to show), fill
     // minLOD: 0=always show, 1=medium zoom, 2=high zoom, 3=very high zoom
 
-    // Parks and green spaces (render first - largest areas)
+    // Detect vertical position (tunnel/bridge/surface)
+    const isTunnel =
+      props.tunnel === "yes" ||
+      props.tunnel === "true" ||
+      (props.layer && parseInt(props.layer) < 0);
+    const isBridge =
+      props.bridge === "yes" ||
+      props.bridge === "true" ||
+      (props.layer && parseInt(props.layer) > 0 && !isTunnel);
+
+    // === FILLED AREAS (polygons) ===
+
+    // Natural background: parks, forests, farmland
     if (
       props.leisure === "park" ||
       props.landuse === "grass" ||
-      props.landuse === "meadow"
-    ) {
-      return {
-        layer: "parks",
-        color: { r: 200, g: 230, b: 180, a: 255 },
-        minLOD: 1,
-        fill: true,
-      };
-    }
-
-    // Agricultural land (also large background areas)
-    if (
+      props.landuse === "meadow" ||
       props.landuse === "farmland" ||
       props.landuse === "orchard" ||
-      props.landuse === "vineyard"
+      props.landuse === "vineyard" ||
+      props.landuse === "forest" ||
+      props.natural === "wood"
     ) {
+      const isForest = props.landuse === "forest" || props.natural === "wood";
+      const color = isForest
+        ? { r: 173, g: 209, b: 158, a: 255 } // Dark green for forests
+        : props.leisure === "park" ||
+            props.landuse === "grass" ||
+            props.landuse === "meadow"
+          ? { r: 200, g: 230, b: 180, a: 255 } // Light green for parks
+          : { r: 238, g: 240, b: 213, a: 255 }; // Beige for farmland
+
       return {
-        layer: "parks",
-        color: { r: 238, g: 240, b: 213, a: 255 },
-        minLOD: 1,
+        layer: "natural_background",
+        color: color,
+        minLOD: isForest ? 0 : 1,
         fill: true,
       };
     }
 
-    // Forests and woods (render on top of parks)
-    if (props.landuse === "forest" || props.natural === "wood") {
-      return {
-        layer: "forests",
-        color: { r: 173, g: 209, b: 158, a: 255 },
-        minLOD: 0,
-        fill: true,
-      };
-    }
-
-    // Water bodies (render on top of forests and parks)
-    // Includes lakes, ponds, reservoirs, and riverbanks
+    // Water areas (filled polygons)
     if (
       props.natural === "water" ||
       props.water ||
       props.waterway === "riverbank"
     ) {
       return {
-        layer: "water",
+        layer: "water_areas",
         color: { r: 170, g: 211, b: 223, a: 255 },
         minLOD: 0,
         fill: true,
       };
     }
 
-    // Rivers and streams as lines (visible from medium zoom)
+    // Landuse areas (commercial, industrial, residential)
+    if (
+      props.landuse === "commercial" ||
+      props.landuse === "industrial" ||
+      props.landuse === "retail" ||
+      props.landuse === "residential"
+    ) {
+      return {
+        layer: "landuse_areas",
+        color: { r: 240, g: 225, b: 225, a: 255 },
+        minLOD: 2,
+        fill: true,
+      };
+    }
+
+    // Buildings
+    if (props.building) {
+      return {
+        layer: "buildings",
+        color: { r: 218, g: 208, b: 200, a: 255 },
+        minLOD: 2,
+        fill: true,
+      };
+    }
+
+    // === LINEAR FEATURES (lines) ===
+
+    // Waterways (rivers, streams as lines)
     if (props.waterway && props.waterway !== "riverbank") {
       const importance = ["river", "canal"].includes(props.waterway) ? 1 : 2;
       return {
@@ -873,83 +887,43 @@ class MapRenderer {
       };
     }
 
-    // Commercial/industrial areas
-    if (
-      props.landuse === "commercial" ||
-      props.landuse === "industrial" ||
-      props.landuse === "retail"
-    ) {
-      return {
-        layer: "areas",
-        color: { r: 240, g: 225, b: 225, a: 255 },
-        minLOD: 2,
-        fill: true,
-      };
-    }
-
-    // Buildings (only show when zoomed in enough)
-    if (props.building) {
-      return {
-        layer: "areas",
-        color: { r: 218, g: 208, b: 200, a: 255 },
-        minLOD: 2,
-        fill: true,
-      };
-    }
-
-    // Check if feature is in tunnel (make semi-transparent or skip)
-    const isTunnel =
-      props.tunnel === "yes" || props.tunnel === "true" || props.layer < 0;
-    const tunnelAlpha = isTunnel ? 80 : 255; // 30% opacity for tunnels
-
-    // Major highways (always visible)
-    if (props.highway === "motorway" || props.highway === "trunk") {
-      return {
-        layer: "major_roads",
-        color: { r: 233, g: 115, b: 103, a: tunnelAlpha },
-        minLOD: 0,
-        fill: false,
-      };
-    }
-
-    // Primary and secondary roads
-    if (props.highway === "primary" || props.highway === "secondary") {
-      return {
-        layer: "major_roads",
-        color: { r: 252, g: 214, b: 164, a: tunnelAlpha },
-        minLOD: 1,
-        fill: false,
-      };
-    }
-
-    // Tertiary and residential roads
-    if (
-      props.highway === "tertiary" ||
-      props.highway === "residential" ||
-      props.highway === "unclassified"
-    ) {
-      return {
-        layer: "roads",
-        color: { r: 255, g: 255, b: 255, a: tunnelAlpha },
-        minLOD: 2,
-        fill: false,
-      };
-    }
-
-    // Small roads and paths
+    // Roads - determine layer based on tunnel/bridge/surface
     if (props.highway) {
-      return {
-        layer: "roads",
-        color: { r: 220, g: 220, b: 220, a: tunnelAlpha },
-        minLOD: 3,
-        fill: false,
-      };
+      // Determine color based on road type
+      let color;
+      let minLOD;
+
+      if (props.highway === "motorway" || props.highway === "trunk") {
+        color = { r: 233, g: 115, b: 103, a: 255 };
+        minLOD = 0;
+      } else if (props.highway === "primary" || props.highway === "secondary") {
+        color = { r: 252, g: 214, b: 164, a: 255 };
+        minLOD = 1;
+      } else if (
+        props.highway === "tertiary" ||
+        props.highway === "residential" ||
+        props.highway === "unclassified"
+      ) {
+        color = { r: 255, g: 255, b: 255, a: 255 };
+        minLOD = 2;
+      } else {
+        color = { r: 220, g: 220, b: 220, a: 255 };
+        minLOD = 3;
+      }
+
+      // Assign to appropriate layer based on vertical position
+      if (isTunnel) {
+        color.a = 80; // 30% opacity for tunnels
+        return { layer: "tunnels", color, minLOD, fill: false };
+      } else if (isBridge) {
+        return { layer: "bridges", color, minLOD, fill: false };
+      } else {
+        return { layer: "surface_roads", color, minLOD, fill: false };
+      }
     }
 
-    // Railways (visible from medium zoom)
-    // Only show actual rail tracks, not switches, crossings, stops, etc.
+    // Railways - determine layer based on tunnel/bridge/surface
     if (props.railway && type !== "Point") {
-      // Filter to only show tracks (LineString/Polygon geometry)
       const trackTypes = [
         "rail",
         "light_rail",
@@ -960,16 +934,22 @@ class MapRenderer {
         "preserved",
       ];
       if (trackTypes.includes(props.railway) || !props.railway) {
-        return {
-          layer: "railways",
-          color: { r: 153, g: 153, b: 153, a: tunnelAlpha },
-          minLOD: 1,
-          fill: false,
-        };
+        let color = { r: 153, g: 153, b: 153, a: 255 };
+        const minLOD = 1;
+
+        if (isTunnel) {
+          color.a = 80; // 30% opacity for tunnels
+          return { layer: "tunnels", color, minLOD, fill: false };
+        } else if (isBridge) {
+          return { layer: "bridges", color, minLOD, fill: false };
+        } else {
+          return { layer: "surface_railways", color, minLOD, fill: false };
+        }
       }
     }
 
-    // Points of interest (only show named/important ones at high zoom)
+    // === POINTS ===
+
     if (type === "Point") {
       // Only show meaningful POIs with names at very high zoom
       if (
@@ -983,17 +963,11 @@ class MapRenderer {
           fill: false,
         };
       }
-      // Skip all other points (traffic signals, crossings, etc.)
-      return { layer: null, minLOD: 999 };
+      return { layer: null, minLOD: 999 }; // Skip other points
     }
 
-    // Default: skip unless very zoomed in
-    return {
-      layer: null,
-      color: { r: 180, g: 180, b: 180, a: 255 },
-      minLOD: 3,
-      fill: false,
-    };
+    // Default: skip
+    return { layer: null, minLOD: 999, fill: false };
   }
 
   renderLayer(layerFeatures, bounds, useFill) {
@@ -1003,8 +977,14 @@ class MapRenderer {
       try {
         if (type === "Point") {
           const [lon, lat] = feature.geometry.coordinates;
-          this.wasm.drawPoint(lon, lat, 3, color.r, color.g, color.b, color.a);
           const screen = this.latLonToScreen(lat, lon, bounds);
+
+          // Draw point using Canvas2D
+          this.ctx.fillStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a / 255})`;
+          this.ctx.beginPath();
+          this.ctx.arc(screen.x, screen.y, 3, 0, Math.PI * 2);
+          this.ctx.fill();
+
           this.renderedFeatures.push({
             type: "Point",
             screenX: screen.x,
@@ -1073,34 +1053,30 @@ class MapRenderer {
 
   renderLineString(coordinates, color, bounds) {
     if (coordinates.length < 2) return [];
-    if (coordinates.length * 2 > this.coordBufferSize) return []; // Too many coords
 
-    // Write coordinates directly to WASM coord buffer
-    const memory = new Float64Array(this.memory.buffer);
+    // Use Canvas2D for line rendering
     const screenCoords = [];
 
-    for (let i = 0; i < coordinates.length; i++) {
-      memory[this.coordBufferPtr / 8 + i * 2] = coordinates[i][0]; // lon
-      memory[this.coordBufferPtr / 8 + i * 2 + 1] = coordinates[i][1]; // lat
+    this.ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a / 255})`;
+    this.ctx.lineWidth = 1;
+    this.ctx.beginPath();
 
-      // Also compute screen coordinates for hit detection
+    for (let i = 0; i < coordinates.length; i++) {
       const screen = this.latLonToScreen(
         coordinates[i][1],
         coordinates[i][0],
         bounds,
       );
       screenCoords.push(screen);
+
+      if (i === 0) {
+        this.ctx.moveTo(screen.x, screen.y);
+      } else {
+        this.ctx.lineTo(screen.x, screen.y);
+      }
     }
 
-    this.wasm.drawWay(
-      this.coordBufferPtr,
-      coordinates.length * 2,
-      color.r,
-      color.g,
-      color.b,
-      color.a,
-    );
-
+    this.ctx.stroke();
     return screenCoords;
   }
 
@@ -1139,25 +1115,10 @@ class MapRenderer {
     return screenCoords;
   }
 
-  updateCanvas() {
-    const bufferSize = this.wasm.getBufferSize();
-    const buffer = new Uint8ClampedArray(
-      this.memory.buffer,
-      this.bufferPtr,
-      bufferSize,
-    );
-
-    const imageData = new ImageData(
-      buffer,
-      this.canvasWidth,
-      this.canvasHeight,
-    );
-    this.ctx.putImageData(imageData, 0, 0);
-  }
-
   clearCanvas() {
-    this.wasm.clearCanvas(255, 255, 255);
-    this.updateCanvas();
+    // Clear canvas using Canvas2D
+    this.ctx.fillStyle = "rgb(240, 248, 255)"; // Light blue background
+    this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
     document.getElementById("stats").querySelector("div").textContent =
       "Status: Cleared";
   }
@@ -1190,10 +1151,10 @@ let renderer;
 async function initApp() {
   renderer = new MapRenderer();
 
-  const wasmLoaded = await renderer.init();
-  if (!wasmLoaded) {
+  const canvasReady = await renderer.init();
+  if (!canvasReady) {
     document.getElementById("loading").innerHTML =
-      '<div style="color: red;">Failed to load WebAssembly module</div>';
+      '<div style="color: red;">Failed to initialize canvas</div>';
     return;
   }
 
