@@ -1021,27 +1021,40 @@ class MapRenderer {
         return { layer: null, minLOD: 999, fill: false };
       }
 
-      // Determine color and width based on road type
+      // Determine color and base width based on road type
+      // Real lane widths: ~3.5m per lane
+      // Motorway: 2-4 lanes = 7-14m
+      // Primary: 2 lanes = 7m
+      // Tertiary/residential: 1-2 lanes = 3.5-7m
+      // Service: 1 lane = 3.5m
+
       let color;
       let minLOD;
-      let width; // Line width in pixels
+      let realWidthMeters; // Real-world width in meters
 
       if (props.highway === "motorway" || props.highway === "trunk") {
         color = { r: 233, g: 115, b: 103, a: 255 };
-        width = 5; // Motorways are widest (~30m wide)
+        realWidthMeters = 14; // ~4 lanes
         minLOD = 0;
       } else if (props.highway === "primary" || props.highway === "secondary") {
         color = { r: 252, g: 214, b: 164, a: 255 };
-        width = 4; // Major roads (~15-20m wide)
+        realWidthMeters = 7; // ~2 lanes
         minLOD = 1;
+      } else if (props.highway === "tertiary") {
+        color = { r: 255, g: 255, b: 255, a: 255 };
+        realWidthMeters = 6; // ~1.5 lanes
+        minLOD = 2;
       } else if (
-        props.highway === "tertiary" ||
         props.highway === "residential" ||
         props.highway === "unclassified"
       ) {
         color = { r: 255, g: 255, b: 255, a: 255 };
-        width = 2; // Minor roads (~6-10m wide)
+        realWidthMeters = 5; // ~1-2 lanes
         minLOD = 2;
+      } else if (props.highway === "service" || props.highway === "track") {
+        color = { r: 230, g: 230, b: 230, a: 255 };
+        realWidthMeters = 3.5; // 1 lane
+        minLOD = 3;
       } else if (
         props.highway === "footway" ||
         props.highway === "path" ||
@@ -1049,20 +1062,23 @@ class MapRenderer {
         props.highway === "steps"
       ) {
         color = { r: 200, g: 200, b: 200, a: 255 };
-        width = 1; // Footpaths
-        minLOD = 1; // Show 2 zoom levels earlier (was 3)
+        realWidthMeters = 2; // Footpaths
+        minLOD = 1;
       } else if (props.highway === "cycleway") {
-        color = { r: 180, g: 200, b: 255, a: 255 }; // Light blue for cycle paths
-        width = 1;
-        minLOD = 3; // Only at very high zoom
-      } else if (props.highway === "service" || props.highway === "track") {
-        color = { r: 230, g: 230, b: 230, a: 255 };
-        width = 1; // Service roads and tracks
+        color = { r: 180, g: 200, b: 255, a: 255 };
+        realWidthMeters = 2; // Cycle paths
         minLOD = 3;
       } else {
         // Unknown highway type - skip it to avoid rendering unexpected features
         return { layer: null, minLOD: 999, fill: false };
       }
+
+      // Calculate width based on zoom level and real-world size
+      // At zoom 1.5 (initial), ~20km across 1200px = 16.67 m/px
+      // Width should scale: 1px minimum, real width when zoomed in enough
+      const metersPerPixel = 20000 / (this.zoom * 1200);
+      const calculatedWidth = realWidthMeters / metersPerPixel;
+      const width = Math.max(1, Math.min(10, calculatedWidth)); // Clamp between 1-10px
 
       // Use actual width from OSM if available (in meters)
       if (props.width) {
