@@ -219,11 +219,11 @@ class MapRenderer {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    // Find feature at this position
+    // Find feature at this position (iterate reverse so topmost features match first)
     let found = null;
-    for (const feature of this.renderedFeatures) {
-      if (this.isPointNearFeature(x, y, feature)) {
-        found = feature;
+    for (let i = this.renderedFeatures.length - 1; i >= 0; i--) {
+      if (this.isPointNearFeature(x, y, this.renderedFeatures[i])) {
+        found = this.renderedFeatures[i];
         break;
       }
     }
