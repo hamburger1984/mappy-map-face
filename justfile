@@ -14,10 +14,16 @@ build:
     cp zig-out/bin/map_renderer.wasm public/
     @echo "✓ WASM module built and copied to public/"
 
-# Download and process OSM data
+# Download and process OSM data (includes tile generation)
 data:
     @echo "Fetching and processing OSM data..."
     ./fetch-data.sh
+
+# Generate tiles from existing GeoJSON
+tiles:
+    @echo "Generating tiles from hamburg.geojson..."
+    python3 split-tiles.py
+    @echo "✓ Tiles generated in public/tiles/"
 
 # Clean build artifacts
 clean:
@@ -28,7 +34,8 @@ clean:
 # Clean everything including downloaded data
 clean-all: clean
     @echo "Cleaning OSM data files..."
-    rm -f public/*.osm public/*.osm.pbf public/*.geojson
+    rm -f public/*.osm public/*.osm.pbf public/*.geojson public/*.geojson.gz
+    rm -rf public/tiles
     @echo "✓ All generated files cleaned"
 
 # Start local web server
