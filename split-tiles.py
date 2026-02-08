@@ -157,8 +157,13 @@ def get_render_metadata(props, geom_type):
             "fill": True,
         }
 
+    # Remap construction roads to their target type for render metadata
+    effective_highway = props.get("highway")
+    if effective_highway == "construction" and props.get("construction"):
+        effective_highway = props.get("construction")
+
     # Major highways
-    if props.get("highway") in ["motorway", "trunk"]:
+    if effective_highway in ["motorway", "trunk"]:
         return {
             "layer": "major_roads",
             "color": {"r": 233, "g": 115, "b": 103, "a": 255},
@@ -167,7 +172,7 @@ def get_render_metadata(props, geom_type):
         }
 
     # Primary and secondary roads
-    if props.get("highway") in ["primary", "secondary"]:
+    if effective_highway in ["primary", "secondary"]:
         return {
             "layer": "major_roads",
             "color": {"r": 252, "g": 214, "b": 164, "a": 255},
@@ -176,7 +181,7 @@ def get_render_metadata(props, geom_type):
         }
 
     # Tertiary and residential roads
-    if props.get("highway") in ["tertiary", "residential", "unclassified"]:
+    if effective_highway in ["tertiary", "residential", "unclassified"]:
         return {
             "layer": "roads",
             "color": {"r": 255, "g": 255, "b": 255, "a": 255},
@@ -185,7 +190,7 @@ def get_render_metadata(props, geom_type):
         }
 
     # Small roads and paths
-    if props.get("highway"):
+    if effective_highway:
         return {
             "layer": "roads",
             "color": {"r": 220, "g": 220, "b": 220, "a": 255},
@@ -243,6 +248,11 @@ def classify_feature_importance(props, geom_type):
     importance_score: for sorting within zoom level
     """
 
+    # Remap construction roads to their target type for importance classification
+    effective_highway = props.get("highway")
+    if effective_highway == "construction" and props.get("construction"):
+        effective_highway = props.get("construction")
+
     # Major water bodies (always visible)
     if (
         props.get("natural") == "water"
@@ -256,7 +266,7 @@ def classify_feature_importance(props, geom_type):
         return (0, 90)  # Z0-Z5, very important
 
     # Major highways (always visible)
-    if props.get("highway") in ["motorway", "trunk"]:
+    if effective_highway in ["motorway", "trunk"]:
         return (0, 80)  # Z0-Z5, very important
 
     # Railways (always visible)
@@ -278,7 +288,7 @@ def classify_feature_importance(props, geom_type):
         return (6, 60)  # Z6-Z10
 
     # Primary/secondary roads
-    if props.get("highway") in ["primary", "secondary"]:
+    if effective_highway in ["primary", "secondary"]:
         return (6, 50)  # Z6-Z10
 
     # Parks and green spaces
@@ -290,7 +300,7 @@ def classify_feature_importance(props, geom_type):
         return (6, 40)  # Z6-Z10
 
     # Tertiary and residential roads
-    if props.get("highway") in ["tertiary", "residential", "unclassified"]:
+    if effective_highway in ["tertiary", "residential", "unclassified"]:
         return (11, 30)  # Z11-Z14
 
     # Buildings
@@ -298,7 +308,7 @@ def classify_feature_importance(props, geom_type):
         return (11, 20)  # Z11-Z14
 
     # Small roads and paths
-    if props.get("highway"):
+    if effective_highway:
         return (15, 10)  # Z15+
 
     # Named POIs
