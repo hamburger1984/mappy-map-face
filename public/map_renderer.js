@@ -766,10 +766,10 @@ class MapRenderer {
 
     // Separate buildings from other areas for proper layering
     const buildings = layers.areas.filter(
-      (f) => f.properties.building || f.properties.landuse === undefined,
+      (item) => item.props.building || item.props.landuse === undefined,
     );
     const landuse = layers.areas.filter(
-      (f) => !f.properties.building && f.properties.landuse,
+      (item) => !item.props.building && item.props.landuse,
     );
 
     // Render landuse areas first (commercial, residential, etc.)
@@ -897,11 +897,16 @@ class MapRenderer {
       };
     }
 
+    // Check if feature is in tunnel (make semi-transparent or skip)
+    const isTunnel =
+      props.tunnel === "yes" || props.tunnel === "true" || props.layer < 0;
+    const tunnelAlpha = isTunnel ? 80 : 255; // 30% opacity for tunnels
+
     // Major highways (always visible)
     if (props.highway === "motorway" || props.highway === "trunk") {
       return {
         layer: "major_roads",
-        color: { r: 233, g: 115, b: 103, a: 255 },
+        color: { r: 233, g: 115, b: 103, a: tunnelAlpha },
         minLOD: 0,
         fill: false,
       };
@@ -911,7 +916,7 @@ class MapRenderer {
     if (props.highway === "primary" || props.highway === "secondary") {
       return {
         layer: "major_roads",
-        color: { r: 252, g: 214, b: 164, a: 255 },
+        color: { r: 252, g: 214, b: 164, a: tunnelAlpha },
         minLOD: 1,
         fill: false,
       };
@@ -925,7 +930,7 @@ class MapRenderer {
     ) {
       return {
         layer: "roads",
-        color: { r: 255, g: 255, b: 255, a: 255 },
+        color: { r: 255, g: 255, b: 255, a: tunnelAlpha },
         minLOD: 2,
         fill: false,
       };
@@ -935,7 +940,7 @@ class MapRenderer {
     if (props.highway) {
       return {
         layer: "roads",
-        color: { r: 220, g: 220, b: 220, a: 255 },
+        color: { r: 220, g: 220, b: 220, a: tunnelAlpha },
         minLOD: 3,
         fill: false,
       };
@@ -957,7 +962,7 @@ class MapRenderer {
       if (trackTypes.includes(props.railway) || !props.railway) {
         return {
           layer: "railways",
-          color: { r: 153, g: 153, b: 153, a: 255 },
+          color: { r: 153, g: 153, b: 153, a: tunnelAlpha },
           minLOD: 1,
           fill: false,
         };
