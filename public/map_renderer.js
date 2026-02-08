@@ -745,6 +745,30 @@ class MapRenderer {
       }
     }
 
+    // Debug: log layer contents
+    console.log("Layer counts:", {
+      background: layers.background.length,
+      areas: layers.areas.length,
+      waterways: layers.waterways.length,
+      railways: layers.railways.length,
+      major_roads: layers.major_roads.length,
+      roads: layers.roads.length,
+      points: layers.points.length,
+    });
+
+    // Sample a few background features to check if they're classified correctly
+    if (layers.background.length > 0) {
+      console.log(
+        "Sample background features:",
+        layers.background.slice(0, 3).map((f) => ({
+          props: f.props,
+          type: f.type,
+          fill: f.fill,
+          color: f.color,
+        })),
+      );
+    }
+
     // Render layers in order (back to front)
     this.renderLayer(layers.background, adjustedBounds, true);
     this.renderLayer(layers.areas, adjustedBounds, true);
@@ -974,6 +998,9 @@ class MapRenderer {
   }
 
   renderLayer(layerFeatures, bounds, useFill) {
+    let polygonCount = 0;
+    let filledCount = 0;
+
     for (const item of layerFeatures) {
       const { feature, props, type, color, fill } = item;
 
@@ -1002,10 +1029,13 @@ class MapRenderer {
             geometry: feature.geometry,
           });
         } else if (type === "Polygon") {
-          const renderFunc =
-            fill && useFill
-              ? this.renderPolygon.bind(this)
-              : this.renderPolygonOutline.bind(this);
+          polygonCount++;
+          const willFill = fill && useFill;
+          if (willFill) filledCount++;
+
+          const renderFunc = willFill
+            ? this.renderPolygon.bind(this)
+            : this.renderPolygonOutline.bind(this);
           const screenCoords = renderFunc(
             feature.geometry.coordinates[0],
             color,
@@ -1029,10 +1059,13 @@ class MapRenderer {
           });
         } else if (type === "MultiPolygon") {
           feature.geometry.coordinates.forEach((polygon) => {
-            const renderFunc =
-              fill && useFill
-                ? this.renderPolygon.bind(this)
-                : this.renderPolygonOutline.bind(this);
+            polygonCount++;
+            const willFill = fill && useFill;
+            if (willFill) filledCount++;
+
+            const renderFunc = willFill
+              ? this.renderPolygon.bind(this)
+              : this.renderPolygonOutline.bind(this);
             const screenCoords = renderFunc(polygon[0], color, bounds);
             this.renderedFeatures.push({
               type: "Polygon",
@@ -1045,6 +1078,12 @@ class MapRenderer {
       } catch (error) {
         console.warn("Error rendering feature:", error);
       }
+    }
+
+    if (polygonCount > 0) {
+      console.log(
+        `renderLayer: ${polygonCount} polygons (${filledCount} filled, useFill=${useFill})`,
+      );
     }
   }
 
@@ -1087,8 +1126,20 @@ class MapRenderer {
   }
 
   renderPolygon(coordinates, color, bounds) {
-    if (coordinates.length < 3) return [];
-    if (coordinates.length * 2 > this.coordBufferSize) return []; // Too many coords
+    if (coordinates.length < 3) {
+      console.log(
+        "renderPolygon: skipped - too few coords:",
+        coordinates.length,
+      );
+      return [];
+    }
+    if (coordinates.length * 2 > this.coordBufferSize) {
+      console.log(
+        "renderPolygon: skipped - too many coords:",
+        coordinates.length,
+      );
+      return [];
+    }
 
     // Write coordinates directly to WASM coord buffer
     const memory = new Float64Array(this.memory.buffer);
@@ -1107,6 +1158,9 @@ class MapRenderer {
       screenCoords.push(screen);
     }
 
+    console.log(
+      `renderPolygon: filling polygon with ${coordinates.length} coords, color rgb(${color.r},${color.g},${color.b})`,
+    );
     this.wasm.fillPolygon(
       this.coordBufferPtr,
       coordinates.length * 2,
