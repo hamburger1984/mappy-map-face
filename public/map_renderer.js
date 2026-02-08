@@ -1278,12 +1278,11 @@ class MapRenderer {
         // Draw railway pattern: two parallel rails with ties (sleepers)
         this.drawRailwayPattern(screenCoords, color, width);
       } else {
-        // Draw simple dashed line for railways at low zoom
+        // Draw simple solid line for railways at low zoom
         this.ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a / 255})`;
         this.ctx.lineWidth = 2; // Thinner at low zoom
-        this.ctx.lineCap = "butt";
-        this.ctx.lineJoin = "miter";
-        this.ctx.setLineDash([6, 4]); // Dashed pattern: 6px dash, 4px gap
+        this.ctx.lineCap = "round";
+        this.ctx.lineJoin = "round";
         this.ctx.beginPath();
 
         for (let i = 0; i < screenCoords.length; i++) {
@@ -1295,7 +1294,6 @@ class MapRenderer {
         }
 
         this.ctx.stroke();
-        this.ctx.setLineDash([]); // Reset to solid line for other features
       }
     } else {
       // Regular line rendering
