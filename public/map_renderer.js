@@ -1391,10 +1391,11 @@ class MapRenderer {
     }
 
     // Draw dashed center fill line between the rails (scales with zoom)
-    const dashLength = Math.max(4, this.zoom * 1.5); // Longer dashes when zoomed in
-    const gapLength = Math.max(3, this.zoom * 1.0);
+    const dashLength = Math.max(1, this.zoom * 0.3); // Small dashes (1/5 of original size)
+    const gapLength = Math.max(1, this.zoom * 0.2);
 
-    this.ctx.lineWidth = Math.max(1, railSeparationPx * 0.4); // Fill line width scales with separation
+    // Fill line width should touch the outer rails
+    this.ctx.lineWidth = railSeparationPx; // Full width to touch both outer rails
     this.ctx.setLineDash([dashLength, gapLength]);
     this.ctx.beginPath();
 
