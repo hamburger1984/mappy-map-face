@@ -164,27 +164,6 @@ class MapRenderer {
         this.renderMap();
       }
     });
-
-    // Double-click to zoom in on that location
-    this.canvas.addEventListener("dblclick", (e) => {
-      e.preventDefault();
-      const rect = this.canvas.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-
-      // Zoom in by 1.5x toward the double-clicked point
-      const zoomFactor = 1.5;
-      const newZoom = Math.min(this.maxZoom, this.zoom * zoomFactor);
-
-      if (newZoom !== this.zoom) {
-        const zoomRatio = newZoom / this.zoom;
-        this.offsetX = mouseX - (mouseX - this.offsetX) * zoomRatio;
-        this.offsetY = mouseY - (mouseY - this.offsetY) * zoomRatio;
-        this.zoom = newZoom;
-        this.renderMap(); // Render immediately for responsive feel
-        this.updateStats();
-      }
-    });
   }
 
   zoomIn() {
