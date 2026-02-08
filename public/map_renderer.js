@@ -1093,9 +1093,23 @@ class MapRenderer {
 
         if (isTunnel) {
           color.a = 80; // 30% opacity for tunnels
-          return { layer: "tunnels", color, minLOD, width, fill: false };
+          return {
+            layer: "tunnels",
+            color,
+            minLOD,
+            width,
+            fill: false,
+            isRailway: true,
+          };
         } else if (isBridge) {
-          return { layer: "bridges", color, minLOD, width, fill: false };
+          return {
+            layer: "bridges",
+            color,
+            minLOD,
+            width,
+            fill: false,
+            isRailway: true,
+          };
         } else {
           return {
             layer: "surface_railways",
@@ -1103,6 +1117,7 @@ class MapRenderer {
             minLOD,
             width,
             fill: false,
+            isRailway: true,
           };
         }
       }
@@ -1137,7 +1152,7 @@ class MapRenderer {
 
   renderLayer(layerFeatures, bounds, useFill) {
     for (const item of layerFeatures) {
-      const { feature, props, type, color, fill, width } = item;
+      const { feature, props, type, color, fill, width, isRailway } = item;
 
       try {
         if (type === "Point") {
@@ -1163,6 +1178,7 @@ class MapRenderer {
             color,
             bounds,
             width || 1,
+            isRailway || false,
           );
           this.renderedFeatures.push({
             type: "LineString",
@@ -1193,6 +1209,7 @@ class MapRenderer {
               color,
               bounds,
               width || 1,
+              isRailway || false,
             );
             this.renderedFeatures.push({
               type: "LineString",
@@ -1222,18 +1239,13 @@ class MapRenderer {
     }
   }
 
-  renderLineString(coordinates, color, bounds, width = 1) {
+  renderLineString(coordinates, color, bounds, width = 1, isRailway = false) {
     if (coordinates.length < 2) return [];
 
     // Use Canvas2D for line rendering
     const screenCoords = [];
 
-    this.ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a / 255})`;
-    this.ctx.lineWidth = width;
-    this.ctx.lineCap = "round"; // Smooth line ends
-    this.ctx.lineJoin = "round"; // Smooth corners
-    this.ctx.beginPath();
-
+    // Convert coordinates to screen space first
     for (let i = 0; i < coordinates.length; i++) {
       const screen = this.latLonToScreen(
         coordinates[i][1],
@@ -1241,16 +1253,129 @@ class MapRenderer {
         bounds,
       );
       screenCoords.push(screen);
-
-      if (i === 0) {
-        this.ctx.moveTo(screen.x, screen.y);
-      } else {
-        this.ctx.lineTo(screen.x, screen.y);
-      }
     }
 
-    this.ctx.stroke();
+    if (isRailway) {
+      // Draw railway pattern: two parallel rails with ties (sleepers)
+      this.drawRailwayPattern(screenCoords, color, width);
+    } else {
+      // Regular line rendering
+      this.ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a / 255})`;
+      this.ctx.lineWidth = width;
+      this.ctx.lineCap = "round"; // Smooth line ends
+      this.ctx.lineJoin = "round"; // Smooth corners
+      this.ctx.beginPath();
+
+      for (let i = 0; i < screenCoords.length; i++) {
+        if (i === 0) {
+          this.ctx.moveTo(screenCoords[i].x, screenCoords[i].y);
+        } else {
+          this.ctx.lineTo(screenCoords[i].x, screenCoords[i].y);
+        }
+      }
+
+      this.ctx.stroke();
+    }
+
     return screenCoords;
+  }
+
+  drawRailwayPattern(screenCoords, color, width) {
+    // Railway pattern: two parallel rails with perpendicular ties
+    const railWidth = 1; // Width of each rail line
+    const tieSpacing = 8; // Distance between ties in pixels
+    const tieWidth = 2; // Width of tie line
+    const railOffset = width / 2; // Distance from center to each rail
+
+    this.ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a / 255})`;
+    this.ctx.lineCap = "butt";
+    this.ctx.lineJoin = "miter";
+
+    // Draw two parallel rails
+    for (let railSide = -1; railSide <= 1; railSide += 2) {
+      this.ctx.lineWidth = railWidth;
+      this.ctx.beginPath();
+
+      for (let i = 0; i < screenCoords.length; i++) {
+        const coord = screenCoords[i];
+
+        // Calculate perpendicular offset for rails
+        let perpX = 0,
+          perpY = 0;
+        if (i < screenCoords.length - 1) {
+          const next = screenCoords[i + 1];
+          const dx = next.x - coord.x;
+          const dy = next.y - coord.y;
+          const len = Math.sqrt(dx * dx + dy * dy);
+          if (len > 0) {
+            perpX = (-dy / len) * railOffset * railSide;
+            perpY = (dx / len) * railOffset * railSide;
+          }
+        } else if (i > 0) {
+          const prev = screenCoords[i - 1];
+          const dx = coord.x - prev.x;
+          const dy = coord.y - prev.y;
+          const len = Math.sqrt(dx * dx + dy * dy);
+          if (len > 0) {
+            perpX = (-dy / len) * railOffset * railSide;
+            perpY = (dx / len) * railOffset * railSide;
+          }
+        }
+
+        const railX = coord.x + perpX;
+        const railY = coord.y + perpY;
+
+        if (i === 0) {
+          this.ctx.moveTo(railX, railY);
+        } else {
+          this.ctx.lineTo(railX, railY);
+        }
+      }
+
+      this.ctx.stroke();
+    }
+
+    // Draw perpendicular ties (sleepers) along the track
+    this.ctx.lineWidth = tieWidth;
+    let distanceAlong = 0;
+
+    for (let i = 0; i < screenCoords.length - 1; i++) {
+      const start = screenCoords[i];
+      const end = screenCoords[i + 1];
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const segmentLength = Math.sqrt(dx * dx + dy * dy);
+
+      if (segmentLength === 0) continue;
+
+      const dirX = dx / segmentLength;
+      const dirY = dy / segmentLength;
+      const perpX = -dirY;
+      const perpY = dirX;
+
+      let segmentDist = 0;
+      while (segmentDist < segmentLength) {
+        const t = segmentDist / segmentLength;
+        const centerX = start.x + dx * t;
+        const centerY = start.y + dy * t;
+
+        // Draw tie perpendicular to the track
+        const tieHalfLength = width * 0.8; // Ties extend beyond rails
+        this.ctx.beginPath();
+        this.ctx.moveTo(
+          centerX - perpX * tieHalfLength,
+          centerY - perpY * tieHalfLength,
+        );
+        this.ctx.lineTo(
+          centerX + perpX * tieHalfLength,
+          centerY + perpY * tieHalfLength,
+        );
+        this.ctx.stroke();
+
+        segmentDist += tieSpacing;
+        distanceAlong += tieSpacing;
+      }
+    }
   }
 
   renderPolygonOutline(coordinates, color, bounds) {
