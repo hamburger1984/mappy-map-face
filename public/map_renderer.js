@@ -830,7 +830,8 @@ class MapRenderer {
     // Render order: background to foreground (bottom to top)
     const layers = {
       // FILLED AREAS (background)
-      natural_background: [], // Parks, forests, farmland, meadows
+      natural_background: [], // Parks, farmland, meadows
+      forests: [], // Forests and woods (on top of parks)
       water_areas: [], // Lakes, rivers, ponds (filled areas)
       landuse_areas: [], // Commercial, industrial, residential zones
       buildings: [], // Building footprints
@@ -888,8 +889,11 @@ class MapRenderer {
     // Render all layers in correct z-order using Canvas2D
     // Background to foreground (bottom to top)
 
-    // 1. Natural background (parks, forests, farmland)
+    // 1. Natural background (parks, farmland, meadows)
     this.renderLayer(layers.natural_background, adjustedBounds, true);
+
+    // 1b. Forests (on top of parks so they're visible inside parks)
+    this.renderLayer(layers.forests, adjustedBounds, true);
 
     // 2. Water areas (lakes, rivers)
     this.renderLayer(layers.water_areas, adjustedBounds, true);
@@ -978,18 +982,24 @@ class MapRenderer {
       props.natural === "wood"
     ) {
       const isForest = props.landuse === "forest" || props.natural === "wood";
-      const color = isForest
-        ? { r: 173, g: 209, b: 158, a: 255 } // Dark green for forests
-        : props.leisure === "park" ||
-            props.landuse === "grass" ||
-            props.landuse === "meadow"
+      if (isForest) {
+        return {
+          layer: "forests",
+          color: { r: 173, g: 209, b: 158, a: 255 }, // Dark green
+          minLOD: 0,
+          fill: true,
+        };
+      }
+      const color =
+        props.leisure === "park" ||
+        props.landuse === "grass" ||
+        props.landuse === "meadow"
           ? { r: 200, g: 230, b: 180, a: 255 } // Light green for parks
           : { r: 238, g: 240, b: 213, a: 255 }; // Beige for farmland
-
       return {
         layer: "natural_background",
         color: color,
-        minLOD: isForest ? 0 : 1,
+        minLOD: 1,
         fill: true,
       };
     }
@@ -1382,39 +1392,56 @@ class MapRenderer {
 
       if (featureCoords.length === 0) continue;
 
-      // Pass 1: Draw dark outlines (casing) - batch by width
-      // Only draw outlines when roads are wide enough (> 2px)
-      const outlineBatches = new Map();
-      for (const fc of featureCoords) {
-        if (fc.width <= 2) continue;
-        const outlineWidth = fc.width + 2; // 1px casing on each side
-        const key = outlineWidth;
-        if (!outlineBatches.has(key)) outlineBatches.set(key, []);
-        outlineBatches.get(key).push(fc.flat);
-      }
-
-      for (const [outlineWidth, flats] of outlineBatches) {
-        this.ctx.strokeStyle = "rgba(0,0,0,0.4)";
-        this.ctx.lineWidth = outlineWidth;
-        this.ctx.lineCap = "round";
-        this.ctx.lineJoin = "round";
-        this.ctx.beginPath();
-        for (const flat of flats) {
-          this.ctx.moveTo(flat[0], flat[1]);
-          for (let i = 2; i < flat.length; i += 2) {
-            this.ctx.lineTo(flat[i], flat[i + 1]);
-          }
-        }
-        this.ctx.stroke();
-      }
-
-      // Pass 2: Draw road fills on top - batch by color+width
-      const fillBatches = new Map();
+      // Unified road rendering: border stroke + fill stroke for all roads.
+      // Border color blends from darkened road color (thin) toward black (wide).
+      const roadFeatures = [];
       const constructionFlats = [];
       for (const fc of featureCoords) {
         if (fc.isConstruction) {
           constructionFlats.push(fc);
         } else {
+          roadFeatures.push(fc);
+        }
+      }
+
+      if (roadFeatures.length > 0) {
+        // Pass 1: border stroke
+        // Blend factor: 0 at width=1 (pure darkened color), 1 at width>=6 (pure black)
+        const borderBatches = new Map();
+        for (const fc of roadFeatures) {
+          const t = Math.min(1, Math.max(0, (fc.width - 1) / 5));
+          const r = Math.round(Math.max(0, fc.color.r - 40) * (1 - t));
+          const g = Math.round(Math.max(0, fc.color.g - 40) * (1 - t));
+          const b = Math.round(Math.max(0, fc.color.b - 40) * (1 - t));
+          const a = (0.6 + 0.4 * t) * (fc.color.a / 255);
+          const outlineWidth = fc.width + 2;
+          const key = `${r},${g},${b},${a.toFixed(2)}|${outlineWidth}`;
+          if (!borderBatches.has(key))
+            borderBatches.set(key, {
+              style: `rgba(${r},${g},${b},${a})`,
+              width: outlineWidth,
+              flats: [],
+            });
+          borderBatches.get(key).flats.push(fc.flat);
+        }
+        for (const [key, batch] of borderBatches) {
+          this.ctx.strokeStyle = batch.style;
+          this.ctx.lineWidth = batch.width;
+          this.ctx.lineCap = "round";
+          this.ctx.lineJoin = "round";
+          this.ctx.beginPath();
+          for (const flat of batch.flats) {
+            this.ctx.moveTo(flat[0], flat[1]);
+            for (let i = 2; i < flat.length; i += 2) {
+              this.ctx.lineTo(flat[i], flat[i + 1]);
+            }
+          }
+          this.ctx.stroke();
+        }
+
+        // Pass 2: fill stroke
+        const fillBatches = new Map();
+        for (const fc of roadFeatures) {
           const key = `${fc.color.r},${fc.color.g},${fc.color.b},${fc.color.a}|${fc.width}`;
           if (!fillBatches.has(key))
             fillBatches.set(key, {
@@ -1424,25 +1451,43 @@ class MapRenderer {
             });
           fillBatches.get(key).flats.push(fc.flat);
         }
-      }
-
-      for (const [key, batch] of fillBatches) {
-        this.ctx.strokeStyle = `rgba(${batch.color.r},${batch.color.g},${batch.color.b},${batch.color.a / 255})`;
-        this.ctx.lineWidth = batch.width;
-        this.ctx.lineCap = "round";
-        this.ctx.lineJoin = "round";
-        this.ctx.beginPath();
-        for (const flat of batch.flats) {
-          this.ctx.moveTo(flat[0], flat[1]);
-          for (let i = 2; i < flat.length; i += 2) {
-            this.ctx.lineTo(flat[i], flat[i + 1]);
+        for (const [key, batch] of fillBatches) {
+          this.ctx.strokeStyle = `rgba(${batch.color.r},${batch.color.g},${batch.color.b},${batch.color.a / 255})`;
+          this.ctx.lineWidth = batch.width;
+          this.ctx.lineCap = "round";
+          this.ctx.lineJoin = "round";
+          this.ctx.beginPath();
+          for (const flat of batch.flats) {
+            this.ctx.moveTo(flat[0], flat[1]);
+            for (let i = 2; i < flat.length; i += 2) {
+              this.ctx.lineTo(flat[i], flat[i + 1]);
+            }
           }
+          this.ctx.stroke();
         }
-        this.ctx.stroke();
       }
 
-      // Construction roads: white base + red dashes
+      // Construction roads: border + white base + red dashes
       if (constructionFlats.length > 0) {
+        // Border pass (same blending as regular roads)
+        for (const cf of constructionFlats) {
+          const t = Math.min(1, Math.max(0, (cf.width - 1) / 5));
+          const r = Math.round(Math.max(0, cf.color.r - 40) * (1 - t));
+          const g = Math.round(Math.max(0, cf.color.g - 40) * (1 - t));
+          const b = Math.round(Math.max(0, cf.color.b - 40) * (1 - t));
+          const a = (0.6 + 0.4 * t) * (cf.color.a / 255);
+          this.ctx.strokeStyle = `rgba(${r},${g},${b},${a})`;
+          this.ctx.lineWidth = cf.width + 2;
+          this.ctx.lineCap = "round";
+          this.ctx.lineJoin = "round";
+          this.ctx.beginPath();
+          this.ctx.moveTo(cf.flat[0], cf.flat[1]);
+          for (let i = 2; i < cf.flat.length; i += 2) {
+            this.ctx.lineTo(cf.flat[i], cf.flat[i + 1]);
+          }
+          this.ctx.stroke();
+        }
+
         const dashLen = Math.max(4, this.zoom * 2);
 
         for (const cf of constructionFlats) {
