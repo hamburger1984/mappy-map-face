@@ -81,7 +81,7 @@ class MapRenderer {
       // Set up event listeners for zoom and pan
       this.setupInteractions();
 
-      console.log("WASM module loaded successfully");
+      // WASM initialized
       return true;
     } catch (error) {
       console.error("Failed to initialize WASM:", error);
@@ -169,10 +169,8 @@ class MapRenderer {
   zoomIn() {
     // Zoom toward center of viewport
     // Simply increase zoom without changing offset
-    console.log("zoomIn: current zoom =", this.zoom);
     const zoomFactor = 1.3;
     const newZoom = Math.min(this.maxZoom, this.zoom * zoomFactor);
-    console.log("zoomIn: new zoom =", newZoom);
 
     if (newZoom !== this.zoom) {
       this.zoom = newZoom;
@@ -499,15 +497,13 @@ class MapRenderer {
 
   async loadMapData() {
     try {
-      console.log("Loading tile index...");
+      // Load tile index
 
       // Load tile index
       const indexResponse = await fetch("tiles/index.json");
       if (indexResponse.ok) {
         this.tileIndex = await indexResponse.json();
-        console.log(
-          `✓ Tile index loaded: ${this.tileIndex.tile_count} tiles across ${this.tileIndex.zoom_levels.length} zoom levels`,
-        );
+        // Tile index loaded
       }
 
       // Initialize with empty data - tiles will be loaded progressively
@@ -516,7 +512,7 @@ class MapRenderer {
         features: [],
       };
 
-      console.log("✓ Tile system initialized - tiles will load on demand");
+      // Tile system ready
       return true;
     } catch (error) {
       console.error("Failed to load tile index:", error);
@@ -666,9 +662,7 @@ class MapRenderer {
     document.getElementById("cachedTiles").textContent = cachedCount;
     document.getElementById("tileLoadTime").textContent = tileLoadTime;
 
-    console.log(
-      `Loaded ${visibleTiles.length} tiles (${cachedCount} cached) with ${this.mapData.features.length} features in ${tileLoadTime}ms`,
-    );
+    // Tile loading stats available in UI
 
     // Clear canvas
     this.wasm.clearCanvas(240, 248, 255); // Light blue background
@@ -757,9 +751,7 @@ class MapRenderer {
     document.getElementById("stats").querySelector("div").textContent =
       "Status: Rendered";
 
-    console.log(
-      `Rendered ${featureCount} features (viewport culled: ${culledCount}, LOD culled: ${lodCulledCount}) in ${renderTime}ms`,
-    );
+    // Render stats available in UI
   }
 
   getLOD() {

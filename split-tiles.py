@@ -12,13 +12,16 @@ Tile grid uses Web Mercator (similar to OSM tiles)
 Each tile: tiles/{zoom}/{x}/{y}.json.gz
 """
 
-import json
 import gzip
+import json
 import math
 import os
+import struct
 import sys
 from collections import defaultdict
 from pathlib import Path
+
+import msgpack
 
 # Hamburg bounds
 MIN_LON = 9.77
@@ -26,21 +29,24 @@ MAX_LON = 10.21
 MIN_LAT = 53.415
 MAX_LAT = 53.685
 
+
 def lon_to_tile_x(lon, zoom):
     """Convert longitude to tile X coordinate"""
-    n = 2.0 ** zoom
+    n = 2.0**zoom
     return int((lon + 180.0) / 360.0 * n)
+
 
 def lat_to_tile_y(lat, zoom):
     """Convert latitude to tile Y coordinate"""
-    n = 2.0 ** zoom
+    n = 2.0**zoom
     lat_rad = math.radians(lat)
     return int((1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * n)
 
+
 def get_feature_bounds(feature):
     """Get bounding box of a feature"""
-    coords = feature['geometry']['coordinates']
-    geom_type = feature['geometry']['type']
+    coords = feature["geometry"]["coordinates"]
+    geom_type = feature["geometry"]["type"]
 
     lons, lats = [], []
 
@@ -48,19 +54,19 @@ def get_feature_bounds(feature):
         lons.append(coord[0])
         lats.append(coord[1])
 
-    if geom_type == 'Point':
+    if geom_type == "Point":
         process_coord(coords)
-    elif geom_type == 'LineString':
+    elif geom_type == "LineString":
         for coord in coords:
             process_coord(coord)
-    elif geom_type == 'Polygon':
+    elif geom_type == "Polygon":
         for coord in coords[0]:
             process_coord(coord)
-    elif geom_type == 'MultiLineString':
+    elif geom_type == "MultiLineString":
         for line in coords:
             for coord in line:
                 process_coord(coord)
-    elif geom_type == 'MultiPolygon':
+    elif geom_type == "MultiPolygon":
         for polygon in coords:
             for coord in polygon[0]:
                 process_coord(coord)
@@ -69,11 +75,164 @@ def get_feature_bounds(feature):
         return None
 
     return {
-        'minLon': min(lons),
-        'maxLon': max(lons),
-        'minLat': min(lats),
-        'maxLat': max(lats)
+        "minLon": min(lons),
+        "maxLon": max(lons),
+        "minLat": min(lats),
+        "maxLat": max(lats),
     }
+
+
+def get_render_metadata(props, geom_type):
+    """
+    Compute rendering metadata for a feature.
+    Returns dict with: color (RGBA), layer, minLOD, fill
+    This is the build-time equivalent of map_renderer.js classifyFeature()
+    """
+
+    # Parks and green spaces (only show at closer zoom)
+    if props.get("leisure") == "park" or props.get("landuse") in ["grass", "meadow"]:
+        return {
+            "layer": "parks",
+            "color": {"r": 200, "g": 230, "b": 180, "a": 255},
+            "minLOD": 2,  # Changed from 1 to 2 - too much detail for far view
+            "fill": True,
+        }
+
+    # Agricultural land (only show at closer zoom)
+    if props.get("landuse") in ["farmland", "orchard", "vineyard"]:
+        return {
+            "layer": "parks",
+            "color": {"r": 238, "g": 240, "b": 213, "a": 255},
+            "minLOD": 2,  # Changed from 1 to 2 - too much detail for far view
+            "fill": True,
+        }
+
+    # Forests and woods
+    if props.get("landuse") == "forest" or props.get("natural") == "wood":
+        return {
+            "layer": "forests",
+            "color": {"r": 173, "g": 209, "b": 158, "a": 255},
+            "minLOD": 0,
+            "fill": True,
+        }
+
+    # Water bodies
+    if (
+        props.get("natural") == "water"
+        or props.get("water")
+        or props.get("waterway") == "riverbank"
+    ):
+        return {
+            "layer": "water",
+            "color": {"r": 170, "g": 211, "b": 223, "a": 255},
+            "minLOD": 0,
+            "fill": True,
+        }
+
+    # Rivers and streams as lines
+    if props.get("waterway") and props.get("waterway") != "riverbank":
+        importance = 1 if props.get("waterway") in ["river", "canal"] else 2
+        return {
+            "layer": "waterways",
+            "color": {"r": 170, "g": 211, "b": 223, "a": 255},
+            "minLOD": importance,
+            "fill": False,
+        }
+
+    # Commercial/industrial areas
+    if props.get("landuse") in ["commercial", "industrial", "retail"]:
+        return {
+            "layer": "areas",
+            "color": {"r": 240, "g": 225, "b": 225, "a": 255},
+            "minLOD": 2,
+            "fill": True,
+        }
+
+    # Buildings
+    if props.get("building"):
+        return {
+            "layer": "areas",
+            "color": {"r": 218, "g": 208, "b": 200, "a": 255},
+            "minLOD": 2,
+            "fill": True,
+        }
+
+    # Major highways
+    if props.get("highway") in ["motorway", "trunk"]:
+        return {
+            "layer": "major_roads",
+            "color": {"r": 233, "g": 115, "b": 103, "a": 255},
+            "minLOD": 0,
+            "fill": False,
+        }
+
+    # Primary and secondary roads
+    if props.get("highway") in ["primary", "secondary"]:
+        return {
+            "layer": "major_roads",
+            "color": {"r": 252, "g": 214, "b": 164, "a": 255},
+            "minLOD": 1,
+            "fill": False,
+        }
+
+    # Tertiary and residential roads
+    if props.get("highway") in ["tertiary", "residential", "unclassified"]:
+        return {
+            "layer": "roads",
+            "color": {"r": 255, "g": 255, "b": 255, "a": 255},
+            "minLOD": 2,
+            "fill": False,
+        }
+
+    # Small roads and paths
+    if props.get("highway"):
+        return {
+            "layer": "roads",
+            "color": {"r": 220, "g": 220, "b": 220, "a": 255},
+            "minLOD": 3,
+            "fill": False,
+        }
+
+    # Railways (only major rail lines at LOD 1, minor at LOD 2)
+    if props.get("railway") and geom_type != "Point":
+        major_rail = ["rail", "light_rail", "subway"]
+        minor_rail = ["tram", "monorail", "narrow_gauge", "preserved"]
+
+        if props.get("railway") in major_rail or not props.get("railway"):
+            return {
+                "layer": "railways",
+                "color": {"r": 153, "g": 153, "b": 153, "a": 255},
+                "minLOD": 1,  # Major rail visible at medium zoom
+                "fill": False,
+            }
+        elif props.get("railway") in minor_rail:
+            return {
+                "layer": "railways",
+                "color": {"r": 153, "g": 153, "b": 153, "a": 255},
+                "minLOD": 2,  # Minor rail only at closer zoom
+                "fill": False,
+            }
+
+    # Points of interest (only named with amenities at high zoom)
+    if geom_type == "Point":
+        if props.get("name") and (
+            props.get("amenity")
+            or props.get("shop")
+            or props.get("tourism")
+            or props.get("historic")
+        ):
+            return {
+                "layer": "points",
+                "color": {"r": 100, "g": 100, "b": 100, "a": 255},
+                "minLOD": 3,
+                "fill": False,
+            }
+        # Skip all other points
+        return None
+
+    # Default: skip
+    return None
+
 
 def classify_feature_importance(props, geom_type):
     """
@@ -85,54 +244,71 @@ def classify_feature_importance(props, geom_type):
     """
 
     # Major water bodies (always visible)
-    if props.get('natural') == 'water' or props.get('water') or props.get('waterway') == 'riverbank':
+    if (
+        props.get("natural") == "water"
+        or props.get("water")
+        or props.get("waterway") == "riverbank"
+    ):
         return (0, 100)  # Z0-Z5, very important
 
     # Forests (always visible)
-    if props.get('landuse') == 'forest' or props.get('natural') == 'wood':
+    if props.get("landuse") == "forest" or props.get("natural") == "wood":
         return (0, 90)  # Z0-Z5, very important
 
     # Major highways (always visible)
-    if props.get('highway') in ['motorway', 'trunk']:
+    if props.get("highway") in ["motorway", "trunk"]:
         return (0, 80)  # Z0-Z5, very important
 
     # Railways (always visible)
-    if props.get('railway') and geom_type != 'Point':
-        track_types = ['rail', 'light_rail', 'subway', 'tram', 'monorail', 'narrow_gauge', 'preserved']
-        if props.get('railway') in track_types:
+    if props.get("railway") and geom_type != "Point":
+        track_types = [
+            "rail",
+            "light_rail",
+            "subway",
+            "tram",
+            "monorail",
+            "narrow_gauge",
+            "preserved",
+        ]
+        if props.get("railway") in track_types:
             return (0, 70)  # Z0-Z5, important
 
     # Major rivers
-    if props.get('waterway') in ['river', 'canal']:
+    if props.get("waterway") in ["river", "canal"]:
         return (6, 60)  # Z6-Z10
 
     # Primary/secondary roads
-    if props.get('highway') in ['primary', 'secondary']:
+    if props.get("highway") in ["primary", "secondary"]:
         return (6, 50)  # Z6-Z10
 
     # Parks and green spaces
-    if props.get('leisure') == 'park' or props.get('landuse') in ['grass', 'meadow', 'farmland']:
+    if props.get("leisure") == "park" or props.get("landuse") in [
+        "grass",
+        "meadow",
+        "farmland",
+    ]:
         return (6, 40)  # Z6-Z10
 
     # Tertiary and residential roads
-    if props.get('highway') in ['tertiary', 'residential', 'unclassified']:
+    if props.get("highway") in ["tertiary", "residential", "unclassified"]:
         return (11, 30)  # Z11-Z14
 
     # Buildings
-    if props.get('building'):
+    if props.get("building"):
         return (11, 20)  # Z11-Z14
 
     # Small roads and paths
-    if props.get('highway'):
+    if props.get("highway"):
         return (15, 10)  # Z15+
 
     # Named POIs
-    if geom_type == 'Point' and props.get('name'):
-        if props.get('amenity') or props.get('shop') or props.get('tourism'):
+    if geom_type == "Point" and props.get("name"):
+        if props.get("amenity") or props.get("shop") or props.get("tourism"):
             return (15, 5)  # Z15+
 
     # Skip everything else
     return (99, 0)  # Never show
+
 
 def get_tiles_for_feature(feature, zoom):
     """Get all tiles that this feature intersects at given zoom level"""
@@ -140,10 +316,10 @@ def get_tiles_for_feature(feature, zoom):
     if not bounds:
         return []
 
-    min_x = lon_to_tile_x(bounds['minLon'], zoom)
-    max_x = lon_to_tile_x(bounds['maxLon'], zoom)
-    min_y = lat_to_tile_y(bounds['maxLat'], zoom)  # Note: Y is inverted
-    max_y = lat_to_tile_y(bounds['minLat'], zoom)
+    min_x = lon_to_tile_x(bounds["minLon"], zoom)
+    max_x = lon_to_tile_x(bounds["maxLon"], zoom)
+    min_y = lat_to_tile_y(bounds["maxLat"], zoom)  # Note: Y is inverted
+    max_y = lat_to_tile_y(bounds["minLat"], zoom)
 
     tiles = []
     for x in range(min_x, max_x + 1):
@@ -152,13 +328,185 @@ def get_tiles_for_feature(feature, zoom):
 
     return tiles
 
+
+# Binary tile format constants
+GEOM_TYPE_POINT = 1
+GEOM_TYPE_LINESTRING = 2
+GEOM_TYPE_POLYGON = 3
+
+LAYER_MAP = {
+    "water": 0,
+    "forest": 1,
+    "road": 2,
+    "railway": 3,
+    "building": 4,
+    "park": 5,
+    "farmland": 6,
+    "boundary": 7,
+    "points": 8,
+}
+
+
+def get_tile_bounds(z, x, y):
+    """Get geographic bounds for a tile"""
+    n = 2.0**z
+    lon_min = x / n * 360.0 - 180.0
+    lon_max = (x + 1) / n * 360.0 - 180.0
+    lat_rad_min = math.atan(math.sinh(math.pi * (1 - 2 * (y + 1) / n)))
+    lat_rad_max = math.atan(math.sinh(math.pi * (1 - 2 * y / n)))
+    lat_min = math.degrees(lat_rad_min)
+    lat_max = math.degrees(lat_rad_max)
+    return {"minLon": lon_min, "maxLon": lon_max, "minLat": lat_min, "maxLat": lat_max}
+
+
+def quantize_coord(value, min_val, range_val):
+    """Quantize a coordinate to int16 range"""
+    if range_val == 0:
+        return 0
+    normalized = (value - min_val) / range_val
+    return int(max(-32768, min(32767, normalized * 32767)))
+
+
+def pack_rgba(color):
+    """Pack RGBA color dict to uint32"""
+    r = color.get("r", 0) & 0xFF
+    g = color.get("g", 0) & 0xFF
+    b = color.get("b", 0) & 0xFF
+    a = color.get("a", 255) & 0xFF
+    return (a << 24) | (b << 16) | (g << 8) | r
+
+
+def extract_coordinates(geometry):
+    """Extract flat list of coordinates from geometry"""
+    geom_type = geometry["type"]
+    coords = geometry["coordinates"]
+
+    if geom_type == "Point":
+        return [coords]
+    elif geom_type == "LineString":
+        return coords
+    elif geom_type == "Polygon":
+        # Just use outer ring for now
+        return coords[0] if coords else []
+    elif geom_type == "MultiLineString":
+        # Flatten all linestrings
+        result = []
+        for linestring in coords:
+            result.extend(linestring)
+        return result
+    elif geom_type == "MultiPolygon":
+        # Flatten all outer rings
+        result = []
+        for polygon in coords:
+            if polygon:
+                result.extend(polygon[0])
+        return result
+    return []
+
+
+def write_binary_tile(features, z, x, y, tile_bounds, output_path):
+    """Write features to binary .maptile format"""
+
+    # Collect features and coordinates
+    feature_records = []
+    all_coords = []
+    all_props = []
+
+    lon_range = tile_bounds["maxLon"] - tile_bounds["minLon"]
+    lat_range = tile_bounds["maxLat"] - tile_bounds["minLat"]
+
+    for feature in features:
+        geom = feature["geometry"]
+        geom_type = geom["type"]
+        render = feature.get("_render", {})
+
+        # Map geometry type to int
+        if geom_type in ["Point"]:
+            geom_type_id = GEOM_TYPE_POINT
+        elif geom_type in ["LineString", "MultiLineString"]:
+            geom_type_id = GEOM_TYPE_LINESTRING
+        elif geom_type in ["Polygon", "MultiPolygon"]:
+            geom_type_id = GEOM_TYPE_POLYGON
+        else:
+            continue  # Skip unknown types
+
+        # Get layer and color
+        layer = LAYER_MAP.get(render.get("layer", "points"), 8)
+        color = pack_rgba(render.get("color", {"r": 0, "g": 0, "b": 0, "a": 255}))
+        min_lod = render.get("minLOD", 0)
+
+        # Quantize coordinates
+        coords = extract_coordinates(geom)
+        coord_offset = len(all_coords)
+
+        for lon, lat in coords:
+            quantized_lon = quantize_coord(lon, tile_bounds["minLon"], lon_range)
+            quantized_lat = quantize_coord(lat, tile_bounds["minLat"], lat_range)
+            all_coords.append(quantized_lon)
+            all_coords.append(quantized_lat)
+
+        coord_count = len(coords)
+
+        # Encode properties with MessagePack
+        props_data = msgpack.packb(feature.get("properties", {}))
+        props_offset = len(all_props)
+        all_props.extend(props_data)
+
+        feature_records.append(
+            {
+                "geom_type": geom_type_id,
+                "layer": layer,
+                "color": color,
+                "min_lod": min_lod,
+                "coord_offset": coord_offset // 2,  # Divide by 2 since we store pairs
+                "coord_count": coord_count,
+                "props_offset": props_offset,
+                "props_length": len(props_data),
+            }
+        )
+
+    # Write binary file
+    tile_file = output_path / f"{y}.maptile"
+    with open(tile_file, "wb") as f:
+        # Header (32 bytes)
+        f.write(b"MPTL")  # Magic number (4 bytes)
+        f.write(struct.pack("B", 1))  # Version (1 byte)
+        f.write(struct.pack("B", z))  # Zoom (1 byte)
+        f.write(struct.pack("H", x))  # TileX (2 bytes)
+        f.write(struct.pack("H", y))  # TileY (2 bytes)
+        f.write(struct.pack("I", len(feature_records)))  # Feature count (4 bytes)
+        f.write(struct.pack("I", len(all_coords) // 2))  # Coord pair count (4 bytes)
+        f.write(struct.pack("f", tile_bounds["minLon"]))  # Bounds (16 bytes)
+        f.write(struct.pack("f", tile_bounds["maxLon"]))
+        f.write(struct.pack("f", tile_bounds["minLat"]))
+        f.write(struct.pack("f", tile_bounds["maxLat"]))
+
+        # Feature table (18 bytes per feature)
+        for record in feature_records:
+            f.write(struct.pack("B", record["geom_type"]))
+            f.write(struct.pack("B", record["layer"]))
+            f.write(struct.pack("I", record["color"]))
+            f.write(struct.pack("B", record["min_lod"]))
+            f.write(struct.pack("I", record["coord_offset"]))
+            f.write(struct.pack("H", record["coord_count"]))
+            f.write(struct.pack("I", record["props_offset"]))
+            f.write(struct.pack("H", record["props_length"]))
+
+        # Coordinate array (2 bytes per coordinate component)
+        for coord in all_coords:
+            f.write(struct.pack("h", coord))  # int16
+
+        # Properties blob
+        f.write(bytes(all_props))
+
+
 def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
     """Split GeoJSON into tiles"""
     print(f"Loading {input_file}...")
-    with open(input_file, 'r') as f:
+    with open(input_file, "r") as f:
         data = json.load(f)
 
-    features = data['features']
+    features = data["features"]
     print(f"Loaded {len(features)} features")
 
     # Organize features by tile and zoom
@@ -171,23 +519,42 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
         if i % 10000 == 0:
             print(f"  Processed {i}/{len(features)} features...")
 
-        props = feature.get('properties', {})
-        geom_type = feature['geometry']['type']
+        props = feature.get("properties", {})
+        geom_type = feature["geometry"]["type"]
 
-        min_zoom, importance = classify_feature_importance(props, geom_type)
-
-        if min_zoom >= 99:
-            stats['skipped'] += 1
+        # Get rendering metadata and embed in feature
+        render_meta = get_render_metadata(props, geom_type)
+        if render_meta is None:
+            stats["skipped"] += 1
             continue
 
-        # Add to all relevant zoom levels
+        # Embed metadata in feature for client use
+        feature["_render"] = render_meta
+
+        # Use minLOD from metadata for tile distribution
+        min_lod = render_meta["minLOD"]
+        _, importance = classify_feature_importance(props, geom_type)
+
+        # Map minLOD to appropriate tile zoom levels
+        # Z8 (far view): LOD 0-1 only
+        # Z11 (medium): LOD 0-2
+        # Z14 (close): LOD 0-3 (all)
+        target_zooms = []
+        if min_lod <= 1:
+            target_zooms.extend([8, 11, 14])  # Show in all zoom levels
+        elif min_lod == 2:
+            target_zooms.extend([11, 14])  # Show in medium and close views only
+        elif min_lod >= 3:
+            target_zooms.append(14)  # Show only in close view
+
+        # Add to appropriate zoom levels only
         for zoom in zoom_levels:
-            if zoom >= min_zoom:
+            if zoom in target_zooms:
                 feature_tiles = get_tiles_for_feature(feature, zoom)
                 for tile_coords in feature_tiles:
                     z, x, y = tile_coords
                     tiles[tile_coords][importance].append(feature)
-                    stats[f'z{z}'] += 1
+                    stats[f"z{z}"] += 1
 
     print(f"\nFeature distribution:")
     print(f"  Skipped: {stats['skipped']}")
@@ -212,46 +579,45 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
         for importance in sorted(importance_groups.keys(), reverse=True):
             sorted_features.extend(importance_groups[importance])
 
-        tile_geojson = {
-            'type': 'FeatureCollection',
-            'features': sorted_features
-        }
+        tile_geojson = {"type": "FeatureCollection", "features": sorted_features}
 
-        # Write compressed
+        # Write compressed GeoJSON
         tile_file = tile_dir / f"{y}.json.gz"
-        with gzip.open(tile_file, 'wt', encoding='utf-8') as f:
-            json.dump(tile_geojson, f, separators=(',', ':'))
+        with gzip.open(tile_file, "wt", encoding="utf-8") as f:
+            json.dump(tile_geojson, f, separators=(",", ":"))
+
+        # Write binary format
+        tile_bounds = get_tile_bounds(z, x, y)
+        write_binary_tile(sorted_features, z, x, y, tile_bounds, tile_dir)
 
     print(f"\n✓ Created {total_tiles} tiles in {output_dir}")
 
     # Write tile index
     index_file = output_path / "index.json"
     index_data = {
-        'bounds': {
-            'minLon': MIN_LON,
-            'maxLon': MAX_LON,
-            'minLat': MIN_LAT,
-            'maxLat': MAX_LAT
+        "bounds": {
+            "minLon": MIN_LON,
+            "maxLon": MAX_LON,
+            "minLat": MIN_LAT,
+            "maxLat": MAX_LAT,
         },
-        'zoom_levels': sorted(zoom_levels),
-        'tile_count': total_tiles,
-        'center': {
-            'lon': (MIN_LON + MAX_LON) / 2,
-            'lat': (MIN_LAT + MAX_LAT) / 2
-        }
+        "zoom_levels": sorted(zoom_levels),
+        "tile_count": total_tiles,
+        "center": {"lon": (MIN_LON + MAX_LON) / 2, "lat": (MIN_LAT + MAX_LAT) / 2},
     }
-    with open(index_file, 'w') as f:
+    with open(index_file, "w") as f:
         json.dump(index_data, f, indent=2)
 
     print(f"✓ Created tile index: {index_file}")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: ./split-tiles.py <input.geojson>")
         sys.exit(1)
 
     input_file = sys.argv[1]
-    output_dir = 'public/tiles'
+    output_dir = "public/tiles"
 
     # Use zoom levels 8, 11, 14
     # Z8: Major features (visible from far away)

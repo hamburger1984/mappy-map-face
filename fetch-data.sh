@@ -65,11 +65,7 @@ osmium export "$HAMBURG_CENTER" -o "$HAMBURG_GEOJSON" --overwrite \
 echo "✓ Converted to GeoJSON ($(du -h "$HAMBURG_GEOJSON" | cut -f1))"
 echo ""
 
-# Compress GeoJSON for faster loading (kept for backwards compatibility)
-echo "Compressing GeoJSON with gzip..."
-gzip -k -9 -f "$HAMBURG_GEOJSON"
-echo "✓ Compressed to $(du -h "$HAMBURG_GEOJSON_GZ" | cut -f1) ($(python3 -c "import os; print(f'{os.path.getsize(\"$HAMBURG_GEOJSON_GZ\")/os.path.getsize(\"$HAMBURG_GEOJSON\")*100:.0f}%')") of original)"
-echo ""
+# Gzip compression removed - no longer needed with tile-based progressive loading
 
 # Generate tiles for progressive loading
 echo "================================================"
@@ -81,7 +77,7 @@ echo "for progressive loading. This may take a minute..."
 echo ""
 
 if command -v python3 &> /dev/null; then
-    python3 "$SCRIPT_DIR/split-tiles.py"
+    python3 "$SCRIPT_DIR/split-tiles.py" "$HAMBURG_GEOJSON"
     TILE_COUNT=$(find "$PUBLIC_DIR/tiles" -name "*.json.gz" 2>/dev/null | wc -l | tr -d ' ')
     TILE_SIZE=$(du -sh "$PUBLIC_DIR/tiles" 2>/dev/null | cut -f1)
     echo ""
@@ -99,8 +95,7 @@ echo ""
 echo "Files created in $PUBLIC_DIR:"
 echo "  - hamburg.osm.pbf         (full Hamburg extract)"
 echo "  - hamburg-center.osm.pbf  (city center only)"
-echo "  - hamburg.geojson         (monolithic GeoJSON)"
-echo "  - hamburg.geojson.gz      (compressed)"
+echo "  - hamburg.geojson         (for tile generation)"
 echo "  - tiles/                  (progressive loading tiles)"
 echo ""
 echo "You can now run: ./start-server.sh"
