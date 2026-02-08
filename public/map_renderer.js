@@ -1097,6 +1097,14 @@ class MapRenderer {
         return { layer: null, minLOD: 999, fill: false };
       }
 
+      // Remap construction roads to their target type
+      let isConstruction = false;
+      let effectiveHighway = props.highway;
+      if (props.highway === "construction" && props.construction) {
+        effectiveHighway = props.construction;
+        isConstruction = true;
+      }
+
       // Determine color and base width based on road type
       // Real lane widths: ~3.5m per lane
       // Motorway: 2-4 lanes = 7-14m
@@ -1110,104 +1118,57 @@ class MapRenderer {
 
       let roadPriority; // Lower = drawn first (underneath), higher = drawn on top
 
-      if (props.highway === "motorway" || props.highway === "trunk") {
+      if (effectiveHighway === "motorway" || effectiveHighway === "trunk") {
         color = { r: 233, g: 115, b: 103, a: 255 }; // OSM motorway orange
         realWidthMeters = 14; // ~4 lanes
         minLOD = 0;
         roadPriority = 7;
-      } else if (props.highway === "primary") {
+      } else if (effectiveHighway === "primary") {
         color = { r: 249, g: 207, b: 144, a: 255 }; // OSM primary yellow
         realWidthMeters = 7; // ~2 lanes
         minLOD = 1;
         roadPriority = 6;
-      } else if (props.highway === "secondary") {
+      } else if (effectiveHighway === "secondary") {
         color = { r: 248, g: 234, b: 164, a: 255 }; // OSM secondary light yellow
         realWidthMeters = 7; // ~2 lanes
         minLOD = 1;
         roadPriority = 5;
-      } else if (props.highway === "tertiary") {
+      } else if (effectiveHighway === "tertiary") {
         color = { r: 255, g: 255, b: 255, a: 255 }; // OSM tertiary white
         realWidthMeters = 6; // ~1.5 lanes
         minLOD = 1;
         roadPriority = 4;
       } else if (
-        props.highway === "residential" ||
-        props.highway === "unclassified"
+        effectiveHighway === "residential" ||
+        effectiveHighway === "unclassified"
       ) {
         color = { r: 255, g: 255, b: 255, a: 255 }; // OSM residential white
         realWidthMeters = 5; // ~1-2 lanes
         minLOD = 1;
         roadPriority = 3;
-      } else if (props.highway === "service" || props.highway === "track") {
+      } else if (
+        effectiveHighway === "service" ||
+        effectiveHighway === "track"
+      ) {
         color = { r: 255, g: 255, b: 255, a: 255 }; // OSM service white
         realWidthMeters = 3.5; // 1 lane
         minLOD = 3;
         roadPriority = 2;
       } else if (
-        props.highway === "footway" ||
-        props.highway === "path" ||
-        props.highway === "pedestrian" ||
-        props.highway === "steps"
+        effectiveHighway === "footway" ||
+        effectiveHighway === "path" ||
+        effectiveHighway === "pedestrian" ||
+        effectiveHighway === "steps"
       ) {
         color = { r: 250, g: 190, b: 165, a: 255 }; // OSM footway salmon/pink
         realWidthMeters = 2; // Footpaths
         minLOD = 1;
         roadPriority = 0;
-      } else if (props.highway === "cycleway") {
+      } else if (effectiveHighway === "cycleway") {
         color = { r: 120, g: 150, b: 255, a: 255 }; // OSM cycleway blue
         realWidthMeters = 2; // Cycle paths
         minLOD = 3;
         roadPriority = 1;
-      } else if (props.highway === "construction") {
-        // Road under construction - use width of the road being constructed
-        color = { r: 200, g: 200, b: 200, a: 255 }; // Gray base (will be overdrawn with pattern)
-        if (
-          props.construction === "motorway" ||
-          props.construction === "trunk"
-        ) {
-          realWidthMeters = 14;
-          roadPriority = 7;
-        } else if (props.construction === "primary") {
-          realWidthMeters = 7;
-          roadPriority = 6;
-        } else if (props.construction === "secondary") {
-          realWidthMeters = 7;
-          roadPriority = 5;
-        } else if (props.construction === "tertiary") {
-          realWidthMeters = 6;
-          roadPriority = 4;
-        } else {
-          realWidthMeters = 5;
-          roadPriority = 3;
-        }
-        minLOD = 1;
-
-        const metersPerPixel = 20000 / (this.zoom * 1200);
-        const calculatedWidth = realWidthMeters / metersPerPixel;
-        const width = Math.max(1, Math.min(10, calculatedWidth));
-
-        if (isTunnel) {
-          color.a = 80;
-          return {
-            layer: "tunnels",
-            color,
-            minLOD,
-            width,
-            fill: false,
-            roadPriority,
-            isConstruction: true,
-          };
-        } else {
-          return {
-            layer: "surface_roads",
-            color,
-            minLOD,
-            width,
-            fill: false,
-            roadPriority,
-            isConstruction: true,
-          };
-        }
       } else {
         // Unknown highway type - skip it to avoid rendering unexpected features
         return { layer: null, minLOD: 999, fill: false };
@@ -1240,6 +1201,7 @@ class MapRenderer {
           width,
           fill: false,
           roadPriority,
+          isConstruction,
         };
       } else {
         return {
@@ -1249,6 +1211,7 @@ class MapRenderer {
           width,
           fill: false,
           roadPriority,
+          isConstruction,
         };
       }
     }
@@ -1327,15 +1290,12 @@ class MapRenderer {
   }
 
   renderRoadLayer(layerFeatures, bounds) {
-    // Separate railways and construction from normal roads
+    // Separate railways from roads (construction roads stay with normal roads)
     const roads = [];
     const railways = [];
-    const construction = [];
     for (const item of layerFeatures) {
       if (item.isRailway) {
         railways.push(item);
-      } else if (item.isConstruction) {
-        construction.push(item);
       } else {
         roads.push(item);
       }
@@ -1402,7 +1362,12 @@ class MapRenderer {
             flat[i * 2 + 1] = sy;
             if (screenCoords) screenCoords[i] = { x: sx, y: sy };
           }
-          featureCoords.push({ flat, color, width: width || 1 });
+          featureCoords.push({
+            flat,
+            color,
+            width: width || 1,
+            isConstruction: item.isConstruction,
+          });
           if (screenCoords) {
             this.renderedFeatures.push({
               type: "LineString",
@@ -1445,11 +1410,20 @@ class MapRenderer {
 
       // Pass 2: Draw road fills on top - batch by color+width
       const fillBatches = new Map();
+      const constructionFlats = [];
       for (const fc of featureCoords) {
-        const key = `${fc.color.r},${fc.color.g},${fc.color.b},${fc.color.a}|${fc.width}`;
-        if (!fillBatches.has(key))
-          fillBatches.set(key, { color: fc.color, width: fc.width, flats: [] });
-        fillBatches.get(key).flats.push(fc.flat);
+        if (fc.isConstruction) {
+          constructionFlats.push(fc);
+        } else {
+          const key = `${fc.color.r},${fc.color.g},${fc.color.b},${fc.color.a}|${fc.width}`;
+          if (!fillBatches.has(key))
+            fillBatches.set(key, {
+              color: fc.color,
+              width: fc.width,
+              flats: [],
+            });
+          fillBatches.get(key).flats.push(fc.flat);
+        }
       }
 
       for (const [key, batch] of fillBatches) {
@@ -1466,92 +1440,38 @@ class MapRenderer {
         }
         this.ctx.stroke();
       }
-    }
 
-    // Render construction roads with red-white dashed pattern
-    if (construction.length > 0) {
-      const lonRange = bounds.maxLon - bounds.minLon;
-      const latRange = bounds.maxLat - bounds.minLat;
-      const cScaleX = this.canvasWidth / lonRange;
-      const cScaleY = this.canvasHeight / latRange;
-      const cMinLon = bounds.minLon;
-      const cMinLat = bounds.minLat;
-      const cCanvasHeight = this.canvasHeight;
-      const cToScreenX = (lon) => (lon - cMinLon) * cScaleX;
-      const cToScreenY = (lat) => cCanvasHeight - (lat - cMinLat) * cScaleY;
+      // Construction roads: white base + red dashes
+      if (constructionFlats.length > 0) {
+        const dashLen = Math.max(4, this.zoom * 2);
 
-      // Collect all construction line segments
-      const constructionFlats = [];
-      for (const item of construction) {
-        const { feature, props, type, width } = item;
-        const geom = feature.geometry;
-        if (!geom || !geom.coordinates) continue;
-
-        const coordArrays =
-          type === "LineString"
-            ? [geom.coordinates]
-            : type === "MultiLineString"
-              ? geom.coordinates
-              : null;
-        if (!coordArrays) continue;
-
-        for (const coords of coordArrays) {
-          if (coords.length < 2) continue;
-          const flat = new Array(coords.length * 2);
-          const screenCoords =
-            this.hoverInfoEnabled || this.selectedFeature
-              ? new Array(coords.length)
-              : null;
-          for (let i = 0; i < coords.length; i++) {
-            const sx = cToScreenX(coords[i][0]);
-            const sy = cToScreenY(coords[i][1]);
-            flat[i * 2] = sx;
-            flat[i * 2 + 1] = sy;
-            if (screenCoords) screenCoords[i] = { x: sx, y: sy };
+        for (const cf of constructionFlats) {
+          // White base
+          this.ctx.strokeStyle = "rgba(255,255,255,1)";
+          this.ctx.lineWidth = cf.width;
+          this.ctx.lineCap = "butt";
+          this.ctx.lineJoin = "round";
+          this.ctx.setLineDash([]);
+          this.ctx.beginPath();
+          this.ctx.moveTo(cf.flat[0], cf.flat[1]);
+          for (let i = 2; i < cf.flat.length; i += 2) {
+            this.ctx.lineTo(cf.flat[i], cf.flat[i + 1]);
           }
-          constructionFlats.push({ flat, width: width || 1 });
-          if (screenCoords) {
-            this.renderedFeatures.push({
-              type: "LineString",
-              screenCoords,
-              properties: props,
-              feature,
-              geometry: geom,
-            });
+          this.ctx.stroke();
+
+          // Red dashes
+          this.ctx.strokeStyle = "rgba(200,60,60,0.8)";
+          this.ctx.lineWidth = cf.width;
+          this.ctx.setLineDash([dashLen, dashLen]);
+          this.ctx.beginPath();
+          this.ctx.moveTo(cf.flat[0], cf.flat[1]);
+          for (let i = 2; i < cf.flat.length; i += 2) {
+            this.ctx.lineTo(cf.flat[i], cf.flat[i + 1]);
           }
+          this.ctx.stroke();
         }
-      }
-
-      // Draw construction pattern: white base, then red dashes on top
-      const dashLen = Math.max(4, this.zoom * 2);
-
-      for (const cf of constructionFlats) {
-        // White base
-        this.ctx.strokeStyle = "rgba(255,255,255,1)";
-        this.ctx.lineWidth = cf.width;
-        this.ctx.lineCap = "butt";
-        this.ctx.lineJoin = "round";
         this.ctx.setLineDash([]);
-        this.ctx.beginPath();
-        this.ctx.moveTo(cf.flat[0], cf.flat[1]);
-        for (let i = 2; i < cf.flat.length; i += 2) {
-          this.ctx.lineTo(cf.flat[i], cf.flat[i + 1]);
-        }
-        this.ctx.stroke();
-
-        // Red dashes
-        this.ctx.strokeStyle = "rgba(200,60,60,0.8)";
-        this.ctx.lineWidth = cf.width;
-        this.ctx.setLineDash([dashLen, dashLen]);
-        this.ctx.beginPath();
-        this.ctx.moveTo(cf.flat[0], cf.flat[1]);
-        for (let i = 2; i < cf.flat.length; i += 2) {
-          this.ctx.lineTo(cf.flat[i], cf.flat[i + 1]);
-        }
-        this.ctx.stroke();
       }
-
-      this.ctx.setLineDash([]);
     }
   }
 
