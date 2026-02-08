@@ -1009,17 +1009,44 @@ class MapRenderer {
       };
     }
 
-    // Landuse areas (commercial, industrial, residential)
+    // Landuse areas
+    if (props.landuse === "residential") {
+      return {
+        layer: "landuse_areas",
+        color: { r: 224, g: 224, b: 224, a: 255 }, // Light gray
+        minLOD: 1,
+        fill: true,
+      };
+    }
+    if (props.landuse === "commercial" || props.landuse === "retail") {
+      return {
+        layer: "landuse_areas",
+        color: { r: 242, g: 216, b: 217, a: 255 }, // Light pink/rose
+        minLOD: 1,
+        fill: true,
+      };
+    }
+    if (props.landuse === "industrial") {
+      return {
+        layer: "landuse_areas",
+        color: { r: 235, g: 219, b: 232, a: 255 }, // Light purple
+        minLOD: 1,
+        fill: true,
+      };
+    }
     if (
-      props.landuse === "commercial" ||
-      props.landuse === "industrial" ||
-      props.landuse === "retail" ||
-      props.landuse === "residential"
+      props.landuse === "cemetery" ||
+      props.landuse === "allotments" ||
+      props.landuse === "recreation_ground" ||
+      props.leisure === "garden" ||
+      props.leisure === "playground" ||
+      props.leisure === "pitch" ||
+      props.leisure === "sports_centre"
     ) {
       return {
         layer: "landuse_areas",
-        color: { r: 240, g: 225, b: 225, a: 255 },
-        minLOD: 2,
+        color: { r: 205, g: 235, b: 176, a: 255 }, // Light green (distinct from parks)
+        minLOD: 1,
         fill: true,
       };
     }
@@ -1102,7 +1129,7 @@ class MapRenderer {
       } else if (props.highway === "tertiary") {
         color = { r: 255, g: 255, b: 255, a: 255 }; // OSM tertiary white
         realWidthMeters = 6; // ~1.5 lanes
-        minLOD = 2;
+        minLOD = 1;
         roadPriority = 4;
       } else if (
         props.highway === "residential" ||
@@ -1110,7 +1137,7 @@ class MapRenderer {
       ) {
         color = { r: 255, g: 255, b: 255, a: 255 }; // OSM residential white
         realWidthMeters = 5; // ~1-2 lanes
-        minLOD = 2;
+        minLOD = 1;
         roadPriority = 3;
       } else if (props.highway === "service" || props.highway === "track") {
         color = { r: 255, g: 255, b: 255, a: 255 }; // OSM service white
