@@ -179,6 +179,43 @@
         background: #5a6268;
       }
 
+      .poi-toggles {
+        margin-top: 10px;
+        display: flex;
+        gap: 5px;
+        flex-wrap: wrap;
+        align-items: center;
+        width: 100%;
+      }
+
+      .poi-toggles-label {
+        font-weight: bold;
+        font-size: 13px;
+        color: #555;
+        margin-right: 2px;
+      }
+
+      .poi-toggle {
+        padding: 4px 8px;
+        font-size: 11px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .poi-swatch {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        flex-shrink: 0;
+      }
+
+      .poi-toggle.inactive .poi-swatch {
+        background: #999 !important;
+        opacity: 0.5;
+      }
+
       .zoom-indicator {
         padding: 8px 15px;
         background: #e9ecef;
@@ -285,6 +322,9 @@
           </button>
           <div class="zoom-indicator">
             Zoom: <span id="zoomLevel">1.00x</span>
+          </div>
+          <div class="poi-toggles" id="poiToggles">
+            <span class="poi-toggles-label">POIs:</span>
           </div>
         </div>
 

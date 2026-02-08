@@ -1,5 +1,221 @@
 // Hamburg Map Renderer - Canvas2D with Zoom/Pan/Tooltips
-// VERSION: 2024-RAILWAY-PATTERN-v2
+// VERSION: 2024-POI-CATEGORIES
+
+// POI category definitions with tag mappings
+const POI_CATEGORIES = {
+  food_drink: {
+    label: "Food & Drink",
+    color: { r: 231, g: 76, b: 60 },
+    amenity: new Set([
+      "restaurant",
+      "fast_food",
+      "cafe",
+      "ice_cream",
+      "food_court",
+      "bbq",
+    ]),
+    shop: new Set([
+      "bakery",
+      "pastry",
+      "deli",
+      "confectionery",
+      "butcher",
+      "cheese",
+      "seafood",
+      "coffee",
+      "tea",
+      "wine",
+      "beverages",
+      "alcohol",
+    ]),
+  },
+  shopping: {
+    label: "Shopping",
+    color: { r: 155, g: 89, b: 182 },
+    shop: new Set([
+      "hairdresser",
+      "clothes",
+      "kiosk",
+      "supermarket",
+      "convenience",
+      "beauty",
+      "jewelry",
+      "florist",
+      "chemist",
+      "mobile_phone",
+      "optician",
+      "shoes",
+      "furniture",
+      "books",
+      "bicycle",
+      "car_repair",
+      "tailor",
+      "tattoo",
+      "massage",
+      "interior_decoration",
+      "electronics",
+      "hardware",
+      "sports",
+      "toys",
+      "gift",
+      "stationery",
+      "pet",
+      "photo",
+      "music",
+      "art",
+      "bag",
+      "fabric",
+      "garden_centre",
+      "hearing_aids",
+      "travel_agency",
+      "dry_cleaning",
+      "laundry",
+      "car",
+      "car_parts",
+      "tyres",
+      "motorcycle",
+    ]),
+    amenity: new Set(["marketplace", "vending_machine"]),
+  },
+  health: {
+    label: "Health",
+    color: { r: 46, g: 204, b: 113 },
+    amenity: new Set([
+      "doctors",
+      "dentist",
+      "pharmacy",
+      "hospital",
+      "clinic",
+      "veterinary",
+      "nursing_home",
+    ]),
+  },
+  tourism: {
+    label: "Tourism",
+    color: { r: 230, g: 126, b: 34 },
+    tourism: new Set([
+      "artwork",
+      "hotel",
+      "museum",
+      "viewpoint",
+      "information",
+      "attraction",
+      "guest_house",
+      "hostel",
+      "gallery",
+      "camp_site",
+      "picnic_site",
+      "zoo",
+      "theme_park",
+      "motel",
+      "apartment",
+    ]),
+  },
+  historic: {
+    label: "Historic",
+    color: { r: 139, g: 69, b: 19 },
+    historic: new Set([
+      "memorial",
+      "boundary_stone",
+      "monument",
+      "castle",
+      "ruins",
+      "archaeological_site",
+      "building",
+      "church",
+      "manor",
+      "city_gate",
+      "wayside_cross",
+      "wayside_shrine",
+      "heritage",
+      "milestone",
+      "tomb",
+      "technical_monument",
+      "highwater_mark",
+    ]),
+  },
+  services: {
+    label: "Services",
+    color: { r: 52, g: 152, b: 219 },
+    amenity: new Set([
+      "bank",
+      "post_office",
+      "library",
+      "police",
+      "fire_station",
+      "townhall",
+      "courthouse",
+      "embassy",
+      "community_centre",
+      "social_facility",
+      "place_of_worship",
+      "cinema",
+      "theatre",
+      "arts_centre",
+      "driving_school",
+      "recycling",
+      "post_box",
+      "atm",
+      "bureau_de_change",
+      "toilets",
+      "events_venue",
+      "childcare",
+    ]),
+  },
+  transport: {
+    label: "Transport",
+    color: { r: 26, g: 188, b: 156 },
+    amenity: new Set([
+      "bicycle_rental",
+      "parking",
+      "parking_entrance",
+      "fuel",
+      "charging_station",
+      "car_sharing",
+      "taxi",
+      "bus_station",
+      "ferry_terminal",
+      "car_rental",
+      "boat_rental",
+    ]),
+  },
+  education: {
+    label: "Education",
+    color: { r: 243, g: 156, b: 18 },
+    amenity: new Set([
+      "kindergarten",
+      "school",
+      "university",
+      "college",
+      "music_school",
+      "language_school",
+      "training",
+    ]),
+  },
+  nightlife: {
+    label: "Nightlife",
+    color: { r: 233, g: 30, b: 144 },
+    amenity: new Set([
+      "bar",
+      "pub",
+      "nightclub",
+      "biergarten",
+      "casino",
+      "gambling",
+      "hookah_lounge",
+    ]),
+  },
+};
+
+// Classification priority order for amenity tags
+const POI_AMENITY_PRIORITY = [
+  "food_drink",
+  "nightlife",
+  "health",
+  "education",
+  "transport",
+  "services",
+];
 
 class MapRenderer {
   constructor() {
@@ -33,6 +249,14 @@ class MapRenderer {
     this.selectedFeature = null;
     this.hoverInfoEnabled = false; // Toggle for hover info mode
 
+    // POI category state and glyph cache
+    this.glyphCache = {}; // categoryId -> { canvas, size }
+    this.poiCategoryState = {}; // categoryId -> boolean
+    for (const catId of Object.keys(POI_CATEGORIES)) {
+      this.poiCategoryState[catId] = true; // all enabled by default
+    }
+    this._poiRenderQueue = [];
+
     // Performance optimizations
     this.renderTimeout = null;
     this.renderDelay = 50; // ms delay for debouncing
@@ -59,10 +283,163 @@ class MapRenderer {
       // Set up event listeners for zoom and pan
       this.setupInteractions();
 
+      // Pre-render POI glyph sprites and create toggle buttons
+      this.initGlyphCache();
+      this.initPOIToggles();
+
       return true;
     } catch (error) {
       console.error("Failed to initialize canvas:", error);
       return false;
+    }
+  }
+
+  initGlyphCache() {
+    const glyphSize = 16;
+    for (const [catId, catDef] of Object.entries(POI_CATEGORIES)) {
+      const offscreen = document.createElement("canvas");
+      offscreen.width = glyphSize;
+      offscreen.height = glyphSize;
+      const ctx = offscreen.getContext("2d");
+      this.drawGlyph(ctx, catId, catDef.color, glyphSize);
+      this.glyphCache[catId] = { canvas: offscreen, size: glyphSize };
+    }
+  }
+
+  drawGlyph(ctx, categoryId, color, size) {
+    const cx = size / 2;
+    const cy = size / 2;
+    const r = size * 0.35;
+    const colorStr = `rgb(${color.r},${color.g},${color.b})`;
+
+    // Helper: stroke white halo then colored fill for a path
+    const haloStroke = (lineWidth) => {
+      ctx.lineWidth = lineWidth + 2;
+      ctx.strokeStyle = "white";
+      ctx.stroke();
+      ctx.lineWidth = lineWidth;
+      ctx.strokeStyle = colorStr;
+      ctx.stroke();
+    };
+    const haloFill = () => {
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "white";
+      ctx.stroke();
+      ctx.fillStyle = colorStr;
+      ctx.fill();
+    };
+
+    switch (categoryId) {
+      case "food_drink": {
+        // Fork and knife
+        ctx.beginPath();
+        ctx.moveTo(cx - r * 0.4, cy + r);
+        ctx.lineTo(cx - r * 0.1, cy - r);
+        ctx.moveTo(cx + r * 0.4, cy + r);
+        ctx.lineTo(cx + r * 0.1, cy - r);
+        haloStroke(1.5);
+        break;
+      }
+      case "shopping": {
+        // Shopping bag
+        const bw = r * 1.3,
+          bh = r * 1.2;
+        ctx.beginPath();
+        ctx.rect(cx - bw / 2, cy - bh / 2 + 1, bw, bh);
+        haloFill();
+        // Handle
+        ctx.beginPath();
+        ctx.arc(cx, cy - bh / 2 + 1, bw * 0.28, Math.PI, 0);
+        haloStroke(1.5);
+        break;
+      }
+      case "health": {
+        // Medical cross
+        const cw = r * 0.5,
+          ch = r * 1.3;
+        ctx.beginPath();
+        ctx.rect(cx - cw / 2, cy - ch / 2, cw, ch);
+        ctx.rect(cx - ch / 2, cy - cw / 2, ch, cw);
+        haloFill();
+        break;
+      }
+      case "tourism": {
+        // Info "i" in circle
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.85, 0, Math.PI * 2);
+        haloFill();
+        // White "i"
+        ctx.fillStyle = "white";
+        ctx.beginPath();
+        ctx.arc(cx, cy - r * 0.35, r * 0.15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(cx - r * 0.12, cy - r * 0.1, r * 0.24, r * 0.7);
+        break;
+      }
+      case "historic": {
+        // Monument/obelisk
+        ctx.beginPath();
+        ctx.moveTo(cx - r * 0.35, cy + r);
+        ctx.lineTo(cx + r * 0.35, cy + r);
+        ctx.lineTo(cx + r * 0.2, cy - r * 0.4);
+        ctx.lineTo(cx, cy - r);
+        ctx.lineTo(cx - r * 0.2, cy - r * 0.4);
+        ctx.closePath();
+        haloFill();
+        break;
+      }
+      case "services": {
+        // Gear circle
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.8, 0, Math.PI * 2);
+        haloFill();
+        // White inner circle
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.32, 0, Math.PI * 2);
+        ctx.fillStyle = "white";
+        ctx.fill();
+        break;
+      }
+      case "transport": {
+        // Bus front view
+        const bw2 = r * 1.2,
+          bh2 = r * 1.3;
+        ctx.beginPath();
+        ctx.roundRect(cx - bw2 / 2, cy - bh2 / 2, bw2, bh2, 2);
+        haloFill();
+        // Windshield (white rect)
+        ctx.fillStyle = "white";
+        ctx.fillRect(cx - bw2 * 0.35, cy - bh2 * 0.3, bw2 * 0.7, bh2 * 0.35);
+        break;
+      }
+      case "education": {
+        // Book shape
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - r);
+        ctx.lineTo(cx + r, cy);
+        ctx.lineTo(cx, cy + r * 0.3);
+        ctx.lineTo(cx - r, cy);
+        ctx.closePath();
+        haloFill();
+        break;
+      }
+      case "nightlife": {
+        // Cocktail glass
+        ctx.beginPath();
+        ctx.moveTo(cx - r * 0.75, cy - r * 0.6);
+        ctx.lineTo(cx + r * 0.75, cy - r * 0.6);
+        ctx.lineTo(cx, cy + r * 0.2);
+        ctx.closePath();
+        haloFill();
+        // Stem
+        ctx.beginPath();
+        ctx.moveTo(cx, cy + r * 0.2);
+        ctx.lineTo(cx, cy + r * 0.8);
+        ctx.moveTo(cx - r * 0.35, cy + r * 0.8);
+        ctx.lineTo(cx + r * 0.35, cy + r * 0.8);
+        haloStroke(1.2);
+        break;
+      }
     }
   }
 
@@ -878,6 +1255,7 @@ class MapRenderer {
           isRailway: featureInfo.isRailway,
           roadPriority: featureInfo.roadPriority,
           isConstruction: featureInfo.isConstruction,
+          poiCategory: featureInfo.poiCategory,
         });
       }
     }
@@ -952,6 +1330,43 @@ class MapRenderer {
     if (this.zoom < 4) return 1;
     if (this.zoom < 10) return 2;
     return 3;
+  }
+
+  classifyPOI(props) {
+    const amenity = props.amenity;
+    const shop = props.shop;
+    const tourism = props.tourism;
+    const historic = props.historic;
+
+    // Check amenity tags first (highest priority)
+    if (amenity) {
+      for (const catId of POI_AMENITY_PRIORITY) {
+        const catDef = POI_CATEGORIES[catId];
+        if (catDef.amenity && catDef.amenity.has(amenity)) return catId;
+      }
+      // Also check shopping's amenity set
+      if (POI_CATEGORIES.shopping.amenity.has(amenity)) return "shopping";
+    }
+    // Check shop tags
+    if (shop) {
+      for (const [catId, catDef] of Object.entries(POI_CATEGORIES)) {
+        if (catDef.shop && catDef.shop.has(shop)) return catId;
+      }
+      return "shopping"; // fallback for unrecognized shops
+    }
+    // Check tourism tags
+    if (tourism) {
+      if (POI_CATEGORIES.tourism.tourism.has(tourism)) return "tourism";
+      return "tourism"; // fallback
+    }
+    // Check historic tags
+    if (historic) {
+      if (POI_CATEGORIES.historic.historic.has(historic)) return "historic";
+      return "historic"; // fallback
+    }
+    // Unmatched amenity -> services
+    if (amenity) return "services";
+    return null;
   }
 
   classifyFeature(props, type) {
@@ -1280,17 +1695,28 @@ class MapRenderer {
         return { layer: null, minLOD: 999, fill: false };
       }
 
-      // Only show meaningful POIs with names at very high zoom
+      // Categorize named POIs
       if (
         props.name &&
         (props.amenity || props.shop || props.tourism || props.historic)
       ) {
-        return {
-          layer: "points",
-          color: { r: 100, g: 100, b: 100, a: 255 },
-          minLOD: 3,
-          fill: false,
-        };
+        const poiCategory = this.classifyPOI(props);
+        if (poiCategory && this.poiCategoryState[poiCategory]) {
+          const catDef = POI_CATEGORIES[poiCategory];
+          return {
+            layer: "points",
+            color: {
+              r: catDef.color.r,
+              g: catDef.color.g,
+              b: catDef.color.b,
+              a: 255,
+            },
+            minLOD: 3,
+            fill: false,
+            poiCategory,
+          };
+        }
+        return { layer: null, minLOD: 999, fill: false }; // category disabled
       }
       return { layer: null, minLOD: 999, fill: false }; // Skip other points
     }
@@ -1550,17 +1976,26 @@ class MapRenderer {
           const [lon, lat] = geom.coordinates;
           const sx = toScreenX(lon);
           const sy = toScreenY(lat);
-          const colorStr = `rgba(${color.r},${color.g},${color.b},${color.a / 255})`;
 
-          if (!fillBatches.has(colorStr)) {
-            fillBatches.set(colorStr, {
-              points: [],
-              polygons: [],
-              features: [],
+          // Collect POIs for glyph rendering
+          if (item.poiCategory) {
+            this._poiRenderQueue.push({
+              x: sx,
+              y: sy,
+              category: item.poiCategory,
             });
+          } else {
+            // Non-categorized points: batch as colored circles
+            const colorStr = `rgba(${color.r},${color.g},${color.b},${color.a / 255})`;
+            if (!fillBatches.has(colorStr)) {
+              fillBatches.set(colorStr, {
+                points: [],
+                polygons: [],
+                features: [],
+              });
+            }
+            fillBatches.get(colorStr).points.push(sx, sy);
           }
-          const batch = fillBatches.get(colorStr);
-          batch.points.push(sx, sy);
           if (this.hoverInfoEnabled || this.selectedFeature) {
             this.renderedFeatures.push({
               type: "Point",
@@ -1755,6 +2190,31 @@ class MapRenderer {
         }
         this.ctx.stroke();
       }
+    }
+
+    // Flush POI glyphs
+    if (this._poiRenderQueue.length > 0) {
+      const displaySize = 12;
+      const halfSize = displaySize / 2;
+
+      // Sort by category for GPU texture cache locality
+      this._poiRenderQueue.sort((a, b) =>
+        a.category < b.category ? -1 : a.category > b.category ? 1 : 0,
+      );
+
+      for (const poi of this._poiRenderQueue) {
+        const glyph = this.glyphCache[poi.category];
+        if (glyph) {
+          this.ctx.drawImage(
+            glyph.canvas,
+            poi.x - halfSize,
+            poi.y - halfSize,
+            displaySize,
+            displaySize,
+          );
+        }
+      }
+      this._poiRenderQueue.length = 0;
     }
   }
 
@@ -1960,6 +2420,32 @@ class MapRenderer {
   toggleHoverInfo() {
     this.hoverInfoEnabled = !this.hoverInfoEnabled;
     this.updateHoverUI();
+  }
+
+  initPOIToggles() {
+    const container = document.getElementById("poiToggles");
+    if (!container) return;
+    for (const [catId, catDef] of Object.entries(POI_CATEGORIES)) {
+      const btn = document.createElement("button");
+      btn.className = "button-toggle poi-toggle";
+      btn.dataset.category = catId;
+      btn.innerHTML = `<span class="poi-swatch" style="background:rgb(${catDef.color.r},${catDef.color.g},${catDef.color.b})"></span>${catDef.label}`;
+      btn.addEventListener("click", () => this.togglePOICategory(catId));
+      container.appendChild(btn);
+    }
+  }
+
+  togglePOICategory(catId) {
+    this.poiCategoryState[catId] = !this.poiCategoryState[catId];
+    const btn = document.querySelector(`.poi-toggle[data-category="${catId}"]`);
+    if (btn) {
+      if (this.poiCategoryState[catId]) {
+        btn.classList.remove("inactive");
+      } else {
+        btn.classList.add("inactive");
+      }
+    }
+    this.renderMap();
   }
 
   updateHoverUI() {

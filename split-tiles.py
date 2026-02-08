@@ -23,6 +23,242 @@ from pathlib import Path
 MIN_LON = 9.77
 MAX_LON = 10.21
 MIN_LAT = 53.415
+
+# POI category definitions (mirrors map_renderer.js POI_CATEGORIES)
+POI_CATEGORIES = {
+    "food_drink": {
+        "color": {"r": 231, "g": 76, "b": 60, "a": 255},
+        "amenity": {
+            "restaurant",
+            "fast_food",
+            "cafe",
+            "ice_cream",
+            "food_court",
+            "bbq",
+        },
+        "shop": {
+            "bakery",
+            "pastry",
+            "deli",
+            "confectionery",
+            "butcher",
+            "cheese",
+            "seafood",
+            "coffee",
+            "tea",
+            "wine",
+            "beverages",
+            "alcohol",
+        },
+    },
+    "shopping": {
+        "color": {"r": 155, "g": 89, "b": 182, "a": 255},
+        "shop": {
+            "hairdresser",
+            "clothes",
+            "kiosk",
+            "supermarket",
+            "convenience",
+            "beauty",
+            "jewelry",
+            "florist",
+            "chemist",
+            "mobile_phone",
+            "optician",
+            "shoes",
+            "furniture",
+            "books",
+            "bicycle",
+            "car_repair",
+            "tailor",
+            "tattoo",
+            "massage",
+            "interior_decoration",
+            "electronics",
+            "hardware",
+            "sports",
+            "toys",
+            "gift",
+            "stationery",
+            "pet",
+            "photo",
+            "music",
+            "art",
+            "bag",
+            "fabric",
+            "garden_centre",
+            "hearing_aids",
+            "travel_agency",
+            "dry_cleaning",
+            "laundry",
+            "car",
+            "car_parts",
+            "tyres",
+            "motorcycle",
+        },
+        "amenity": {"marketplace", "vending_machine"},
+    },
+    "health": {
+        "color": {"r": 46, "g": 204, "b": 113, "a": 255},
+        "amenity": {
+            "doctors",
+            "dentist",
+            "pharmacy",
+            "hospital",
+            "clinic",
+            "veterinary",
+            "nursing_home",
+        },
+    },
+    "tourism": {
+        "color": {"r": 230, "g": 126, "b": 34, "a": 255},
+        "tourism": {
+            "artwork",
+            "hotel",
+            "museum",
+            "viewpoint",
+            "information",
+            "attraction",
+            "guest_house",
+            "hostel",
+            "gallery",
+            "camp_site",
+            "picnic_site",
+            "zoo",
+            "theme_park",
+            "motel",
+            "apartment",
+        },
+    },
+    "historic": {
+        "color": {"r": 139, "g": 69, "b": 19, "a": 255},
+        "historic": {
+            "memorial",
+            "boundary_stone",
+            "monument",
+            "castle",
+            "ruins",
+            "archaeological_site",
+            "building",
+            "church",
+            "manor",
+            "city_gate",
+            "wayside_cross",
+            "wayside_shrine",
+            "heritage",
+            "milestone",
+            "tomb",
+            "technical_monument",
+            "highwater_mark",
+        },
+    },
+    "services": {
+        "color": {"r": 52, "g": 152, "b": 219, "a": 255},
+        "amenity": {
+            "bank",
+            "post_office",
+            "library",
+            "police",
+            "fire_station",
+            "townhall",
+            "courthouse",
+            "embassy",
+            "community_centre",
+            "social_facility",
+            "place_of_worship",
+            "cinema",
+            "theatre",
+            "arts_centre",
+            "driving_school",
+            "recycling",
+            "post_box",
+            "atm",
+            "bureau_de_change",
+            "toilets",
+            "events_venue",
+            "childcare",
+        },
+    },
+    "transport": {
+        "color": {"r": 26, "g": 188, "b": 156, "a": 255},
+        "amenity": {
+            "bicycle_rental",
+            "parking",
+            "parking_entrance",
+            "fuel",
+            "charging_station",
+            "car_sharing",
+            "taxi",
+            "bus_station",
+            "ferry_terminal",
+            "car_rental",
+            "boat_rental",
+        },
+    },
+    "education": {
+        "color": {"r": 243, "g": 156, "b": 18, "a": 255},
+        "amenity": {
+            "kindergarten",
+            "school",
+            "university",
+            "college",
+            "music_school",
+            "language_school",
+            "training",
+        },
+    },
+    "nightlife": {
+        "color": {"r": 233, "g": 30, "b": 144, "a": 255},
+        "amenity": {
+            "bar",
+            "pub",
+            "nightclub",
+            "biergarten",
+            "casino",
+            "gambling",
+            "hookah_lounge",
+        },
+    },
+}
+
+POI_AMENITY_PRIORITY = [
+    "food_drink",
+    "nightlife",
+    "health",
+    "education",
+    "transport",
+    "services",
+]
+
+
+def classify_poi(props):
+    """Classify a POI into a category. Returns category ID or None."""
+    amenity = props.get("amenity")
+    shop = props.get("shop")
+    tourism = props.get("tourism")
+    historic = props.get("historic")
+
+    if amenity:
+        for cat_id in POI_AMENITY_PRIORITY:
+            cat_def = POI_CATEGORIES[cat_id]
+            if "amenity" in cat_def and amenity in cat_def["amenity"]:
+                return cat_id
+        if amenity in POI_CATEGORIES["shopping"].get("amenity", set()):
+            return "shopping"
+    if shop:
+        for cat_id, cat_def in POI_CATEGORIES.items():
+            if "shop" in cat_def and shop in cat_def["shop"]:
+                return cat_id
+        return "shopping"
+    if tourism:
+        return "tourism"
+    if historic:
+        return "historic"
+    if amenity:
+        return "services"
+    return None
+
+
 MAX_LAT = 53.685
 
 
@@ -222,11 +458,18 @@ def get_render_metadata(props, geom_type):
             or props.get("tourism")
             or props.get("historic")
         ):
+            poi_cat = classify_poi(props)
+            if poi_cat and poi_cat in POI_CATEGORIES:
+                color = POI_CATEGORIES[poi_cat]["color"]
+            else:
+                color = {"r": 100, "g": 100, "b": 100, "a": 255}
+                poi_cat = "services"
             return {
                 "layer": "points",
-                "color": {"r": 100, "g": 100, "b": 100, "a": 255},
+                "color": color,
                 "minLOD": 3,
                 "fill": False,
+                "poiCategory": poi_cat,
             }
         # Skip all other points
         return None
