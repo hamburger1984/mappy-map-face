@@ -32,6 +32,11 @@ class MapRenderer {
     // Feature detection for tooltips
     this.renderedFeatures = [];
     this.hoveredFeature = null;
+
+    // Performance optimizations
+    this.renderTimeout = null;
+    this.renderDelay = 50; // ms delay for debouncing
+    this.isRendering = false;
   }
 
   async init() {
@@ -93,7 +98,7 @@ class MapRenderer {
       this.offsetY = mouseY - (mouseY - this.offsetY) * zoomRatio;
       this.zoom = newZoom;
 
-      this.renderMap();
+      this.debouncedRender();
       this.updateStats();
     });
 
@@ -113,7 +118,7 @@ class MapRenderer {
         this.offsetY += dy;
         this.lastPanX = e.clientX;
         this.lastPanY = e.clientY;
-        this.renderMap();
+        this.debouncedRender();
       } else {
         // Check for feature hover
         this.checkFeatureHover(e);
@@ -303,12 +308,71 @@ class MapRenderer {
     }
   }
 
+  debouncedRender() {
+    // Clear any pending render
+    if (this.renderTimeout) {
+      clearTimeout(this.renderTimeout);
+    }
+
+    // Schedule new render
+    this.renderTimeout = setTimeout(() => {
+      this.renderMap();
+    }, this.renderDelay);
+  }
+
+  isFeatureInViewport(feature, bounds) {
+    // Quick viewport culling - check if feature overlaps visible area
+    if (!feature.geometry || !feature.geometry.coordinates) return false;
+
+    const checkCoord = (coord) => {
+      const [lon, lat] = coord;
+      return (
+        lon >= bounds.minLon &&
+        lon <= bounds.maxLon &&
+        lat >= bounds.minLat &&
+        lat <= bounds.maxLat
+      );
+    };
+
+    const type = feature.geometry.type;
+    if (type === "Point") {
+      return checkCoord(feature.geometry.coordinates);
+    } else if (type === "LineString") {
+      return feature.geometry.coordinates.some(checkCoord);
+    } else if (type === "Polygon") {
+      return feature.geometry.coordinates[0].some(checkCoord);
+    } else if (type === "MultiLineString") {
+      return feature.geometry.coordinates.some((line) => line.some(checkCoord));
+    } else if (type === "MultiPolygon") {
+      return feature.geometry.coordinates.some((polygon) =>
+        polygon[0].some(checkCoord),
+      );
+    }
+    return false;
+  }
+
   async loadMapData() {
     try {
+      console.log("Fetching map data...");
       const response = await fetch("hamburg.geojson");
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const contentLength = response.headers.get("content-length");
+      if (contentLength) {
+        console.log(
+          `Downloading ${(contentLength / 1024 / 1024).toFixed(1)} MB...`,
+        );
+      }
+
+      console.log(
+        "Parsing GeoJSON (this may take a moment for large files)...",
+      );
       this.mapData = await response.json();
       console.log(
-        `Loaded ${this.mapData.features.length} features from GeoJSON`,
+        `✓ Loaded ${this.mapData.features.length} features from GeoJSON`,
       );
       return true;
     } catch (error) {
@@ -429,11 +493,18 @@ class MapRenderer {
     this.wasm.clearCanvas(240, 248, 255); // Light blue background
 
     let featureCount = 0;
+    let culledCount = 0;
     this.renderedFeatures = [];
 
     // Render features by type
     for (const feature of this.mapData.features) {
       if (!feature.geometry || !feature.geometry.coordinates) continue;
+
+      // Viewport culling - skip features not in view
+      if (!this.isFeatureInViewport(feature, adjustedBounds)) {
+        culledCount++;
+        continue;
+      }
 
       const props = feature.properties || {};
       const type = feature.geometry.type;
@@ -537,7 +608,9 @@ class MapRenderer {
     document.getElementById("stats").querySelector("div").textContent =
       "Status: Rendered";
 
-    console.log(`Rendered ${featureCount} features in ${renderTime}ms`);
+    console.log(
+      `Rendered ${featureCount} features (culled ${culledCount}) in ${renderTime}ms`,
+    );
   }
 
   renderLineString(coordinates, color, bounds) {

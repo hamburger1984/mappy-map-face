@@ -55,10 +55,12 @@ osmium extract -b 9.77,53.415,10.21,53.685 "$HAMBURG_PBF" -o "$HAMBURG_CENTER" -
 echo "✓ Extracted city center ($(du -h "$HAMBURG_CENTER" | cut -f1))"
 echo ""
 
-# Convert to GeoJSON
+# Convert to GeoJSON with simplification
 HAMBURG_GEOJSON="$PUBLIC_DIR/hamburg.geojson"
-echo "Converting to GeoJSON format..."
-osmium export "$HAMBURG_CENTER" -o "$HAMBURG_GEOJSON" --overwrite
+echo "Converting to GeoJSON format (with geometry simplification)..."
+osmium export "$HAMBURG_CENTER" -o "$HAMBURG_GEOJSON" --overwrite \
+    --config=osmium-export-config.json 2>/dev/null || \
+    osmium export "$HAMBURG_CENTER" -o "$HAMBURG_GEOJSON" --overwrite
 echo "✓ Converted to GeoJSON ($(du -h "$HAMBURG_GEOJSON" | cut -f1))"
 echo ""
 
