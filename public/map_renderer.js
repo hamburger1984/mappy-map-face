@@ -494,9 +494,26 @@ class MapRenderer {
 
     let featureCount = 0;
     let culledCount = 0;
+    let lodCulledCount = 0;
     this.renderedFeatures = [];
 
-    // Render features by type
+    // Determine LOD (Level of Detail) based on zoom
+    // At low zoom: only major features
+    // At high zoom: all details
+    const lod = this.getLOD();
+
+    // Render in layers: background fills first, then lines, then points
+    const layers = {
+      background: [], // Water bodies, forests, parks (filled)
+      areas: [], // Buildings, landuse (filled)
+      major_roads: [], // Motorways, trunks
+      roads: [], // Other roads
+      railways: [], // Rail lines
+      waterways: [], // Rivers, streams
+      points: [], // POIs
+    };
+
+    // Classify and filter features by LOD
     for (const feature of this.mapData.features) {
       if (!feature.geometry || !feature.geometry.coordinates) continue;
 
@@ -509,93 +526,38 @@ class MapRenderer {
       const props = feature.properties || {};
       const type = feature.geometry.type;
 
-      // Determine color based on feature type
-      let color = { r: 100, g: 100, b: 100, a: 255 }; // Default gray
-
-      if (props.highway) {
-        if (["motorway", "trunk"].includes(props.highway)) {
-          color = { r: 233, g: 115, b: 103, a: 255 }; // Orange-red
-        } else if (["primary", "secondary"].includes(props.highway)) {
-          color = { r: 252, g: 214, b: 164, a: 255 }; // Light orange
-        } else {
-          color = { r: 255, g: 255, b: 255, a: 255 }; // White
-        }
-      } else if (props.building) {
-        color = { r: 218, g: 208, b: 200, a: 255 }; // Beige
-      } else if (props.natural === "water" || props.water || props.waterway) {
-        color = { r: 170, g: 211, b: 223, a: 255 }; // Blue
-      } else if (props.landuse === "forest" || props.natural === "wood") {
-        color = { r: 173, g: 209, b: 158, a: 255 }; // Green
-      } else if (props.railway) {
-        color = { r: 153, g: 153, b: 153, a: 255 }; // Dark gray
+      // LOD filtering - classify feature importance and filter by zoom
+      const featureInfo = this.classifyFeature(props, type);
+      if (featureInfo.minLOD > lod) {
+        lodCulledCount++;
+        continue;
       }
 
-      try {
-        if (type === "Point") {
-          const [lon, lat] = feature.geometry.coordinates;
-          this.wasm.drawPoint(lon, lat, 3, color.r, color.g, color.b, color.a);
-          const screen = this.latLonToScreen(lat, lon, bounds);
-          this.renderedFeatures.push({
-            type: "Point",
-            screenX: screen.x,
-            screenY: screen.y,
-            properties: props,
-            geometry: feature.geometry,
-          });
-          featureCount++;
-        } else if (type === "LineString") {
-          const screenCoords = this.renderLineString(
-            feature.geometry.coordinates,
-            color,
-            bounds,
-          );
-          this.renderedFeatures.push({
-            type: "LineString",
-            screenCoords: screenCoords,
-            properties: props,
-            geometry: feature.geometry,
-          });
-          featureCount++;
-        } else if (type === "Polygon") {
-          const screenCoords = this.renderPolygon(
-            feature.geometry.coordinates[0],
-            color,
-            bounds,
-          );
-          this.renderedFeatures.push({
-            type: "Polygon",
-            screenCoords: screenCoords,
-            properties: props,
-            geometry: feature.geometry,
-          });
-          featureCount++;
-        } else if (type === "MultiLineString") {
-          feature.geometry.coordinates.forEach((line) => {
-            const screenCoords = this.renderLineString(line, color, bounds);
-            this.renderedFeatures.push({
-              type: "LineString",
-              screenCoords: screenCoords,
-              properties: props,
-              geometry: feature.geometry,
-            });
-          });
-          featureCount++;
-        } else if (type === "MultiPolygon") {
-          feature.geometry.coordinates.forEach((polygon) => {
-            const screenCoords = this.renderPolygon(polygon[0], color, bounds);
-            this.renderedFeatures.push({
-              type: "Polygon",
-              screenCoords: screenCoords,
-              properties: props,
-              geometry: feature.geometry,
-            });
-          });
-          featureCount++;
-        }
-      } catch (error) {
-        console.warn("Error rendering feature:", error);
+      // Add to appropriate layer
+      if (featureInfo.layer) {
+        layers[featureInfo.layer].push({
+          feature,
+          props,
+          type,
+          color: featureInfo.color,
+          fill: featureInfo.fill,
+        });
       }
     }
+
+    // Render layers in order (back to front)
+    this.renderLayer(layers.background, bounds, true);
+    this.renderLayer(layers.areas, bounds, true);
+    this.renderLayer(layers.waterways, bounds, false);
+    this.renderLayer(layers.railways, bounds, false);
+    this.renderLayer(layers.major_roads, bounds, false);
+    this.renderLayer(layers.roads, bounds, false);
+    this.renderLayer(layers.points, bounds, false);
+
+    featureCount = Object.values(layers).reduce(
+      (sum, layer) => sum + layer.length,
+      0,
+    );
 
     // Copy WASM buffer to canvas
     this.updateCanvas();
@@ -609,8 +571,259 @@ class MapRenderer {
       "Status: Rendered";
 
     console.log(
-      `Rendered ${featureCount} features (culled ${culledCount}) in ${renderTime}ms`,
+      `Rendered ${featureCount} features (viewport culled: ${culledCount}, LOD culled: ${lodCulledCount}) in ${renderTime}ms`,
     );
+  }
+
+  getLOD() {
+    // Return LOD level based on zoom
+    // 0: Very zoomed out (show only major features)
+    // 1: Medium zoom (show major + secondary features)
+    // 2: Zoomed in (show most features)
+    // 3: Very zoomed in (show all details)
+    if (this.zoom < 1.5) return 0;
+    if (this.zoom < 4) return 1;
+    if (this.zoom < 10) return 2;
+    return 3;
+  }
+
+  classifyFeature(props, type) {
+    // Classify feature and determine: color, layer, minLOD (minimum zoom to show), fill
+    // minLOD: 0=always show, 1=medium zoom, 2=high zoom, 3=very high zoom
+
+    // Water bodies (always visible, filled)
+    if (
+      props.natural === "water" ||
+      props.water === "lake" ||
+      props.water === "reservoir"
+    ) {
+      return {
+        layer: "background",
+        color: { r: 170, g: 211, b: 223, a: 255 },
+        minLOD: 0,
+        fill: true,
+      };
+    }
+
+    // Rivers and streams (visible from medium zoom)
+    if (props.waterway) {
+      const importance = ["river", "canal"].includes(props.waterway) ? 1 : 2;
+      return {
+        layer: "waterways",
+        color: { r: 170, g: 211, b: 223, a: 255 },
+        minLOD: importance,
+        fill: false,
+      };
+    }
+
+    // Forests and woods (always visible when zoomed out, filled)
+    if (props.landuse === "forest" || props.natural === "wood") {
+      return {
+        layer: "background",
+        color: { r: 173, g: 209, b: 158, a: 255 },
+        minLOD: 0,
+        fill: true,
+      };
+    }
+
+    // Parks and green spaces
+    if (
+      props.leisure === "park" ||
+      props.landuse === "grass" ||
+      props.landuse === "meadow"
+    ) {
+      return {
+        layer: "background",
+        color: { r: 200, g: 230, b: 180, a: 255 },
+        minLOD: 1,
+        fill: true,
+      };
+    }
+
+    // Agricultural land
+    if (
+      props.landuse === "farmland" ||
+      props.landuse === "orchard" ||
+      props.landuse === "vineyard"
+    ) {
+      return {
+        layer: "background",
+        color: { r: 238, g: 240, b: 213, a: 255 },
+        minLOD: 1,
+        fill: true,
+      };
+    }
+
+    // Commercial/industrial areas
+    if (
+      props.landuse === "commercial" ||
+      props.landuse === "industrial" ||
+      props.landuse === "retail"
+    ) {
+      return {
+        layer: "areas",
+        color: { r: 240, g: 225, b: 225, a: 255 },
+        minLOD: 2,
+        fill: true,
+      };
+    }
+
+    // Buildings (only show when zoomed in enough)
+    if (props.building) {
+      return {
+        layer: "areas",
+        color: { r: 218, g: 208, b: 200, a: 255 },
+        minLOD: 2,
+        fill: true,
+      };
+    }
+
+    // Major highways (always visible)
+    if (props.highway === "motorway" || props.highway === "trunk") {
+      return {
+        layer: "major_roads",
+        color: { r: 233, g: 115, b: 103, a: 255 },
+        minLOD: 0,
+        fill: false,
+      };
+    }
+
+    // Primary and secondary roads
+    if (props.highway === "primary" || props.highway === "secondary") {
+      return {
+        layer: "major_roads",
+        color: { r: 252, g: 214, b: 164, a: 255 },
+        minLOD: 1,
+        fill: false,
+      };
+    }
+
+    // Tertiary and residential roads
+    if (
+      props.highway === "tertiary" ||
+      props.highway === "residential" ||
+      props.highway === "unclassified"
+    ) {
+      return {
+        layer: "roads",
+        color: { r: 255, g: 255, b: 255, a: 255 },
+        minLOD: 2,
+        fill: false,
+      };
+    }
+
+    // Small roads and paths
+    if (props.highway) {
+      return {
+        layer: "roads",
+        color: { r: 220, g: 220, b: 220, a: 255 },
+        minLOD: 3,
+        fill: false,
+      };
+    }
+
+    // Railways (visible from medium zoom)
+    if (props.railway) {
+      return {
+        layer: "railways",
+        color: { r: 153, g: 153, b: 153, a: 255 },
+        minLOD: 1,
+        fill: false,
+      };
+    }
+
+    // Points of interest
+    if (props.amenity || props.shop || props.tourism) {
+      return {
+        layer: "points",
+        color: { r: 100, g: 100, b: 100, a: 255 },
+        minLOD: 3,
+        fill: false,
+      };
+    }
+
+    // Default: skip unless very zoomed in
+    return {
+      layer: null,
+      color: { r: 180, g: 180, b: 180, a: 255 },
+      minLOD: 3,
+      fill: false,
+    };
+  }
+
+  renderLayer(layerFeatures, bounds, useFill) {
+    for (const item of layerFeatures) {
+      const { feature, props, type, color, fill } = item;
+
+      try {
+        if (type === "Point") {
+          const [lon, lat] = feature.geometry.coordinates;
+          this.wasm.drawPoint(lon, lat, 3, color.r, color.g, color.b, color.a);
+          const screen = this.latLonToScreen(lat, lon, bounds);
+          this.renderedFeatures.push({
+            type: "Point",
+            screenX: screen.x,
+            screenY: screen.y,
+            properties: props,
+            geometry: feature.geometry,
+          });
+        } else if (type === "LineString") {
+          const screenCoords = this.renderLineString(
+            feature.geometry.coordinates,
+            color,
+            bounds,
+          );
+          this.renderedFeatures.push({
+            type: "LineString",
+            screenCoords: screenCoords,
+            properties: props,
+            geometry: feature.geometry,
+          });
+        } else if (type === "Polygon") {
+          const renderFunc =
+            fill && useFill
+              ? this.renderPolygon.bind(this)
+              : this.renderPolygonOutline.bind(this);
+          const screenCoords = renderFunc(
+            feature.geometry.coordinates[0],
+            color,
+            bounds,
+          );
+          this.renderedFeatures.push({
+            type: "Polygon",
+            screenCoords: screenCoords,
+            properties: props,
+            geometry: feature.geometry,
+          });
+        } else if (type === "MultiLineString") {
+          feature.geometry.coordinates.forEach((line) => {
+            const screenCoords = this.renderLineString(line, color, bounds);
+            this.renderedFeatures.push({
+              type: "LineString",
+              screenCoords: screenCoords,
+              properties: props,
+              geometry: feature.geometry,
+            });
+          });
+        } else if (type === "MultiPolygon") {
+          feature.geometry.coordinates.forEach((polygon) => {
+            const renderFunc =
+              fill && useFill
+                ? this.renderPolygon.bind(this)
+                : this.renderPolygonOutline.bind(this);
+            const screenCoords = renderFunc(polygon[0], color, bounds);
+            this.renderedFeatures.push({
+              type: "Polygon",
+              screenCoords: screenCoords,
+              properties: props,
+              geometry: feature.geometry,
+            });
+          });
+        }
+      } catch (error) {
+        console.warn("Error rendering feature:", error);
+      }
+    }
   }
 
   renderLineString(coordinates, color, bounds) {
@@ -644,6 +857,11 @@ class MapRenderer {
     );
 
     return screenCoords;
+  }
+
+  renderPolygonOutline(coordinates, color, bounds) {
+    // Render polygon as outline only (not filled)
+    return this.renderLineString(coordinates, color, bounds);
   }
 
   renderPolygon(coordinates, color, bounds) {
