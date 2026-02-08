@@ -8,6 +8,14 @@ A high-performance map renderer using OpenStreetMap data with WebAssembly (compi
 - **Real OpenStreetMap Data**: Uses actual map data from Geofabrik for Hamburg, Germany
 - **Canvas Rendering**: Direct pixel manipulation on HTML5 Canvas for fast visualization
 - **Feature-based Coloring**: Different map features (roads, buildings, water, forests) are rendered with appropriate colors
+- **Interactive Navigation**: 
+  - 🖱️ Mouse wheel to zoom in/out
+  - 🤚 Click and drag to pan around the map
+  - 📱 Touch gestures for mobile devices
+- **Feature Inspection**:
+  - Hover over features to see tooltips with details
+  - Info panel displays comprehensive feature properties
+  - Detect streets, buildings, water bodies, and points of interest
 - **Export Capability**: Save rendered maps as PNG images
 
 ## Architecture
@@ -62,53 +70,64 @@ osm-renderer/
   - Ubuntu/Debian: `apt-get install osmium-tool`
 - curl (for downloading data)
 - Python 3 (for local web server)
+- just (command runner, optional but recommended)
+  - macOS: `brew install just`
+  - See: https://github.com/casey/just
 
 ### Setup and Run
 
-1. **Clone and enter the directory**:
-   ```bash
-   cd osm-renderer
-   ```
+Using `just` (recommended):
 
-2. **Build everything** (WASM + data):
-   ```bash
-   make all
-   ```
-   Or build components separately:
-   ```bash
-   make build    # Compile Zig to WebAssembly
-   make data     # Download and process OSM data
-   ```
+```bash
+# See all available commands
+just
 
-3. **Start the web server**:
-   ```bash
-   make serve
-   # Or use the shell script:
-   ./start-server.sh
-   ```
+# Build WASM and download data
+just all
 
-4. **Open your browser** to: `http://localhost:8080`
+# Start the development server
+just serve
 
-### Manual Build Steps
+# Or build and serve in one command
+just dev
+```
 
-If you prefer not to use Make:
+Using Zig build system:
 
-1. **Compile Zig to WebAssembly**:
-   ```bash
-   zig build -Doptimize=ReleaseSmall
-   cp zig-out/bin/map_renderer.wasm public/
-   ```
+```bash
+# Build WASM (auto-copies to public/)
+zig build
 
-2. **Download and process OSM data**:
-   ```bash
-   ./fetch-data.sh
-   ```
+# Download and process OSM data
+zig build data
 
-3. **Start the server**:
-   ```bash
-   cd public
-   python3 -m http.server 8080
-   ```
+# Start server manually
+cd public && python3 -m http.server 8080
+```
+
+Using shell scripts:
+
+```bash
+# Build WASM
+zig build -Doptimize=ReleaseSmall
+
+# Download data
+./fetch-data.sh
+
+# Start server
+./start-server.sh
+```
+
+Then open your browser to: `http://localhost:8080`
+
+### Interactive Controls
+
+Once the map loads:
+- **Zoom**: Scroll mouse wheel
+- **Pan**: Click and drag
+- **Inspect**: Hover over features to see tooltips and info panel
+- **Reset**: Click "Reset View" to return to default zoom/pan
+- **Export**: Save the current view as PNG
 
 ## How It Works
 

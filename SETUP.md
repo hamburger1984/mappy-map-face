@@ -2,31 +2,66 @@
 
 ## First Time Setup
 
+Using `just` (recommended):
+
 ```bash
 # 1. Build the WASM module and download OSM data
-make all
+just all
 
 # 2. Start the web server
-make serve
+just serve
 
 # 3. Open http://localhost:8080 in your browser
+```
+
+Or using Zig directly:
+
+```bash
+# 1. Build and fetch data
+zig build
+zig build data
+
+# 2. Start the server
+cd public && python3 -m http.server 8080
 ```
 
 That's it! The map should render automatically when the page loads.
 
 ## Individual Commands
 
+Using `just`:
 ```bash
-make build    # Only compile Zig to WASM
-make data     # Only download/process OSM data
-make clean    # Remove build artifacts
-make serve    # Start web server
-make help     # Show all commands
+just          # List all commands
+just build    # Only compile Zig to WASM
+just data     # Only download/process OSM data
+just clean    # Remove build artifacts
+just serve    # Start web server
+just dev      # Build + serve
+just info     # Show project info
 ```
+
+Using `zig build`:
+```bash
+zig build            # Compile WASM (auto-copies to public/)
+zig build data       # Download/process OSM data
+zig build --help     # Show build options
+```
+
+## Interactive Features
+
+Once the map loads, you can:
+
+- **Zoom**: Scroll mouse wheel (or pinch on mobile)
+- **Pan**: Click and drag (or swipe on mobile)
+- **Inspect Features**: Hover over roads, buildings, water, etc. to see:
+  - Tooltip with quick info
+  - Detailed properties in the info panel
+- **Reset View**: Return to default zoom/pan
+- **Export**: Save current view as PNG image
 
 ## What Gets Downloaded
 
-The `make data` command (or `./fetch-data.sh`) will:
+The `just data` command (or `zig build data` or `./fetch-data.sh`) will:
 
 1. Download Hamburg OSM extract from Geofabrik (~50 MB)
 2. Extract city center area (9.95°-10.05° E, 53.53°-53.58° N)
@@ -90,10 +125,15 @@ Files marked "(generated)" are created during build/data fetch and are not in gi
 ## Development Workflow
 
 1. **Edit Zig code** (`src/map_renderer.zig`)
-2. **Rebuild**: `make build`
+2. **Rebuild**: `just build` or `zig build`
 3. **Reload browser** to see changes
 
 No need to restart the server - just refresh the page!
+
+For automatic rebuilds on file changes:
+```bash
+just watch    # Requires watchexec: brew install watchexec
+```
 
 ## Customizing the Map Area
 
@@ -107,7 +147,7 @@ osmium extract -b 9.95,53.53,10.05,53.58 ...
 osmium extract -b 9.8,53.4,10.2,53.7 ...
 ```
 
-Then run `make data` to regenerate.
+Then run `just data` or `zig build data` to regenerate.
 
 ## Performance Tips
 

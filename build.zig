@@ -21,4 +21,16 @@ pub fn build(b: *std.Build) void {
     wasm.rdynamic = true;
 
     b.installArtifact(wasm);
+
+    // Copy WASM to public directory
+    const copy_wasm = b.addInstallFile(
+        wasm.getEmittedBin(),
+        "../public/map_renderer.wasm",
+    );
+    b.getInstallStep().dependOn(&copy_wasm.step);
+
+    // Add a step to fetch OSM data
+    const fetch_data = b.step("data", "Download and process OSM data");
+    const fetch_cmd = b.addSystemCommand(&.{"./fetch-data.sh"});
+    fetch_data.dependOn(&fetch_cmd.step);
 }
