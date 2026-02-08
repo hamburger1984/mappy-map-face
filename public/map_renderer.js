@@ -682,13 +682,16 @@ class MapRenderer {
     const lod = this.getLOD();
 
     // Render in layers: background fills first, then lines, then points
+    // Order matters: earlier layers render first (behind later layers)
     const layers = {
-      background: [], // Water bodies, forests, parks (filled)
+      parks: [], // Parks, meadows (large green areas - render first)
+      forests: [], // Forests, woods (render on top of parks)
+      water: [], // Water bodies (render on top of forests)
       areas: [], // Buildings, landuse (filled)
+      waterways: [], // Rivers, streams (linear water features)
+      railways: [], // Rail lines
       major_roads: [], // Motorways, trunks
       roads: [], // Other roads
-      railways: [], // Rail lines
-      waterways: [], // Rivers, streams
       points: [], // POIs
     };
 
@@ -749,7 +752,10 @@ class MapRenderer {
     }
 
     // Render layers in order (back to front)
-    this.renderLayer(layers.background, adjustedBounds, true);
+    // Parks/farmland render first (background), then forests on top, then water, then buildings, then roads
+    this.renderLayer(layers.parks, adjustedBounds, true);
+    this.renderLayer(layers.forests, adjustedBounds, true);
+    this.renderLayer(layers.water, adjustedBounds, true);
     this.renderLayer(layers.areas, adjustedBounds, true);
     this.renderLayer(layers.waterways, adjustedBounds, false);
     this.renderLayer(layers.railways, adjustedBounds, false);
@@ -794,7 +800,45 @@ class MapRenderer {
     // Classify feature and determine: color, layer, minLOD (minimum zoom to show), fill
     // minLOD: 0=always show, 1=medium zoom, 2=high zoom, 3=very high zoom
 
-    // Water bodies (always visible, filled)
+    // Parks and green spaces (render first - largest areas)
+    if (
+      props.leisure === "park" ||
+      props.landuse === "grass" ||
+      props.landuse === "meadow"
+    ) {
+      return {
+        layer: "parks",
+        color: { r: 200, g: 230, b: 180, a: 255 },
+        minLOD: 1,
+        fill: true,
+      };
+    }
+
+    // Agricultural land (also large background areas)
+    if (
+      props.landuse === "farmland" ||
+      props.landuse === "orchard" ||
+      props.landuse === "vineyard"
+    ) {
+      return {
+        layer: "parks",
+        color: { r: 238, g: 240, b: 213, a: 255 },
+        minLOD: 1,
+        fill: true,
+      };
+    }
+
+    // Forests and woods (render on top of parks)
+    if (props.landuse === "forest" || props.natural === "wood") {
+      return {
+        layer: "forests",
+        color: { r: 173, g: 209, b: 158, a: 255 },
+        minLOD: 0,
+        fill: true,
+      };
+    }
+
+    // Water bodies (render on top of forests and parks)
     // Includes lakes, ponds, reservoirs, and riverbanks
     if (
       props.natural === "water" ||
@@ -802,7 +846,7 @@ class MapRenderer {
       props.waterway === "riverbank"
     ) {
       return {
-        layer: "background",
+        layer: "water",
         color: { r: 170, g: 211, b: 223, a: 255 },
         minLOD: 0,
         fill: true,
@@ -817,44 +861,6 @@ class MapRenderer {
         color: { r: 170, g: 211, b: 223, a: 255 },
         minLOD: importance,
         fill: false,
-      };
-    }
-
-    // Forests and woods (always visible when zoomed out, filled)
-    if (props.landuse === "forest" || props.natural === "wood") {
-      return {
-        layer: "background",
-        color: { r: 173, g: 209, b: 158, a: 255 },
-        minLOD: 0,
-        fill: true,
-      };
-    }
-
-    // Parks and green spaces
-    if (
-      props.leisure === "park" ||
-      props.landuse === "grass" ||
-      props.landuse === "meadow"
-    ) {
-      return {
-        layer: "background",
-        color: { r: 200, g: 230, b: 180, a: 255 },
-        minLOD: 1,
-        fill: true,
-      };
-    }
-
-    // Agricultural land
-    if (
-      props.landuse === "farmland" ||
-      props.landuse === "orchard" ||
-      props.landuse === "vineyard"
-    ) {
-      return {
-        layer: "background",
-        color: { r: 238, g: 240, b: 213, a: 255 },
-        minLOD: 1,
-        fill: true,
       };
     }
 
