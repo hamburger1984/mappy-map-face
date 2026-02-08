@@ -804,12 +804,27 @@ class MapRenderer {
 
       // Add to appropriate layer
       if (featureInfo.layer) {
+        // Debug: log Stadthausbrücke specifically
+        if (props.name && props.name.includes("Stadthaus")) {
+          console.log(`Found Stadthausbrücke:`, {
+            name: props.name,
+            highway: props.highway,
+            bridge: props.bridge,
+            layer: featureInfo.layer,
+            width: featureInfo.width,
+            color: featureInfo.color,
+            type: type,
+          });
+        }
+
         layers[featureInfo.layer].push({
           feature,
           props,
           type,
           color: featureInfo.color,
           fill: featureInfo.fill,
+          width: featureInfo.width,
+          isRailway: featureInfo.isRailway,
         });
       }
     }
@@ -1276,6 +1291,13 @@ class MapRenderer {
       }
 
       this.ctx.stroke();
+
+      // Debug: log occasional line rendering
+      if (Math.random() < 0.001) {
+        console.log(
+          `Line rendered: width=${width}, color=rgba(${color.r},${color.g},${color.b},${color.a / 255}), coords=${screenCoords.length}`,
+        );
+      }
     }
 
     return screenCoords;
