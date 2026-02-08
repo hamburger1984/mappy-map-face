@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hamburg OSM Map Renderer - WebAssembly</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .info {
+            color: #666;
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #f9f9f9;
+            border-radius: 4px;
+        }
+
+        .canvas-container {
+            position: relative;
+            display: inline-block;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .stats {
+            margin-top: 20px;
+            padding: 15px;
+            background: #e9ecef;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Hamburg OpenStreetMap Renderer</h1>
+        <div class="info">
+            <strong>WebAssembly + Zig</strong> - High-performance map rendering with compute-intensive operations in WASM
+            <br>Map data: Hamburg city center (Geofabrik extract)
+        </div>
+
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <div>Loading WebAssembly module and map data...</div>
+        </div>
+
+        <div id="mapContainer" style="display: none;">
+            <div class="canvas-container">
+                <canvas id="mapCanvas" width="1200" height="800"></canvas>
+            </div>
+
+            <div class="controls">
+                <button id="renderBtn">Render Map</button>
+                <button id="clearBtn">Clear Canvas</button>
+                <button id="exportBtn">Export as PNG</button>
+            </div>
+
+            <div class="stats" id="stats">
+                <div>Status: Ready</div>
+                <div>Features loaded: <span id="featureCount">0</span></div>
+                <div>Render time: <span id="renderTime">0</span> ms</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="map_renderer.js"></script>
+</body>
+</html>
