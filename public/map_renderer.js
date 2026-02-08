@@ -37,6 +37,17 @@ class MapRenderer {
     this.renderTimeout = null;
     this.renderDelay = 50; // ms delay for debouncing
     this.isRendering = false;
+
+    // Tile system
+    this.tileCache = new Map(); // Cache for loaded tiles
+    this.tileIndex = null; // Tile index metadata
+    this.loadingTiles = new Set(); // Track in-flight tile requests
+    this.tileBounds = {
+      minLon: 9.77,
+      maxLon: 10.21,
+      minLat: 53.415,
+      maxLat: 53.685,
+    };
   }
 
   async init() {
@@ -403,53 +414,159 @@ class MapRenderer {
     return false;
   }
 
-  async loadMapData() {
-    try {
-      console.log("Fetching map data...");
+  // Web Mercator projection helpers
+  lon2tile(lon, zoom) {
+    return Math.floor(((lon + 180) / 360) * Math.pow(2, zoom));
+  }
 
-      // Try to fetch gzipped version first, fall back to uncompressed
-      let response = await fetch("hamburg.geojson.gz");
-      let isGzipped = response.ok;
+  lat2tile(lat, zoom) {
+    return Math.floor(
+      ((1 -
+        Math.log(
+          Math.tan((lat * Math.PI) / 180) + 1 / Math.cos((lat * Math.PI) / 180),
+        ) /
+          Math.PI) /
+        2) *
+        Math.pow(2, zoom),
+    );
+  }
 
-      if (!isGzipped) {
-        console.log("Gzipped file not found, trying uncompressed...");
-        response = await fetch("hamburg.geojson");
+  tile2lon(x, zoom) {
+    return (x / Math.pow(2, zoom)) * 360 - 180;
+  }
+
+  tile2lat(y, zoom) {
+    const n = Math.PI - (2 * Math.PI * y) / Math.pow(2, zoom);
+    return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+  }
+
+  getZoomLevelForScale() {
+    // Determine which tile zoom level to use based on current zoom
+    // At low zoom, use Z8 (far view)
+    // At medium zoom, use Z11 (medium view)
+    // At high zoom, use Z14 (close view)
+    if (this.zoom < 3) return 8;
+    if (this.zoom < 20) return 11;
+    return 14;
+  }
+
+  getVisibleTiles(bounds) {
+    // Calculate which tiles are visible in the current viewport
+    const tileZoom = this.getZoomLevelForScale();
+
+    const minX = this.lon2tile(bounds.minLon, tileZoom);
+    const maxX = this.lon2tile(bounds.maxLon, tileZoom);
+    const minY = this.lat2tile(bounds.maxLat, tileZoom); // Note: lat reversed
+    const maxY = this.lat2tile(bounds.minLat, tileZoom);
+
+    const tiles = [];
+    for (let x = minX; x <= maxX; x++) {
+      for (let y = minY; y <= maxY; y++) {
+        tiles.push({ z: tileZoom, x, y });
       }
+    }
+    return tiles;
+  }
+
+  getTileKey(z, x, y) {
+    return `${z}/${x}/${y}`;
+  }
+
+  async loadTile(z, x, y) {
+    const key = this.getTileKey(z, x, y);
+
+    // Check cache first
+    if (this.tileCache.has(key)) {
+      return this.tileCache.get(key);
+    }
+
+    // Check if already loading
+    if (this.loadingTiles.has(key)) {
+      // Wait for existing load to complete
+      while (this.loadingTiles.has(key)) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return this.tileCache.get(key);
+    }
+
+    // Start loading
+    this.loadingTiles.add(key);
+
+    try {
+      const response = await fetch(`tiles/${z}/${x}/${y}.json.gz`);
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        // Tile doesn't exist (no data in this area)
+        this.loadingTiles.delete(key);
+        this.tileCache.set(key, { type: "FeatureCollection", features: [] });
+        return this.tileCache.get(key);
       }
 
-      const contentLength = response.headers.get("content-length");
-      if (contentLength) {
+      // Decompress tile
+      const compressedData = await response.arrayBuffer();
+      const decompressedStream = new Response(
+        new Response(compressedData).body.pipeThrough(
+          new DecompressionStream("gzip"),
+        ),
+      );
+      const tileData = await decompressedStream.json();
+
+      this.tileCache.set(key, tileData);
+      this.loadingTiles.delete(key);
+
+      return tileData;
+    } catch (error) {
+      console.warn(`Failed to load tile ${key}:`, error);
+      this.loadingTiles.delete(key);
+      this.tileCache.set(key, { type: "FeatureCollection", features: [] });
+      return this.tileCache.get(key);
+    }
+  }
+
+  async loadVisibleTiles(bounds) {
+    const tiles = this.getVisibleTiles(bounds);
+
+    // Load all visible tiles in parallel
+    const tilePromises = tiles.map(({ z, x, y }) => this.loadTile(z, x, y));
+    const tileData = await Promise.all(tilePromises);
+
+    // Merge all tile features into a single GeoJSON
+    const features = [];
+    for (const tile of tileData) {
+      if (tile && tile.features) {
+        features.push(...tile.features);
+      }
+    }
+
+    return {
+      type: "FeatureCollection",
+      features: features,
+    };
+  }
+
+  async loadMapData() {
+    try {
+      console.log("Loading tile index...");
+
+      // Load tile index
+      const indexResponse = await fetch("tiles/index.json");
+      if (indexResponse.ok) {
+        this.tileIndex = await indexResponse.json();
         console.log(
-          `Downloading ${(contentLength / 1024 / 1024).toFixed(1)} MB${isGzipped ? " (gzipped)" : ""}...`,
+          `✓ Tile index loaded: ${this.tileIndex.tile_count} tiles across ${this.tileIndex.zoom_levels.length} zoom levels`,
         );
       }
 
-      console.log(
-        "Parsing GeoJSON (this may take a moment for large files)...",
-      );
+      // Initialize with empty data - tiles will be loaded progressively
+      this.mapData = {
+        type: "FeatureCollection",
+        features: [],
+      };
 
-      if (isGzipped) {
-        // Decompress gzipped data
-        const compressedData = await response.arrayBuffer();
-        const decompressedStream = new Response(
-          new Response(compressedData).body.pipeThrough(
-            new DecompressionStream("gzip"),
-          ),
-        );
-        this.mapData = await decompressedStream.json();
-      } else {
-        this.mapData = await response.json();
-      }
-
-      console.log(
-        `✓ Loaded ${this.mapData.features.length} features from GeoJSON`,
-      );
+      console.log("✓ Tile system initialized - tiles will load on demand");
       return true;
     } catch (error) {
-      console.error("Failed to load map data:", error);
+      console.error("Failed to load tile index:", error);
       return false;
     }
   }
@@ -525,11 +642,11 @@ class MapRenderer {
     return { x, y };
   }
 
-  renderMap() {
+  async renderMap() {
     const startTime = performance.now();
 
-    if (!this.wasm || !this.mapData) {
-      console.error("WASM or map data not loaded");
+    if (!this.wasm) {
+      console.error("WASM not loaded");
       return;
     }
 
@@ -564,6 +681,25 @@ class MapRenderer {
       adjustedBounds.maxLon,
       adjustedBounds.minLat,
       adjustedBounds.maxLat,
+    );
+
+    // Load visible tiles
+    const tileLoadStart = performance.now();
+    const visibleTiles = this.getVisibleTiles(adjustedBounds);
+    const cachedCount = visibleTiles.filter(({ z, x, y }) =>
+      this.tileCache.has(this.getTileKey(z, x, y)),
+    ).length;
+
+    this.mapData = await this.loadVisibleTiles(adjustedBounds);
+    const tileLoadTime = (performance.now() - tileLoadStart).toFixed(2);
+
+    // Update tile stats
+    document.getElementById("tileCount").textContent = visibleTiles.length;
+    document.getElementById("cachedTiles").textContent = cachedCount;
+    document.getElementById("tileLoadTime").textContent = tileLoadTime;
+
+    console.log(
+      `Loaded ${visibleTiles.length} tiles (${cachedCount} cached) with ${this.mapData.features.length} features in ${tileLoadTime}ms`,
     );
 
     // Clear canvas
