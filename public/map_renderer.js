@@ -884,8 +884,15 @@ class MapRenderer {
         "speed_camera",
         "turning_circle",
         "mini_roundabout",
+        "motorway_junction",
+        "bus_stop",
       ];
       if (skipTypes.includes(props.highway)) {
+        return { layer: null, minLOD: 999, fill: false };
+      }
+
+      // Also skip if it's a Point geometry - highways should be LineStrings
+      if (type === "Point") {
         return { layer: null, minLOD: 999, fill: false };
       }
 
@@ -910,10 +917,26 @@ class MapRenderer {
         color = { r: 255, g: 255, b: 255, a: 255 };
         width = 2; // Minor roads (~6-10m wide)
         minLOD = 2;
-      } else {
-        color = { r: 220, g: 220, b: 220, a: 255 };
-        width = 1; // Paths and small roads
+      } else if (
+        props.highway === "footway" ||
+        props.highway === "path" ||
+        props.highway === "pedestrian" ||
+        props.highway === "steps"
+      ) {
+        color = { r: 200, g: 200, b: 200, a: 255 };
+        width = 1; // Footpaths
+        minLOD = 3; // Only at very high zoom
+      } else if (props.highway === "cycleway") {
+        color = { r: 180, g: 200, b: 255, a: 255 }; // Light blue for cycle paths
+        width = 1;
+        minLOD = 3; // Only at very high zoom
+      } else if (props.highway === "service" || props.highway === "track") {
+        color = { r: 230, g: 230, b: 230, a: 255 };
+        width = 1; // Service roads and tracks
         minLOD = 3;
+      } else {
+        // Unknown highway type - skip it to avoid rendering unexpected features
+        return { layer: null, minLOD: 999, fill: false };
       }
 
       // Use actual width from OSM if available (in meters)
