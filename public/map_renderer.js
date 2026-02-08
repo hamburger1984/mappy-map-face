@@ -659,8 +659,23 @@ class MapRenderer {
     const centerLon = this.centerLon; // 9.99
     const centerLat = this.centerLat; // 53.55
 
-    const lonRange = (bounds.maxLon - bounds.minLon) / this.zoom;
-    const latRange = (bounds.maxLat - bounds.minLat) / this.zoom;
+    // Calculate aspect ratio correction for Mercator projection at this latitude
+    // At Hamburg (53.55°N), we need to correct for the cos(latitude) factor
+    const latRad = (centerLat * Math.PI) / 180;
+    const aspectCorrection = 1 / Math.cos(latRad);
+
+    // Canvas aspect ratio (width/height)
+    const canvasAspect = this.canvasWidth / this.canvasHeight; // 1.5 for 1200x800
+
+    // Base ranges from original bounds
+    const baseLonRange = bounds.maxLon - bounds.minLon;
+    const baseLatRange = bounds.maxLat - bounds.minLat;
+
+    // Calculate visible range accounting for zoom
+    // We need to maintain aspect ratio: lonRange should be canvasAspect times latRange (in screen space)
+    // But in geographic space, we need to account for Mercator distortion
+    const latRange = baseLatRange / this.zoom;
+    const lonRange = latRange * canvasAspect * aspectCorrection;
 
     // Adjust for pan (convert screen offset to geo offset)
     // offsetX/Y represent how much we've shifted the view
