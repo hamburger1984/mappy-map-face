@@ -780,13 +780,26 @@ class MapRenderer {
     }
 
     // Railways (visible from medium zoom)
-    if (props.railway) {
-      return {
-        layer: "railways",
-        color: { r: 153, g: 153, b: 153, a: 255 },
-        minLOD: 1,
-        fill: false,
-      };
+    // Only show actual rail tracks, not switches, crossings, stops, etc.
+    if (props.railway && type !== "Point") {
+      // Filter to only show tracks (LineString/Polygon geometry)
+      const trackTypes = [
+        "rail",
+        "light_rail",
+        "subway",
+        "tram",
+        "monorail",
+        "narrow_gauge",
+        "preserved",
+      ];
+      if (trackTypes.includes(props.railway) || !props.railway) {
+        return {
+          layer: "railways",
+          color: { r: 153, g: 153, b: 153, a: 255 },
+          minLOD: 1,
+          fill: false,
+        };
+      }
     }
 
     // Points of interest (only show named/important ones at high zoom)
