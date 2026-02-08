@@ -1196,32 +1196,30 @@ class MapRenderer {
     let featureCount = 0;
     let culledCount = 0;
     let lodCulledCount = 0;
-    this.renderedFeatures = [];
+    this.renderedFeatures.length = 0;
 
     // Determine LOD (Level of Detail) based on zoom
     // At low zoom: only major features
     // At high zoom: all details
     const lod = this.getLOD();
 
-    // Layer structure following proper cartographic z-ordering
-    // Render order: background to foreground (bottom to top)
-    const layers = {
-      // FILLED AREAS (background)
-      natural_background: [], // Parks, farmland, meadows
-      forests: [], // Forests and woods (on top of parks)
-      water_areas: [], // Lakes, rivers, ponds (filled areas)
-      landuse_areas: [], // Commercial, industrial, residential zones
-      buildings: [], // Building footprints
-
-      // LINEAR FEATURES (by vertical layer)
-      tunnels: [], // Underground roads/railways (semi-transparent)
-      waterways: [], // Rivers, streams (linear features)
-      surface_roads: [], // Ground-level roads (including bridges)
-      surface_railways: [], // Ground-level railways (including bridges)
-
-      // POINTS (foreground)
-      points: [], // POIs, always on top
-    };
+    // Reuse layer arrays (avoid reallocating every frame)
+    if (!this._layers) {
+      this._layers = {
+        natural_background: [],
+        forests: [],
+        water_areas: [],
+        landuse_areas: [],
+        buildings: [],
+        tunnels: [],
+        waterways: [],
+        surface_roads: [],
+        surface_railways: [],
+        points: [],
+      };
+    }
+    const layers = this._layers;
+    for (const key in layers) layers[key].length = 0;
 
     // Classify and filter features by LOD
     for (const feature of this.mapData.features) {
@@ -1236,8 +1234,28 @@ class MapRenderer {
       const props = feature.properties || {};
       const type = feature.geometry.type;
 
-      // LOD filtering - classify feature importance and filter by zoom
-      const featureInfo = this.classifyFeature(props, type);
+      // Use cached classification if available, otherwise classify and cache
+      let featureInfo = feature._classCache;
+      if (!featureInfo) {
+        featureInfo = this.classifyFeature(props, type);
+        // Pre-compute batch keys to avoid string allocations in render loop
+        if (featureInfo.color) {
+          const c = featureInfo.color;
+          const w = featureInfo.width || 1;
+          featureInfo._lineKey = `${c.r},${c.g},${c.b},${c.a}|${w}`;
+          featureInfo._fillKey = `rgba(${c.r},${c.g},${c.b},${c.a / 255})`;
+        }
+        feature._classCache = featureInfo;
+      }
+
+      // For POIs, check toggle state dynamically (it can change without re-classifying)
+      if (
+        featureInfo.poiCategory &&
+        !this.poiCategoryState[featureInfo.poiCategory]
+      ) {
+        continue;
+      }
+
       if (featureInfo.minLOD > lod) {
         lodCulledCount++;
         continue;
@@ -1256,6 +1274,8 @@ class MapRenderer {
           roadPriority: featureInfo.roadPriority,
           isConstruction: featureInfo.isConstruction,
           poiCategory: featureInfo.poiCategory,
+          _lineKey: featureInfo._lineKey,
+          _fillKey: featureInfo._fillKey,
         });
       }
     }
@@ -1701,7 +1721,7 @@ class MapRenderer {
         (props.amenity || props.shop || props.tourism || props.historic)
       ) {
         const poiCategory = this.classifyPOI(props);
-        if (poiCategory && this.poiCategoryState[poiCategory]) {
+        if (poiCategory) {
           const catDef = POI_CATEGORIES[poiCategory];
           return {
             layer: "points",
@@ -1716,7 +1736,6 @@ class MapRenderer {
             poiCategory,
           };
         }
-        return { layer: null, minLOD: 999, fill: false }; // category disabled
       }
       return { layer: null, minLOD: 999, fill: false }; // Skip other points
     }
@@ -1986,7 +2005,7 @@ class MapRenderer {
             });
           } else {
             // Non-categorized points: batch as colored circles
-            const colorStr = `rgba(${color.r},${color.g},${color.b},${color.a / 255})`;
+            const colorStr = item._fillKey;
             if (!fillBatches.has(colorStr)) {
               fillBatches.set(colorStr, {
                 points: [],
@@ -2032,12 +2051,11 @@ class MapRenderer {
               }
             }
           } else {
-            const w = width || 1;
-            const key = `${color.r},${color.g},${color.b},${color.a}|${w}`;
+            const key = item._lineKey;
             if (!lineBatches.has(key)) {
               lineBatches.set(key, {
                 color,
-                width: w,
+                width: width || 1,
                 lines: [],
                 features: [],
               });
@@ -2094,7 +2112,7 @@ class MapRenderer {
             }
 
             if (shouldFill) {
-              const colorStr = `rgba(${color.r},${color.g},${color.b},${color.a / 255})`;
+              const colorStr = item._fillKey;
               if (!fillBatches.has(colorStr)) {
                 fillBatches.set(colorStr, {
                   points: [],
@@ -2105,7 +2123,7 @@ class MapRenderer {
               fillBatches.get(colorStr).polygons.push(flat);
             } else {
               // Outline only - batch as lines with width 1
-              const key = `${color.r},${color.g},${color.b},${color.a}|1`;
+              const key = item._lineKey;
               if (!lineBatches.has(key)) {
                 lineBatches.set(key, {
                   color,
