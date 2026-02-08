@@ -547,46 +547,50 @@ class MapRenderer {
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         const dist = Math.sqrt(dx * dx + dy * dy);
         const zoomFactor = dist / touchStartDist;
-        this.zoom = Math.max(
-          this.minZoom,
-          Math.min(this.maxZoom, this.zoom * zoomFactor),
-        );
+        this.setZoom(this.zoom * zoomFactor);
         touchStartDist = dist;
-        this.renderMap();
       }
     });
+
+    // Scroll wheel zoom (logarithmic)
+    this.canvas.addEventListener(
+      "wheel",
+      (e) => {
+        e.preventDefault();
+        const delta = -e.deltaY * 0.002;
+        const logZoom = Math.log2(this.zoom) + delta;
+        this.setZoom(Math.pow(2, logZoom));
+      },
+      { passive: false },
+    );
+  }
+
+  setZoom(newZoom) {
+    newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, newZoom));
+    if (newZoom === this.zoom) return;
+    const scale = newZoom / this.zoom;
+    this.offsetX *= scale;
+    this.offsetY *= scale;
+    this.zoom = newZoom;
+    this.updateZoomSlider();
+    this.updateStats();
+    this.debouncedRender();
   }
 
   zoomIn() {
-    const zoomFactor = 1.3;
-    const oldZoom = this.zoom;
-    const newZoom = Math.min(this.maxZoom, this.zoom * zoomFactor);
-
-    if (newZoom !== this.zoom) {
-      // Scale pixel offset to keep the same geographic center
-      const scale = newZoom / oldZoom;
-      this.offsetX *= scale;
-      this.offsetY *= scale;
-      this.zoom = newZoom;
-      this.renderMap();
-      this.updateStats();
-    }
+    // Step up by ~0.15 on the log2 scale (smooth, ~11% increments)
+    const logZoom = Math.log2(this.zoom) + 0.15;
+    this.setZoom(Math.pow(2, logZoom));
   }
 
   zoomOut() {
-    const zoomFactor = 1 / 1.3;
-    const oldZoom = this.zoom;
-    const newZoom = Math.max(this.minZoom, this.zoom * zoomFactor);
+    const logZoom = Math.log2(this.zoom) - 0.15;
+    this.setZoom(Math.pow(2, logZoom));
+  }
 
-    if (newZoom !== this.zoom) {
-      // Scale pixel offset to keep the same geographic center
-      const scale = newZoom / oldZoom;
-      this.offsetX *= scale;
-      this.offsetY *= scale;
-      this.zoom = newZoom;
-      this.renderMap();
-      this.updateStats();
-    }
+  updateZoomSlider() {
+    const slider = document.getElementById("zoomSlider");
+    if (slider) slider.value = Math.log2(this.zoom);
   }
 
   checkFeatureHover(e) {
@@ -2431,6 +2435,7 @@ class MapRenderer {
     this.zoom = 2; // Match initial zoom
     this.offsetX = 0;
     this.offsetY = 0;
+    this.updateZoomSlider();
     this.renderMap();
     this.updateStats();
   }
@@ -2548,6 +2553,10 @@ async function initApp() {
 
   document.getElementById("zoomOutBtn").addEventListener("click", () => {
     renderer.zoomOut();
+  });
+
+  document.getElementById("zoomSlider").addEventListener("input", (e) => {
+    renderer.setZoom(Math.pow(2, parseFloat(e.target.value)));
   });
 
   document.getElementById("toggleHoverBtn").addEventListener("click", () => {
