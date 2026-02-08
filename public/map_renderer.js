@@ -1357,13 +1357,6 @@ class MapRenderer {
       }
 
       this.ctx.stroke();
-
-      // Debug: log occasional line rendering
-      if (Math.random() < 0.001) {
-        console.log(
-          `Line rendered: width=${width}, color=rgba(${color.r},${color.g},${color.b},${color.a / 255}), coords=${screenCoords.length}`,
-        );
-      }
     }
 
     return screenCoords;
