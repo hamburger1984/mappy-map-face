@@ -12,7 +12,7 @@ class MapRenderer {
     // Viewport state
     // Default zoom shows ~10km radius (20km across)
     // Max zoom shows ~500m across
-    this.zoom = 1.5; // Initial zoom: show city center clearly
+    this.zoom = 2; // Initial zoom: show city center clearly
     this.offsetX = 0;
     this.offsetY = 0;
     this.minZoom = 0.5; // Shows full ~30km dataset
@@ -31,7 +31,7 @@ class MapRenderer {
     this.renderedFeatures = [];
     this.hoveredFeature = null;
     this.selectedFeature = null;
-    this.hoverInfoEnabled = true; // Toggle for hover info mode
+    this.hoverInfoEnabled = false; // Toggle for hover info mode
 
     // Performance optimizations
     this.renderTimeout = null;
@@ -1820,7 +1820,7 @@ class MapRenderer {
   }
 
   resetView() {
-    this.zoom = 1.5; // Match initial zoom
+    this.zoom = 2; // Match initial zoom
     this.offsetX = 0;
     this.offsetY = 0;
     this.renderMap();
@@ -1829,19 +1829,25 @@ class MapRenderer {
 
   toggleHoverInfo() {
     this.hoverInfoEnabled = !this.hoverInfoEnabled;
+    this.updateHoverUI();
+  }
+
+  updateHoverUI() {
     const btn = document.getElementById("toggleHoverBtn");
+    const panel = document.getElementById("infoPanel");
 
     if (this.hoverInfoEnabled) {
       btn.textContent = "Hover Info: ON";
       btn.classList.remove("inactive");
+      if (panel) panel.style.display = "";
     } else {
       btn.textContent = "Hover Info: OFF";
       btn.classList.add("inactive");
+      if (panel) panel.style.display = "none";
 
       // Clear any current hover state
       if (this.hoveredFeature && !this.selectedFeature) {
         this.hoveredFeature = null;
-        this.clearInfoPanel();
         this.renderMap();
       }
     }
@@ -1913,6 +1919,9 @@ async function initApp() {
   document.getElementById("toggleHoverBtn").addEventListener("click", () => {
     renderer.toggleHoverInfo();
   });
+
+  // Set initial UI state
+  renderer.updateHoverUI();
 
   // Auto-render on load
   renderer.renderMap();
