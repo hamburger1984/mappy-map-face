@@ -515,13 +515,19 @@ class MapRenderer {
     // Calculate and set map bounds
     const bounds = this.calculateBounds();
 
-    // Adjust bounds for zoom
-    const centerLon = (bounds.minLon + bounds.maxLon) / 2;
-    const centerLat = (bounds.minLat + bounds.maxLat) / 2;
+    // Adjust bounds for zoom and pan
+    // The key insight: we want to zoom/pan around the GEOGRAPHIC center, not the bounds center
+    // Use fixed Hamburg center coordinates
+    const centerLon = this.centerLon; // 9.99
+    const centerLat = this.centerLat; // 53.55
+
     const lonRange = (bounds.maxLon - bounds.minLon) / this.zoom;
     const latRange = (bounds.maxLat - bounds.minLat) / this.zoom;
 
     // Adjust for pan (convert screen offset to geo offset)
+    // offsetX/Y represent how much we've shifted the view
+    // Positive offsetX = dragged right = need to shift center west (negative lon)
+    // Positive offsetY = dragged down = need to shift center south (negative lat) because screen Y is inverted
     const lonOffset = -(this.offsetX / this.canvasWidth) * lonRange;
     const latOffset = (this.offsetY / this.canvasHeight) * latRange;
 
