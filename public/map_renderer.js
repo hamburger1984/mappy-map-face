@@ -727,32 +727,6 @@ class MapRenderer {
       }
     }
 
-    // Debug: log layer contents
-    console.log("Layer counts:", {
-      parks: layers.parks.length,
-      forests: layers.forests.length,
-      water: layers.water.length,
-      areas: layers.areas.length,
-      waterways: layers.waterways.length,
-      railways: layers.railways.length,
-      major_roads: layers.major_roads.length,
-      roads: layers.roads.length,
-      points: layers.points.length,
-    });
-
-    // Sample a few water features to check if they're classified correctly
-    if (layers.water.length > 0) {
-      console.log(
-        "Sample water features:",
-        layers.water.slice(0, 3).map((f) => ({
-          props: f.props,
-          type: f.type,
-          fill: f.fill,
-          color: f.color,
-        })),
-      );
-    }
-
     // Render layers in order (back to front)
     // Parks/farmland render first (background), then forests on top, then water, then buildings, then roads
     this.renderLayer(layers.parks, adjustedBounds, true);
@@ -985,9 +959,6 @@ class MapRenderer {
   }
 
   renderLayer(layerFeatures, bounds, useFill) {
-    let polygonCount = 0;
-    let filledCount = 0;
-
     for (const item of layerFeatures) {
       const { feature, props, type, color, fill } = item;
 
@@ -1016,13 +987,10 @@ class MapRenderer {
             geometry: feature.geometry,
           });
         } else if (type === "Polygon") {
-          polygonCount++;
-          const willFill = fill && useFill;
-          if (willFill) filledCount++;
-
-          const renderFunc = willFill
-            ? this.renderPolygon.bind(this)
-            : this.renderPolygonOutline.bind(this);
+          const renderFunc =
+            fill && useFill
+              ? this.renderPolygon.bind(this)
+              : this.renderPolygonOutline.bind(this);
           const screenCoords = renderFunc(
             feature.geometry.coordinates[0],
             color,
@@ -1046,13 +1014,10 @@ class MapRenderer {
           });
         } else if (type === "MultiPolygon") {
           feature.geometry.coordinates.forEach((polygon) => {
-            polygonCount++;
-            const willFill = fill && useFill;
-            if (willFill) filledCount++;
-
-            const renderFunc = willFill
-              ? this.renderPolygon.bind(this)
-              : this.renderPolygonOutline.bind(this);
+            const renderFunc =
+              fill && useFill
+                ? this.renderPolygon.bind(this)
+                : this.renderPolygonOutline.bind(this);
             const screenCoords = renderFunc(polygon[0], color, bounds);
             this.renderedFeatures.push({
               type: "Polygon",
@@ -1065,12 +1030,6 @@ class MapRenderer {
       } catch (error) {
         console.warn("Error rendering feature:", error);
       }
-    }
-
-    if (polygonCount > 0) {
-      console.log(
-        `renderLayer: ${polygonCount} polygons (${filledCount} filled, useFill=${useFill})`,
-      );
     }
   }
 
@@ -1113,20 +1072,8 @@ class MapRenderer {
   }
 
   renderPolygon(coordinates, color, bounds) {
-    if (coordinates.length < 3) {
-      console.log(
-        "renderPolygon: skipped - too few coords:",
-        coordinates.length,
-      );
-      return [];
-    }
-    if (coordinates.length * 2 > this.coordBufferSize) {
-      console.log(
-        "renderPolygon: skipped - too many coords:",
-        coordinates.length,
-      );
-      return [];
-    }
+    if (coordinates.length < 3) return [];
+    if (coordinates.length * 2 > this.coordBufferSize) return [];
 
     // Write coordinates directly to WASM coord buffer
     const memory = new Float64Array(this.memory.buffer);
