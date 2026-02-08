@@ -19,10 +19,10 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-# Hamburg bounds
-MIN_LON = 9.77
-MAX_LON = 10.21
-MIN_LAT = 53.415
+# Hamburg region bounds (~100km radius from city center)
+MIN_LON = 8.48
+MAX_LON = 11.50
+MIN_LAT = 52.65
 
 # POI category definitions (mirrors map_renderer.js POI_CATEGORIES)
 POI_CATEGORIES = {
@@ -259,7 +259,7 @@ def classify_poi(props):
     return None
 
 
-MAX_LAT = 53.685
+MAX_LAT = 54.45
 
 
 def lon_to_tile_x(lon, zoom):

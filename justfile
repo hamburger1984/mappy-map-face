@@ -21,8 +21,8 @@ data:
 
 # Generate tiles from existing GeoJSON
 tiles:
-    @echo "Generating tiles from hamburg.geojson..."
-    python3 split-tiles.py
+    @echo "Generating tiles from hamburg-region.geojson..."
+    python3 split-tiles.py data/hamburg-region.geojson
     @echo "✓ Tiles generated in public/tiles/"
 
 # Clean build artifacts

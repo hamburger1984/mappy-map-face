@@ -1,14 +1,21 @@
 #!/bin/bash
-# Fetch and preprocess OpenStreetMap data for Hamburg
+# Fetch and preprocess OpenStreetMap data for Hamburg region (100km radius)
 
 set -e  # Exit on error
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PUBLIC_DIR="$SCRIPT_DIR/public"
+DATA_DIR="$SCRIPT_DIR/data"
+
+# Bounding box: ~100km radius around Hamburg (53.55N, 9.99E)
+BBOX="8.48,52.65,11.50,54.45"
 
 echo "================================================"
-echo "Hamburg OSM Data Fetcher"
+echo "Hamburg Region OSM Data Fetcher"
 echo "================================================"
+echo ""
+echo "Coverage: ~200km x 200km (100km radius from Hamburg)"
+echo "Bounding box: $BBOX"
 echo ""
 
 # Check for required tools
@@ -26,46 +33,62 @@ if ! command -v osmium &> /dev/null; then
     exit 1
 fi
 
-echo "✓ All required tools found"
+echo "All required tools found"
 echo ""
 
-# Create public directory if it doesn't exist
+# Create directories
 mkdir -p "$PUBLIC_DIR"
+mkdir -p "$DATA_DIR"
 
-# Download Hamburg extract from Geofabrik
-HAMBURG_PBF="$PUBLIC_DIR/hamburg.osm.pbf"
-if [ -f "$HAMBURG_PBF" ]; then
-    echo "Hamburg extract already exists. Delete it to re-download."
-else
-    echo "Downloading Hamburg extract from Geofabrik..."
-    curl -L -o "$HAMBURG_PBF" \
-        "https://download.geofabrik.de/europe/germany/hamburg-latest.osm.pbf"
-    echo "✓ Downloaded Hamburg extract ($(du -h "$HAMBURG_PBF" | cut -f1))"
-fi
+# Download state extracts from Geofabrik
+STATES=(
+    "hamburg"
+    "schleswig-holstein"
+    "niedersachsen"
+    "mecklenburg-vorpommern"
+)
+
+for state in "${STATES[@]}"; do
+    PBF="$DATA_DIR/$state-latest.osm.pbf"
+    if [ -f "$PBF" ]; then
+        echo "  $state extract already exists ($(du -h "$PBF" | cut -f1)). Delete to re-download."
+    else
+        echo "  Downloading $state extract from Geofabrik..."
+        curl -L -o "$PBF" \
+            "https://download.geofabrik.de/europe/germany/$state-latest.osm.pbf"
+        echo "  Downloaded $state ($(du -h "$PBF" | cut -f1))"
+    fi
+done
 echo ""
 
-# Extract city area (Hamburg center: 53.55°N, 9.99°E)
-# ±15km range for data (user can pan around)
-# Bounding box: lon ±0.22°, lat ±0.135°
-HAMBURG_CENTER="$PUBLIC_DIR/hamburg-center.osm.pbf"
-echo "Extracting Hamburg city area (bbox: 9.77,53.415,10.21,53.685)..."
-echo "  Center: 53.55°N, 9.99°E"
-echo "  Range: ~30km (±15km from center)"
-osmium extract -b 9.77,53.415,10.21,53.685 "$HAMBURG_PBF" -o "$HAMBURG_CENTER" --overwrite
-echo "✓ Extracted city center ($(du -h "$HAMBURG_CENTER" | cut -f1))"
+# Merge state extracts
+MERGED="$DATA_DIR/northern-germany.osm.pbf"
+echo "Merging state extracts..."
+osmium merge \
+    "$DATA_DIR/hamburg-latest.osm.pbf" \
+    "$DATA_DIR/schleswig-holstein-latest.osm.pbf" \
+    "$DATA_DIR/niedersachsen-latest.osm.pbf" \
+    "$DATA_DIR/mecklenburg-vorpommern-latest.osm.pbf" \
+    -o "$MERGED" --overwrite
+echo "Merged ($(du -h "$MERGED" | cut -f1))"
 echo ""
 
-# Convert to GeoJSON with simplification
-HAMBURG_GEOJSON="$PUBLIC_DIR/hamburg.geojson"
-HAMBURG_GEOJSON_GZ="$PUBLIC_DIR/hamburg.geojson.gz"
-echo "Converting to GeoJSON format (with geometry simplification)..."
-osmium export "$HAMBURG_CENTER" -o "$HAMBURG_GEOJSON" --overwrite \
+# Extract bounding box
+REGION_PBF="$DATA_DIR/hamburg-region.osm.pbf"
+echo "Extracting region (bbox: $BBOX)..."
+osmium extract -b "$BBOX" "$MERGED" -o "$REGION_PBF" --overwrite
+echo "Extracted region ($(du -h "$REGION_PBF" | cut -f1))"
+echo ""
+
+# Convert to GeoJSON
+REGION_GEOJSON="$DATA_DIR/hamburg-region.geojson"
+echo "Converting to GeoJSON format..."
+echo "  (This may take a few minutes for the larger area)"
+osmium export "$REGION_PBF" -o "$REGION_GEOJSON" --overwrite \
     --config=osmium-export-config.json 2>/dev/null || \
-    osmium export "$HAMBURG_CENTER" -o "$HAMBURG_GEOJSON" --overwrite
-echo "✓ Converted to GeoJSON ($(du -h "$HAMBURG_GEOJSON" | cut -f1))"
+    osmium export "$REGION_PBF" -o "$REGION_GEOJSON" --overwrite
+echo "Converted to GeoJSON ($(du -h "$REGION_GEOJSON" | cut -f1))"
 echo ""
-
-# Gzip compression removed - no longer needed with tile-based progressive loading
 
 # Generate tiles for progressive loading
 echo "================================================"
@@ -73,17 +96,17 @@ echo "Generating tile system..."
 echo "================================================"
 echo ""
 echo "This will split the GeoJSON into Web Mercator tiles"
-echo "for progressive loading. This may take a minute..."
+echo "for progressive loading. This may take several minutes..."
 echo ""
 
 if command -v python3 &> /dev/null; then
-    python3 "$SCRIPT_DIR/split-tiles.py" "$HAMBURG_GEOJSON"
+    python3 "$SCRIPT_DIR/split-tiles.py" "$REGION_GEOJSON"
     TILE_COUNT=$(find "$PUBLIC_DIR/tiles" -name "*.json.gz" 2>/dev/null | wc -l | tr -d ' ')
     TILE_SIZE=$(du -sh "$PUBLIC_DIR/tiles" 2>/dev/null | cut -f1)
     echo ""
-    echo "✓ Generated $TILE_COUNT tiles (total: $TILE_SIZE)"
+    echo "Generated $TILE_COUNT tiles (total: $TILE_SIZE)"
 else
-    echo "⚠ Warning: python3 not found, skipping tile generation"
+    echo "Warning: python3 not found, skipping tile generation"
     echo "  Tiles are needed for optimal performance with the web renderer"
 fi
 echo ""
@@ -92,11 +115,13 @@ echo "================================================"
 echo "Data preparation complete!"
 echo "================================================"
 echo ""
-echo "Files created in $PUBLIC_DIR:"
-echo "  - hamburg.osm.pbf         (full Hamburg extract)"
-echo "  - hamburg-center.osm.pbf  (city center only)"
-echo "  - hamburg.geojson         (for tile generation)"
-echo "  - tiles/                  (progressive loading tiles)"
+echo "Files created:"
+echo "  data/ directory:"
+echo "    - State PBF extracts (4 states)"
+echo "    - northern-germany.osm.pbf  (merged)"
+echo "    - hamburg-region.osm.pbf    (clipped to bbox)"
+echo "    - hamburg-region.geojson    (for tile generation)"
+echo "  public/tiles/                 (progressive loading tiles)"
 echo ""
-echo "You can now run: ./start-server.sh"
+echo "You can now run: just serve"
 echo ""

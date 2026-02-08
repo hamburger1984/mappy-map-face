@@ -228,10 +228,10 @@ class MapRenderer {
     // Viewport state
     // Default zoom shows ~10km radius (20km across)
     // Max zoom shows ~500m across
-    this.zoom = 2; // Initial zoom: show city center clearly
+    this.zoom = 1; // Initial zoom: show full region
     this.offsetX = 0;
     this.offsetY = 0;
-    this.minZoom = 0.5; // Shows full ~30km dataset
+    this.minZoom = 0.3; // Shows full ~200km dataset
     this.maxZoom = 120.0; // Max zoom: ~100m across screen
 
     // Hamburg city center coordinates
@@ -267,10 +267,10 @@ class MapRenderer {
     this.tileIndex = null; // Tile index metadata
     this.loadingTiles = new Set(); // Track in-flight tile requests
     this.tileBounds = {
-      minLon: 9.77,
-      maxLon: 10.21,
-      minLat: 53.415,
-      maxLat: 53.685,
+      minLon: 8.48,
+      maxLon: 11.5,
+      minLat: 52.65,
+      maxLat: 54.45,
     };
   }
 
@@ -926,8 +926,8 @@ class MapRenderer {
     // At low zoom, use Z8 (far view)
     // At medium zoom, use Z11 (medium view)
     // At high zoom, use Z14 (close view)
-    if (this.zoom < 3) return 8;
-    if (this.zoom < 20) return 11;
+    if (this.zoom < 20) return 8;
+    if (this.zoom < 120) return 11;
     return 14;
   }
 
@@ -1146,9 +1146,9 @@ class MapRenderer {
     const canvasAspect = this.canvasWidth / this.canvasHeight; // 1.5 for 1200x800
 
     // Use fixed base ranges for consistent zoom behavior
-    // These match the Hamburg area constants
-    const BASE_LAT_RANGE = 0.27; // Hamburg latitude range
-    const BASE_LON_RANGE = 0.44; // Hamburg longitude range
+    // These match the Hamburg region bounds (~100km radius)
+    const BASE_LAT_RANGE = 1.8; // Hamburg region latitude range
+    const BASE_LON_RANGE = 3.02; // Hamburg region longitude range
     const baseLatRange = BASE_LAT_RANGE;
     const baseLonRange = BASE_LON_RANGE;
 
@@ -1350,9 +1350,9 @@ class MapRenderer {
     // 1: Medium zoom (show major + secondary features)
     // 2: Zoomed in (show most features)
     // 3: Very zoomed in (show all details)
-    if (this.zoom < 1.5) return 0;
-    if (this.zoom < 4) return 1;
-    if (this.zoom < 10) return 2;
+    if (this.zoom < 10) return 0;
+    if (this.zoom < 27) return 1;
+    if (this.zoom < 67) return 2;
     return 3;
   }
 
@@ -1624,9 +1624,9 @@ class MapRenderer {
       }
 
       // Calculate width based on zoom level and real-world size
-      // At zoom 1.5 (initial), ~20km across 1200px = 16.67 m/px
+      // BASE_LAT_RANGE=1.80 -> ~200km across at zoom=1
       // Width should scale: 1px minimum, real width when zoomed in enough
-      const metersPerPixel = 20000 / (this.zoom * 1200);
+      const metersPerPixel = 200000 / (this.zoom * 1200);
       const calculatedWidth = realWidthMeters / metersPerPixel;
       let width = Math.max(1, Math.min(10, calculatedWidth)); // Clamp between 1-10px
 
@@ -1937,7 +1937,7 @@ class MapRenderer {
           this.ctx.stroke();
         }
 
-        const dashLen = Math.max(4, this.zoom * 2);
+        const dashLen = Math.max(4, this.zoom * 0.3);
 
         for (const cf of constructionFlats) {
           // White base
@@ -2198,7 +2198,7 @@ class MapRenderer {
 
     // Render railways individually (they need special pattern rendering)
     for (const rw of railwayFeatures) {
-      if (this.zoom >= 8) {
+      if (this.zoom >= 50) {
         this.drawRailwayPattern(rw.screenCoords, rw.color, rw.width);
       } else {
         this.ctx.strokeStyle = `rgba(${rw.color.r},${rw.color.g},${rw.color.b},${rw.color.a / 255})`;
@@ -2257,9 +2257,9 @@ class MapRenderer {
     }
 
     if (isRailway) {
-      // Only show detailed railway pattern when zoomed in (zoom >= 8)
+      // Only show detailed railway pattern when zoomed in
       // At lower zoom levels, show simple solid line
-      if (this.zoom >= 8) {
+      if (this.zoom >= 50) {
         // Draw railway pattern: two parallel rails with ties (sleepers)
         this.drawRailwayPattern(screenCoords, color, width);
       } else {
@@ -2308,12 +2308,9 @@ class MapRenderer {
     // Railway gauge calculations (hardcoded based on real measurements):
     // Standard gauge: 1.435m between rail centers
     // Narrow gauge (trams): ~1.0m between rail centers
-    // At zoom 1.5 (initial), ~20km across 1200px screen = 16.67 m/px
-    // At zoom 4.0, ~5km across = 4.17 m/px
-    // At zoom 10.0, ~2km across = 1.67 m/px
 
     // Calculate rail separation based on zoom
-    const metersPerPixel = 20000 / (this.zoom * 1200); // Approximate scaling
+    const metersPerPixel = 200000 / (this.zoom * 1200);
     const gaugeMeters = width === 6 ? 1.0 : 1.435; // Narrow gauge vs standard
     const railSeparationPx = Math.max(3, gaugeMeters / metersPerPixel);
 
@@ -2367,7 +2364,7 @@ class MapRenderer {
     }
 
     // Draw dashed center fill line between the rails (scales with zoom)
-    const dashLength = Math.max(1, this.zoom * 0.3); // Small dashes
+    const dashLength = Math.max(1, this.zoom * 0.045); // Small dashes
     const gapLength = dashLength; // Exactly 50:50 pattern
 
     // Fill line width should touch the outer rails
@@ -2432,7 +2429,7 @@ class MapRenderer {
   }
 
   resetView() {
-    this.zoom = 2; // Match initial zoom
+    this.zoom = 1; // Match initial zoom
     this.offsetX = 0;
     this.offsetY = 0;
     this.updateZoomSlider();

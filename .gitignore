@@ -6,6 +6,7 @@ zig-cache/
 *.o
 
 # OSM data files (downloaded/generated)
+data/
 *.osm
 *.osm.pbf
 *.osm.bz2
