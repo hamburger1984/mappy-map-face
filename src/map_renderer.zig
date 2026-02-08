@@ -13,11 +13,12 @@ var buffer_initialized: bool = false;
 var canvas_width: u32 = 800;
 var canvas_height: u32 = 600;
 
-// Map bounds (Hamburg area)
-var min_lon: f64 = 9.95;
-var max_lon: f64 = 10.05;
-var min_lat: f64 = 53.53;
-var max_lat: f64 = 53.58;
+// Map bounds (Hamburg city center area - updated by JavaScript)
+// Default: ~10km radius from Hamburg center (53.55°N, 9.99°E)
+var min_lon: f64 = 9.85;
+var max_lon: f64 = 10.13;
+var min_lat: f64 = 53.46;
+var max_lat: f64 = 53.64;
 
 // Temporary coordinate buffer (after the pixel buffer in memory)
 const MAX_COORDS: usize = 10000;

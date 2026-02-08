@@ -44,10 +44,14 @@ else
 fi
 echo ""
 
-# Extract city center area
+# Extract city area (Hamburg center: 53.55°N, 9.99°E)
+# ±15km range for data (user can pan around)
+# Bounding box: lon ±0.22°, lat ±0.135°
 HAMBURG_CENTER="$PUBLIC_DIR/hamburg-center.osm.pbf"
-echo "Extracting Hamburg city center (bbox: 9.95,53.53,10.05,53.58)..."
-osmium extract -b 9.95,53.53,10.05,53.58 "$HAMBURG_PBF" -o "$HAMBURG_CENTER" --overwrite
+echo "Extracting Hamburg city area (bbox: 9.77,53.415,10.21,53.685)..."
+echo "  Center: 53.55°N, 9.99°E"
+echo "  Range: ~30km (±15km from center)"
+osmium extract -b 9.77,53.415,10.21,53.685 "$HAMBURG_PBF" -o "$HAMBURG_CENTER" --overwrite
 echo "✓ Extracted city center ($(du -h "$HAMBURG_CENTER" | cut -f1))"
 echo ""
 

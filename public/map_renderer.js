@@ -12,11 +12,17 @@ class MapRenderer {
     this.canvasHeight = 800;
 
     // Viewport state
-    this.zoom = 1.0;
+    // Default zoom shows ~10km radius (20km across)
+    // Max zoom shows ~500m across
+    this.zoom = 1.5; // Initial zoom: show city center clearly
     this.offsetX = 0;
     this.offsetY = 0;
-    this.minZoom = 0.5;
-    this.maxZoom = 10.0;
+    this.minZoom = 0.5; // Shows full ~30km dataset
+    this.maxZoom = 40.0; // Max zoom: ~500m across screen
+
+    // Hamburg city center coordinates
+    this.centerLat = 53.55;
+    this.centerLon = 9.99;
 
     // Pan state
     this.isPanning = false;
@@ -76,7 +82,10 @@ class MapRenderer {
       const mouseY = e.clientY - rect.top;
 
       const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
-      const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom * zoomFactor));
+      const newZoom = Math.max(
+        this.minZoom,
+        Math.min(this.maxZoom, this.zoom * zoomFactor),
+      );
 
       // Zoom towards mouse position
       const zoomRatio = newZoom / this.zoom;
@@ -154,7 +163,10 @@ class MapRenderer {
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         const dist = Math.sqrt(dx * dx + dy * dy);
         const zoomFactor = dist / touchStartDist;
-        this.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom * zoomFactor));
+        this.zoom = Math.max(
+          this.minZoom,
+          Math.min(this.maxZoom, this.zoom * zoomFactor),
+        );
         touchStartDist = dist;
         this.renderMap();
       }
@@ -190,11 +202,11 @@ class MapRenderer {
   isPointNearFeature(x, y, feature) {
     const threshold = 10; // pixels
 
-    if (feature.type === 'Point') {
+    if (feature.type === "Point") {
       const dx = x - feature.screenX;
       const dy = y - feature.screenY;
       return Math.sqrt(dx * dx + dy * dy) < threshold;
-    } else if (feature.type === 'LineString' || feature.type === 'Polygon') {
+    } else if (feature.type === "LineString" || feature.type === "Polygon") {
       // Check if point is near any line segment
       for (let i = 0; i < feature.screenCoords.length - 1; i++) {
         const p1 = feature.screenCoords[i];
@@ -210,7 +222,8 @@ class MapRenderer {
     const dx = x2 - x1;
     const dy = y2 - y1;
     const lenSq = dx * dx + dy * dy;
-    if (lenSq === 0) return Math.sqrt((px - x1) * (px - x1) + (py - y1) * (py - y1));
+    if (lenSq === 0)
+      return Math.sqrt((px - x1) * (px - x1) + (py - y1) * (py - y1));
 
     let t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
     t = Math.max(0, Math.min(1, t));
@@ -221,10 +234,10 @@ class MapRenderer {
   }
 
   showTooltip(x, y, feature) {
-    let tooltip = document.getElementById('mapTooltip');
+    let tooltip = document.getElementById("mapTooltip");
     if (!tooltip) {
-      tooltip = document.createElement('div');
-      tooltip.id = 'mapTooltip';
+      tooltip = document.createElement("div");
+      tooltip.id = "mapTooltip";
       tooltip.style.cssText = `
         position: fixed;
         background: rgba(0,0,0,0.9);
@@ -240,51 +253,53 @@ class MapRenderer {
     }
 
     const props = feature.properties;
-    let text = '';
+    let text = "";
 
     if (props.name) text += `<strong>${props.name}</strong><br>`;
     if (props.highway) text += `Highway: ${props.highway}<br>`;
     if (props.building) text += `Building: ${props.building}<br>`;
     if (props.natural) text += `Natural: ${props.natural}<br>`;
-    if (props.water || props.waterway) text += `Water: ${props.water || props.waterway}<br>`;
+    if (props.water || props.waterway)
+      text += `Water: ${props.water || props.waterway}<br>`;
     if (props.amenity) text += `Amenity: ${props.amenity}<br>`;
 
     if (!text) text = `Feature type: ${feature.type}`;
 
     tooltip.innerHTML = text;
-    tooltip.style.left = (x + 15) + 'px';
-    tooltip.style.top = (y + 15) + 'px';
-    tooltip.style.display = 'block';
+    tooltip.style.left = x + 15 + "px";
+    tooltip.style.top = y + 15 + "px";
+    tooltip.style.display = "block";
   }
 
   hideTooltip() {
-    const tooltip = document.getElementById('mapTooltip');
-    if (tooltip) tooltip.style.display = 'none';
+    const tooltip = document.getElementById("mapTooltip");
+    if (tooltip) tooltip.style.display = "none";
   }
 
   updateInfoPanel(feature) {
-    const panel = document.getElementById('infoPanel');
+    const panel = document.getElementById("infoPanel");
     if (!panel) return;
 
     const props = feature.properties;
-    let html = '<h3>Feature Information</h3>';
+    let html = "<h3>Feature Information</h3>";
 
     html += `<div class="info-item"><span class="label">Type:</span> ${feature.type}</div>`;
 
-    Object.keys(props).forEach(key => {
+    Object.keys(props).forEach((key) => {
       if (props[key]) {
         html += `<div class="info-item"><span class="label">${key}:</span> ${props[key]}</div>`;
       }
     });
 
     panel.innerHTML = html;
-    panel.style.display = 'block';
+    panel.style.display = "block";
   }
 
   clearInfoPanel() {
-    const panel = document.getElementById('infoPanel');
+    const panel = document.getElementById("infoPanel");
     if (panel) {
-      panel.innerHTML = '<h3>Feature Information</h3><p>Hover over map features to see details</p>';
+      panel.innerHTML =
+        "<h3>Feature Information</h3><p>Hover over map features to see details</p>";
     }
   }
 
@@ -292,7 +307,9 @@ class MapRenderer {
     try {
       const response = await fetch("hamburg.geojson");
       this.mapData = await response.json();
-      console.log(`Loaded ${this.mapData.features.length} features from GeoJSON`);
+      console.log(
+        `Loaded ${this.mapData.features.length} features from GeoJSON`,
+      );
       return true;
     } catch (error) {
       console.error("Failed to load map data:", error);
@@ -301,12 +318,21 @@ class MapRenderer {
   }
 
   calculateBounds() {
+    // Hamburg city center: 53.55°N, 9.99°E
+    // Initial view: ~10km radius (suitable for city exploration)
     if (!this.mapData || !this.mapData.features.length) {
-      return { minLon: 9.95, maxLon: 10.05, minLat: 53.53, maxLat: 53.58 };
+      return {
+        minLon: 9.85,
+        maxLon: 10.13,
+        minLat: 53.46,
+        maxLat: 53.64,
+      };
     }
 
-    let minLon = Infinity, maxLon = -Infinity;
-    let minLat = Infinity, maxLat = -Infinity;
+    let minLon = Infinity,
+      maxLon = -Infinity;
+    let minLat = Infinity,
+      maxLat = -Infinity;
 
     for (const feature of this.mapData.features) {
       if (!feature.geometry || !feature.geometry.coordinates) continue;
@@ -350,12 +376,17 @@ class MapRenderer {
 
   latLonToScreen(lat, lon, bounds) {
     // Apply zoom and pan
-    const baseX = ((lon - bounds.minLon) / (bounds.maxLon - bounds.minLon)) * this.canvasWidth;
-    const baseY = this.canvasHeight - ((lat - bounds.minLat) / (bounds.maxLat - bounds.minLat)) * this.canvasHeight;
+    const baseX =
+      ((lon - bounds.minLon) / (bounds.maxLon - bounds.minLon)) *
+      this.canvasWidth;
+    const baseY =
+      this.canvasHeight -
+      ((lat - bounds.minLat) / (bounds.maxLat - bounds.minLat)) *
+        this.canvasHeight;
 
     return {
       x: baseX * this.zoom + this.offsetX,
-      y: baseY * this.zoom + this.offsetY
+      y: baseY * this.zoom + this.offsetY,
     };
   }
 
@@ -384,14 +415,14 @@ class MapRenderer {
       minLon: centerLon - lonRange / 2 + lonOffset,
       maxLon: centerLon + lonRange / 2 + lonOffset,
       minLat: centerLat - latRange / 2 + latOffset,
-      maxLat: centerLat + latRange / 2 + latOffset
+      maxLat: centerLat + latRange / 2 + latOffset,
     };
 
     this.wasm.setMapBounds(
       adjustedBounds.minLon,
       adjustedBounds.maxLon,
       adjustedBounds.minLat,
-      adjustedBounds.maxLat
+      adjustedBounds.maxLat,
     );
 
     // Clear canvas
@@ -434,39 +465,47 @@ class MapRenderer {
           this.wasm.drawPoint(lon, lat, 3, color.r, color.g, color.b, color.a);
           const screen = this.latLonToScreen(lat, lon, bounds);
           this.renderedFeatures.push({
-            type: 'Point',
+            type: "Point",
             screenX: screen.x,
             screenY: screen.y,
             properties: props,
-            geometry: feature.geometry
+            geometry: feature.geometry,
           });
           featureCount++;
         } else if (type === "LineString") {
-          const screenCoords = this.renderLineString(feature.geometry.coordinates, color, bounds);
+          const screenCoords = this.renderLineString(
+            feature.geometry.coordinates,
+            color,
+            bounds,
+          );
           this.renderedFeatures.push({
-            type: 'LineString',
+            type: "LineString",
             screenCoords: screenCoords,
             properties: props,
-            geometry: feature.geometry
+            geometry: feature.geometry,
           });
           featureCount++;
         } else if (type === "Polygon") {
-          const screenCoords = this.renderPolygon(feature.geometry.coordinates[0], color, bounds);
+          const screenCoords = this.renderPolygon(
+            feature.geometry.coordinates[0],
+            color,
+            bounds,
+          );
           this.renderedFeatures.push({
-            type: 'Polygon',
+            type: "Polygon",
             screenCoords: screenCoords,
             properties: props,
-            geometry: feature.geometry
+            geometry: feature.geometry,
           });
           featureCount++;
         } else if (type === "MultiLineString") {
           feature.geometry.coordinates.forEach((line) => {
             const screenCoords = this.renderLineString(line, color, bounds);
             this.renderedFeatures.push({
-              type: 'LineString',
+              type: "LineString",
               screenCoords: screenCoords,
               properties: props,
-              geometry: feature.geometry
+              geometry: feature.geometry,
             });
           });
           featureCount++;
@@ -474,10 +513,10 @@ class MapRenderer {
           feature.geometry.coordinates.forEach((polygon) => {
             const screenCoords = this.renderPolygon(polygon[0], color, bounds);
             this.renderedFeatures.push({
-              type: 'Polygon',
+              type: "Polygon",
               screenCoords: screenCoords,
               properties: props,
-              geometry: feature.geometry
+              geometry: feature.geometry,
             });
           });
           featureCount++;
@@ -514,7 +553,11 @@ class MapRenderer {
       memory[this.coordBufferPtr / 8 + i * 2 + 1] = coordinates[i][1]; // lat
 
       // Also compute screen coordinates for hit detection
-      const screen = this.latLonToScreen(coordinates[i][1], coordinates[i][0], bounds);
+      const screen = this.latLonToScreen(
+        coordinates[i][1],
+        coordinates[i][0],
+        bounds,
+      );
       screenCoords.push(screen);
     }
 
@@ -524,7 +567,7 @@ class MapRenderer {
       color.r,
       color.g,
       color.b,
-      color.a
+      color.a,
     );
 
     return screenCoords;
@@ -543,7 +586,11 @@ class MapRenderer {
       memory[this.coordBufferPtr / 8 + i * 2 + 1] = coordinates[i][1]; // lat
 
       // Also compute screen coordinates for hit detection
-      const screen = this.latLonToScreen(coordinates[i][1], coordinates[i][0], bounds);
+      const screen = this.latLonToScreen(
+        coordinates[i][1],
+        coordinates[i][0],
+        bounds,
+      );
       screenCoords.push(screen);
     }
 
@@ -553,7 +600,7 @@ class MapRenderer {
       color.r,
       color.g,
       color.b,
-      color.a
+      color.a,
     );
 
     return screenCoords;
@@ -564,10 +611,14 @@ class MapRenderer {
     const buffer = new Uint8ClampedArray(
       this.memory.buffer,
       this.bufferPtr,
-      bufferSize
+      bufferSize,
     );
 
-    const imageData = new ImageData(buffer, this.canvasWidth, this.canvasHeight);
+    const imageData = new ImageData(
+      buffer,
+      this.canvasWidth,
+      this.canvasHeight,
+    );
     this.ctx.putImageData(imageData, 0, 0);
   }
 
@@ -587,7 +638,8 @@ class MapRenderer {
   }
 
   updateStats() {
-    document.getElementById("zoomLevel").textContent = this.zoom.toFixed(2) + "x";
+    document.getElementById("zoomLevel").textContent =
+      this.zoom.toFixed(2) + "x";
   }
 
   exportAsPNG() {
