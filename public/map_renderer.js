@@ -874,15 +874,18 @@ class MapRenderer {
 
     // Roads - determine layer based on tunnel/bridge/surface
     if (props.highway) {
-      // Determine color based on road type
+      // Determine color and width based on road type
       let color;
       let minLOD;
+      let width; // Line width in pixels
 
       if (props.highway === "motorway" || props.highway === "trunk") {
         color = { r: 233, g: 115, b: 103, a: 255 };
+        width = 5; // Motorways are widest (~30m wide)
         minLOD = 0;
       } else if (props.highway === "primary" || props.highway === "secondary") {
         color = { r: 252, g: 214, b: 164, a: 255 };
+        width = 4; // Major roads (~15-20m wide)
         minLOD = 1;
       } else if (
         props.highway === "tertiary" ||
@@ -890,20 +893,31 @@ class MapRenderer {
         props.highway === "unclassified"
       ) {
         color = { r: 255, g: 255, b: 255, a: 255 };
+        width = 2; // Minor roads (~6-10m wide)
         minLOD = 2;
       } else {
         color = { r: 220, g: 220, b: 220, a: 255 };
+        width = 1; // Paths and small roads
         minLOD = 3;
+      }
+
+      // Use actual width from OSM if available (in meters)
+      if (props.width) {
+        const widthMeters = parseFloat(props.width);
+        if (!isNaN(widthMeters)) {
+          // Scale width: ~10m road = 3px at standard zoom
+          width = Math.max(1, Math.min(8, widthMeters / 3));
+        }
       }
 
       // Assign to appropriate layer based on vertical position
       if (isTunnel) {
         color.a = 80; // 30% opacity for tunnels
-        return { layer: "tunnels", color, minLOD, fill: false };
+        return { layer: "tunnels", color, minLOD, width, fill: false };
       } else if (isBridge) {
-        return { layer: "bridges", color, minLOD, fill: false };
+        return { layer: "bridges", color, minLOD, width, fill: false };
       } else {
-        return { layer: "surface_roads", color, minLOD, fill: false };
+        return { layer: "surface_roads", color, minLOD, width, fill: false };
       }
     }
 
@@ -922,13 +936,27 @@ class MapRenderer {
         let color = { r: 153, g: 153, b: 153, a: 255 };
         const minLOD = 1;
 
+        // Railway width based on type
+        let width = 3; // Standard railway (~5-6m wide including tracks and bed)
+        if (props.railway === "tram" || props.railway === "light_rail") {
+          width = 2; // Trams are narrower
+        } else if (props.railway === "narrow_gauge") {
+          width = 2; // Narrow gauge railways
+        }
+
         if (isTunnel) {
           color.a = 80; // 30% opacity for tunnels
-          return { layer: "tunnels", color, minLOD, fill: false };
+          return { layer: "tunnels", color, minLOD, width, fill: false };
         } else if (isBridge) {
-          return { layer: "bridges", color, minLOD, fill: false };
+          return { layer: "bridges", color, minLOD, width, fill: false };
         } else {
-          return { layer: "surface_railways", color, minLOD, fill: false };
+          return {
+            layer: "surface_railways",
+            color,
+            minLOD,
+            width,
+            fill: false,
+          };
         }
       }
     }
@@ -957,7 +985,7 @@ class MapRenderer {
 
   renderLayer(layerFeatures, bounds, useFill) {
     for (const item of layerFeatures) {
-      const { feature, props, type, color, fill } = item;
+      const { feature, props, type, color, fill, width } = item;
 
       try {
         if (type === "Point") {
@@ -982,6 +1010,7 @@ class MapRenderer {
             feature.geometry.coordinates,
             color,
             bounds,
+            width || 1,
           );
           this.renderedFeatures.push({
             type: "LineString",
@@ -1007,7 +1036,12 @@ class MapRenderer {
           });
         } else if (type === "MultiLineString") {
           feature.geometry.coordinates.forEach((line) => {
-            const screenCoords = this.renderLineString(line, color, bounds);
+            const screenCoords = this.renderLineString(
+              line,
+              color,
+              bounds,
+              width || 1,
+            );
             this.renderedFeatures.push({
               type: "LineString",
               screenCoords: screenCoords,
@@ -1036,14 +1070,16 @@ class MapRenderer {
     }
   }
 
-  renderLineString(coordinates, color, bounds) {
+  renderLineString(coordinates, color, bounds, width = 1) {
     if (coordinates.length < 2) return [];
 
     // Use Canvas2D for line rendering
     const screenCoords = [];
 
     this.ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a / 255})`;
-    this.ctx.lineWidth = 1;
+    this.ctx.lineWidth = width;
+    this.ctx.lineCap = "round"; // Smooth line ends
+    this.ctx.lineJoin = "round"; // Smooth corners
     this.ctx.beginPath();
 
     for (let i = 0; i < coordinates.length; i++) {
