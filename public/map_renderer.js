@@ -876,6 +876,7 @@ class MapRenderer {
           width: featureInfo.width,
           isRailway: featureInfo.isRailway,
           roadPriority: featureInfo.roadPriority,
+          isConstruction: featureInfo.isConstruction,
         });
       }
     }
@@ -1157,6 +1158,56 @@ class MapRenderer {
         realWidthMeters = 2; // Cycle paths
         minLOD = 3;
         roadPriority = 1;
+      } else if (props.highway === "construction") {
+        // Road under construction - use width of the road being constructed
+        color = { r: 200, g: 200, b: 200, a: 255 }; // Gray base (will be overdrawn with pattern)
+        if (
+          props.construction === "motorway" ||
+          props.construction === "trunk"
+        ) {
+          realWidthMeters = 14;
+          roadPriority = 7;
+        } else if (props.construction === "primary") {
+          realWidthMeters = 7;
+          roadPriority = 6;
+        } else if (props.construction === "secondary") {
+          realWidthMeters = 7;
+          roadPriority = 5;
+        } else if (props.construction === "tertiary") {
+          realWidthMeters = 6;
+          roadPriority = 4;
+        } else {
+          realWidthMeters = 5;
+          roadPriority = 3;
+        }
+        minLOD = 1;
+
+        const metersPerPixel = 20000 / (this.zoom * 1200);
+        const calculatedWidth = realWidthMeters / metersPerPixel;
+        const width = Math.max(1, Math.min(10, calculatedWidth));
+
+        if (isTunnel) {
+          color.a = 80;
+          return {
+            layer: "tunnels",
+            color,
+            minLOD,
+            width,
+            fill: false,
+            roadPriority,
+            isConstruction: true,
+          };
+        } else {
+          return {
+            layer: "surface_roads",
+            color,
+            minLOD,
+            width,
+            fill: false,
+            roadPriority,
+            isConstruction: true,
+          };
+        }
       } else {
         // Unknown highway type - skip it to avoid rendering unexpected features
         return { layer: null, minLOD: 999, fill: false };
@@ -1276,12 +1327,15 @@ class MapRenderer {
   }
 
   renderRoadLayer(layerFeatures, bounds) {
-    // Separate railways from roads - railways need their own rendering
+    // Separate railways and construction from normal roads
     const roads = [];
     const railways = [];
+    const construction = [];
     for (const item of layerFeatures) {
       if (item.isRailway) {
         railways.push(item);
+      } else if (item.isConstruction) {
+        construction.push(item);
       } else {
         roads.push(item);
       }
@@ -1412,6 +1466,92 @@ class MapRenderer {
         }
         this.ctx.stroke();
       }
+    }
+
+    // Render construction roads with red-white dashed pattern
+    if (construction.length > 0) {
+      const lonRange = bounds.maxLon - bounds.minLon;
+      const latRange = bounds.maxLat - bounds.minLat;
+      const cScaleX = this.canvasWidth / lonRange;
+      const cScaleY = this.canvasHeight / latRange;
+      const cMinLon = bounds.minLon;
+      const cMinLat = bounds.minLat;
+      const cCanvasHeight = this.canvasHeight;
+      const cToScreenX = (lon) => (lon - cMinLon) * cScaleX;
+      const cToScreenY = (lat) => cCanvasHeight - (lat - cMinLat) * cScaleY;
+
+      // Collect all construction line segments
+      const constructionFlats = [];
+      for (const item of construction) {
+        const { feature, props, type, width } = item;
+        const geom = feature.geometry;
+        if (!geom || !geom.coordinates) continue;
+
+        const coordArrays =
+          type === "LineString"
+            ? [geom.coordinates]
+            : type === "MultiLineString"
+              ? geom.coordinates
+              : null;
+        if (!coordArrays) continue;
+
+        for (const coords of coordArrays) {
+          if (coords.length < 2) continue;
+          const flat = new Array(coords.length * 2);
+          const screenCoords =
+            this.hoverInfoEnabled || this.selectedFeature
+              ? new Array(coords.length)
+              : null;
+          for (let i = 0; i < coords.length; i++) {
+            const sx = cToScreenX(coords[i][0]);
+            const sy = cToScreenY(coords[i][1]);
+            flat[i * 2] = sx;
+            flat[i * 2 + 1] = sy;
+            if (screenCoords) screenCoords[i] = { x: sx, y: sy };
+          }
+          constructionFlats.push({ flat, width: width || 1 });
+          if (screenCoords) {
+            this.renderedFeatures.push({
+              type: "LineString",
+              screenCoords,
+              properties: props,
+              feature,
+              geometry: geom,
+            });
+          }
+        }
+      }
+
+      // Draw construction pattern: white base, then red dashes on top
+      const dashLen = Math.max(4, this.zoom * 2);
+
+      for (const cf of constructionFlats) {
+        // White base
+        this.ctx.strokeStyle = "rgba(255,255,255,1)";
+        this.ctx.lineWidth = cf.width;
+        this.ctx.lineCap = "butt";
+        this.ctx.lineJoin = "round";
+        this.ctx.setLineDash([]);
+        this.ctx.beginPath();
+        this.ctx.moveTo(cf.flat[0], cf.flat[1]);
+        for (let i = 2; i < cf.flat.length; i += 2) {
+          this.ctx.lineTo(cf.flat[i], cf.flat[i + 1]);
+        }
+        this.ctx.stroke();
+
+        // Red dashes
+        this.ctx.strokeStyle = "rgba(200,60,60,0.8)";
+        this.ctx.lineWidth = cf.width;
+        this.ctx.setLineDash([dashLen, dashLen]);
+        this.ctx.beginPath();
+        this.ctx.moveTo(cf.flat[0], cf.flat[1]);
+        for (let i = 2; i < cf.flat.length; i += 2) {
+          this.ctx.lineTo(cf.flat[i], cf.flat[i + 1]);
+        }
+        this.ctx.stroke();
+      }
+
+      this.ctx.setLineDash([]);
     }
   }
 
