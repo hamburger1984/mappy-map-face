@@ -163,6 +163,22 @@
         background: #5a6268;
       }
 
+      .button-toggle {
+        background: #28a745;
+      }
+
+      .button-toggle:hover {
+        background: #218838;
+      }
+
+      .button-toggle.inactive {
+        background: #6c757d;
+      }
+
+      .button-toggle.inactive:hover {
+        background: #5a6268;
+      }
+
       .zoom-indicator {
         padding: 8px 15px;
         background: #e9ecef;
@@ -264,6 +280,9 @@
           <button id="resetBtn" class="button-secondary">Reset View</button>
           <button id="clearBtn" class="button-secondary">Clear Canvas</button>
           <button id="exportBtn">Export as PNG</button>
+          <button id="toggleHoverBtn" class="button-toggle">
+            Hover Info: ON
+          </button>
           <div class="zoom-indicator">
             Zoom: <span id="zoomLevel">1.00x</span>
           </div>

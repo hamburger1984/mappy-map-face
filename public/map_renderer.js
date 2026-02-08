@@ -31,6 +31,7 @@ class MapRenderer {
     this.renderedFeatures = [];
     this.hoveredFeature = null;
     this.selectedFeature = null;
+    this.hoverInfoEnabled = true; // Toggle for hover info mode
 
     // Performance optimizations
     this.renderTimeout = null;
@@ -87,8 +88,8 @@ class MapRenderer {
         this.lastPanY = e.clientY;
         this.debouncedRender();
       } else {
-        // Check for feature hover (only if nothing is selected)
-        if (!this.selectedFeature) {
+        // Check for feature hover (only if hover info is enabled and nothing is selected)
+        if (this.hoverInfoEnabled && !this.selectedFeature) {
           this.checkFeatureHover(e);
         }
       }
@@ -103,8 +104,15 @@ class MapRenderer {
       ) {
         // It's a click, not a drag
         if (this.hoveredFeature) {
+          // Store the feature reference for persistent selection
           this.selectedFeature = this.hoveredFeature;
+          this.updateInfoPanel(this.selectedFeature);
           this.renderMap(); // Re-render to show selection highlight
+        } else if (this.selectedFeature) {
+          // Clicked on empty space - deselect
+          this.selectedFeature = null;
+          this.clearInfoPanel();
+          this.renderMap();
         }
       }
 
@@ -343,9 +351,38 @@ class MapRenderer {
     }
   }
 
+  updateFeatureScreenCoords(feature, bounds) {
+    // Recalculate screen coordinates for a feature based on current viewport
+    if (!feature.feature || !feature.feature.geometry) return;
+
+    const geom = feature.feature.geometry;
+    const type = geom.type;
+
+    if (type === "Point") {
+      const [lon, lat] = geom.coordinates;
+      const screenPos = this.geoToScreen(lon, lat, bounds);
+      feature.screenX = screenPos.x;
+      feature.screenY = screenPos.y;
+    } else if (type === "LineString") {
+      feature.screenCoords = geom.coordinates.map(([lon, lat]) =>
+        this.geoToScreen(lon, lat, bounds),
+      );
+    } else if (type === "Polygon") {
+      // Use outer ring for highlighting
+      feature.screenCoords = geom.coordinates[0].map(([lon, lat]) =>
+        this.geoToScreen(lon, lat, bounds),
+      );
+    }
+  }
+
   highlightFeature(feature, bounds, mode) {
     // mode: "hovered" or "selected"
     const isSelected = mode === "selected";
+
+    // For selected features that persist across zoom/pan, recalculate screen coordinates
+    if (isSelected && feature.feature) {
+      this.updateFeatureScreenCoords(feature, bounds);
+    }
 
     // Highlight color: yellow for hover, orange for selected
     const highlightColor = isSelected
@@ -1469,6 +1506,26 @@ class MapRenderer {
     this.updateStats();
   }
 
+  toggleHoverInfo() {
+    this.hoverInfoEnabled = !this.hoverInfoEnabled;
+    const btn = document.getElementById("toggleHoverBtn");
+
+    if (this.hoverInfoEnabled) {
+      btn.textContent = "Hover Info: ON";
+      btn.classList.remove("inactive");
+    } else {
+      btn.textContent = "Hover Info: OFF";
+      btn.classList.add("inactive");
+
+      // Clear any current hover state
+      if (this.hoveredFeature && !this.selectedFeature) {
+        this.hoveredFeature = null;
+        this.clearInfoPanel();
+        this.renderMap();
+      }
+    }
+  }
+
   updateStats() {
     document.getElementById("zoomLevel").textContent =
       this.zoom.toFixed(2) + "x";
@@ -1530,6 +1587,10 @@ async function initApp() {
 
   document.getElementById("zoomOutBtn").addEventListener("click", () => {
     renderer.zoomOut();
+  });
+
+  document.getElementById("toggleHoverBtn").addEventListener("click", () => {
+    renderer.toggleHoverInfo();
   });
 
   // Auto-render on load
