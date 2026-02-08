@@ -360,17 +360,17 @@ class MapRenderer {
 
     if (type === "Point") {
       const [lon, lat] = geom.coordinates;
-      const screenPos = this.geoToScreen(lon, lat, bounds);
+      const screenPos = this.latLonToScreen(lat, lon, bounds);
       feature.screenX = screenPos.x;
       feature.screenY = screenPos.y;
     } else if (type === "LineString") {
       feature.screenCoords = geom.coordinates.map(([lon, lat]) =>
-        this.geoToScreen(lon, lat, bounds),
+        this.latLonToScreen(lat, lon, bounds),
       );
     } else if (type === "Polygon") {
       // Use outer ring for highlighting
       feature.screenCoords = geom.coordinates[0].map(([lon, lat]) =>
-        this.geoToScreen(lon, lat, bounds),
+        this.latLonToScreen(lat, lon, bounds),
       );
     }
   }
@@ -1212,90 +1212,239 @@ class MapRenderer {
   }
 
   renderLayer(layerFeatures, bounds, useFill) {
+    // Batch features by style to minimize Canvas2D state changes.
+    // Key = "r,g,b,a|width", value = array of coordinate arrays to draw.
+    const lineBatches = new Map(); // key -> { coords: [...], features: [...] }
+    const fillBatches = new Map(); // key -> { coords: [...], features: [...] }
+    const railwayFeatures = []; // railways need special rendering
+
+    // Pre-compute bounds scaling factors once
+    const lonRange = bounds.maxLon - bounds.minLon;
+    const latRange = bounds.maxLat - bounds.minLat;
+    const scaleX = this.canvasWidth / lonRange;
+    const scaleY = this.canvasHeight / latRange;
+    const minLon = bounds.minLon;
+    const minLat = bounds.minLat;
+    const canvasHeight = this.canvasHeight;
+
+    // Inline coordinate transform (avoids function call + object allocation per coord)
+    const toScreenX = (lon) => (lon - minLon) * scaleX;
+    const toScreenY = (lat) => canvasHeight - (lat - minLat) * scaleY;
+
     for (const item of layerFeatures) {
       const { feature, props, type, color, fill, width, isRailway } = item;
+      const geom = feature.geometry;
+      if (!geom || !geom.coordinates) continue;
 
       try {
         if (type === "Point") {
-          const [lon, lat] = feature.geometry.coordinates;
-          const screen = this.latLonToScreen(lat, lon, bounds);
+          const [lon, lat] = geom.coordinates;
+          const sx = toScreenX(lon);
+          const sy = toScreenY(lat);
+          const colorStr = `rgba(${color.r},${color.g},${color.b},${color.a / 255})`;
 
-          // Draw point using Canvas2D
-          this.ctx.fillStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a / 255})`;
-          this.ctx.beginPath();
-          this.ctx.arc(screen.x, screen.y, 3, 0, Math.PI * 2);
-          this.ctx.fill();
+          if (!fillBatches.has(colorStr)) {
+            fillBatches.set(colorStr, {
+              points: [],
+              polygons: [],
+              features: [],
+            });
+          }
+          const batch = fillBatches.get(colorStr);
+          batch.points.push(sx, sy);
+          if (this.hoverInfoEnabled || this.selectedFeature) {
+            this.renderedFeatures.push({
+              type: "Point",
+              screenX: sx,
+              screenY: sy,
+              properties: props,
+              feature: feature,
+              geometry: geom,
+            });
+          }
+        } else if (type === "LineString" || type === "MultiLineString") {
+          const coordArrays =
+            type === "LineString" ? [geom.coordinates] : geom.coordinates;
 
-          this.renderedFeatures.push({
-            type: "Point",
-            screenX: screen.x,
-            screenY: screen.y,
-            properties: props,
-            geometry: feature.geometry,
-          });
-        } else if (type === "LineString") {
-          const screenCoords = this.renderLineString(
-            feature.geometry.coordinates,
-            color,
-            bounds,
-            width || 1,
-            isRailway || false,
-          );
-          this.renderedFeatures.push({
-            type: "LineString",
-            screenCoords: screenCoords,
-            properties: props,
-            geometry: feature.geometry,
-          });
-        } else if (type === "Polygon") {
-          const renderFunc =
-            fill && useFill
-              ? this.renderPolygon.bind(this)
-              : this.renderPolygonOutline.bind(this);
-          const screenCoords = renderFunc(
-            feature.geometry.coordinates[0],
-            color,
-            bounds,
-          );
-          this.renderedFeatures.push({
-            type: "Polygon",
-            screenCoords: screenCoords,
-            properties: props,
-            geometry: feature.geometry,
-          });
-        } else if (type === "MultiLineString") {
-          feature.geometry.coordinates.forEach((line) => {
-            const screenCoords = this.renderLineString(
-              line,
-              color,
-              bounds,
-              width || 1,
-              isRailway || false,
-            );
-            this.renderedFeatures.push({
-              type: "LineString",
-              screenCoords: screenCoords,
-              properties: props,
-              geometry: feature.geometry,
-            });
-          });
-        } else if (type === "MultiPolygon") {
-          feature.geometry.coordinates.forEach((polygon) => {
-            const renderFunc =
-              fill && useFill
-                ? this.renderPolygon.bind(this)
-                : this.renderPolygonOutline.bind(this);
-            const screenCoords = renderFunc(polygon[0], color, bounds);
-            this.renderedFeatures.push({
-              type: "Polygon",
-              screenCoords: screenCoords,
-              properties: props,
-              geometry: feature.geometry,
-            });
-          });
+          if (isRailway) {
+            for (const coords of coordArrays) {
+              if (coords.length < 2) continue;
+              const screenCoords = new Array(coords.length);
+              for (let i = 0; i < coords.length; i++) {
+                screenCoords[i] = {
+                  x: toScreenX(coords[i][0]),
+                  y: toScreenY(coords[i][1]),
+                };
+              }
+              railwayFeatures.push({ screenCoords, color, width });
+              if (this.hoverInfoEnabled || this.selectedFeature) {
+                this.renderedFeatures.push({
+                  type: "LineString",
+                  screenCoords,
+                  properties: props,
+                  feature,
+                  geometry: geom,
+                });
+              }
+            }
+          } else {
+            const w = width || 1;
+            const key = `${color.r},${color.g},${color.b},${color.a}|${w}`;
+            if (!lineBatches.has(key)) {
+              lineBatches.set(key, {
+                color,
+                width: w,
+                lines: [],
+                features: [],
+              });
+            }
+            const batch = lineBatches.get(key);
+
+            for (const coords of coordArrays) {
+              if (coords.length < 2) continue;
+              // Store flat screen coordinates: [x0,y0, x1,y1, ...]
+              const flat = new Array(coords.length * 2);
+              const screenCoords =
+                this.hoverInfoEnabled || this.selectedFeature
+                  ? new Array(coords.length)
+                  : null;
+              for (let i = 0; i < coords.length; i++) {
+                const sx = toScreenX(coords[i][0]);
+                const sy = toScreenY(coords[i][1]);
+                flat[i * 2] = sx;
+                flat[i * 2 + 1] = sy;
+                if (screenCoords) screenCoords[i] = { x: sx, y: sy };
+              }
+              batch.lines.push(flat);
+              if (screenCoords) {
+                this.renderedFeatures.push({
+                  type: "LineString",
+                  screenCoords,
+                  properties: props,
+                  feature,
+                  geometry: geom,
+                });
+              }
+            }
+          }
+        } else if (type === "Polygon" || type === "MultiPolygon") {
+          const polygonArrays =
+            type === "Polygon" ? [geom.coordinates] : geom.coordinates;
+          const shouldFill = fill && useFill;
+
+          for (const polygon of polygonArrays) {
+            const ring = polygon[0];
+            if (!ring || ring.length < 3) continue;
+
+            const flat = new Array(ring.length * 2);
+            const screenCoords =
+              this.hoverInfoEnabled || this.selectedFeature
+                ? new Array(ring.length)
+                : null;
+            for (let i = 0; i < ring.length; i++) {
+              const sx = toScreenX(ring[i][0]);
+              const sy = toScreenY(ring[i][1]);
+              flat[i * 2] = sx;
+              flat[i * 2 + 1] = sy;
+              if (screenCoords) screenCoords[i] = { x: sx, y: sy };
+            }
+
+            if (shouldFill) {
+              const colorStr = `rgba(${color.r},${color.g},${color.b},${color.a / 255})`;
+              if (!fillBatches.has(colorStr)) {
+                fillBatches.set(colorStr, {
+                  points: [],
+                  polygons: [],
+                  features: [],
+                });
+              }
+              fillBatches.get(colorStr).polygons.push(flat);
+            } else {
+              // Outline only - batch as lines with width 1
+              const key = `${color.r},${color.g},${color.b},${color.a}|1`;
+              if (!lineBatches.has(key)) {
+                lineBatches.set(key, {
+                  color,
+                  width: 1,
+                  lines: [],
+                  features: [],
+                });
+              }
+              lineBatches.get(key).lines.push(flat);
+            }
+
+            if (screenCoords) {
+              this.renderedFeatures.push({
+                type: "Polygon",
+                screenCoords,
+                properties: props,
+                feature,
+                geometry: geom,
+              });
+            }
+          }
         }
       } catch (error) {
         console.warn("Error rendering feature:", error);
+      }
+    }
+
+    // Flush fill batches (polygons + points with same color in one path)
+    for (const [colorStr, batch] of fillBatches) {
+      this.ctx.fillStyle = colorStr;
+      this.ctx.beginPath();
+
+      // Filled polygons
+      for (const flat of batch.polygons) {
+        this.ctx.moveTo(flat[0], flat[1]);
+        for (let i = 2; i < flat.length; i += 2) {
+          this.ctx.lineTo(flat[i], flat[i + 1]);
+        }
+        this.ctx.closePath();
+      }
+
+      // Points
+      for (let i = 0; i < batch.points.length; i += 2) {
+        this.ctx.moveTo(batch.points[i] + 3, batch.points[i + 1]);
+        this.ctx.arc(batch.points[i], batch.points[i + 1], 3, 0, Math.PI * 2);
+      }
+
+      this.ctx.fill();
+    }
+
+    // Flush line batches (one beginPath/stroke per color+width combo)
+    for (const [key, batch] of lineBatches) {
+      this.ctx.strokeStyle = `rgba(${batch.color.r},${batch.color.g},${batch.color.b},${batch.color.a / 255})`;
+      this.ctx.lineWidth = batch.width;
+      this.ctx.lineCap = "round";
+      this.ctx.lineJoin = "round";
+      this.ctx.beginPath();
+
+      for (const flat of batch.lines) {
+        this.ctx.moveTo(flat[0], flat[1]);
+        for (let i = 2; i < flat.length; i += 2) {
+          this.ctx.lineTo(flat[i], flat[i + 1]);
+        }
+      }
+
+      this.ctx.stroke();
+    }
+
+    // Render railways individually (they need special pattern rendering)
+    for (const rw of railwayFeatures) {
+      if (this.zoom >= 4) {
+        this.drawRailwayPattern(rw.screenCoords, rw.color, rw.width);
+      } else {
+        this.ctx.strokeStyle = `rgba(${rw.color.r},${rw.color.g},${rw.color.b},${rw.color.a / 255})`;
+        this.ctx.lineWidth = 2;
+        this.ctx.lineCap = "round";
+        this.ctx.lineJoin = "round";
+        this.ctx.beginPath();
+        this.ctx.moveTo(rw.screenCoords[0].x, rw.screenCoords[0].y);
+        for (let i = 1; i < rw.screenCoords.length; i++) {
+          this.ctx.lineTo(rw.screenCoords[i].x, rw.screenCoords[i].y);
+        }
+        this.ctx.stroke();
       }
     }
   }
