@@ -729,7 +729,9 @@ class MapRenderer {
 
     // Debug: log layer contents
     console.log("Layer counts:", {
-      background: layers.background.length,
+      parks: layers.parks.length,
+      forests: layers.forests.length,
+      water: layers.water.length,
       areas: layers.areas.length,
       waterways: layers.waterways.length,
       railways: layers.railways.length,
@@ -738,11 +740,11 @@ class MapRenderer {
       points: layers.points.length,
     });
 
-    // Sample a few background features to check if they're classified correctly
-    if (layers.background.length > 0) {
+    // Sample a few water features to check if they're classified correctly
+    if (layers.water.length > 0) {
       console.log(
-        "Sample background features:",
-        layers.background.slice(0, 3).map((f) => ({
+        "Sample water features:",
+        layers.water.slice(0, 3).map((f) => ({
           props: f.props,
           type: f.type,
           fill: f.fill,
