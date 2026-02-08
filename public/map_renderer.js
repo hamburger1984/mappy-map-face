@@ -1,4 +1,5 @@
 // Hamburg Map Renderer - Canvas2D with Zoom/Pan/Tooltips
+// VERSION: 2024-RAILWAY-PATTERN-v2
 
 class MapRenderer {
   constructor() {
