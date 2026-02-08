@@ -863,7 +863,7 @@ class MapRenderer {
 
     // Waterways (rivers, streams as lines)
     if (props.waterway && props.waterway !== "riverbank") {
-      const importance = ["river", "canal"].includes(props.waterway) ? 1 : 2;
+      const importance = ["river", "canal"].includes(props.waterway) ? 0 : 1; // Rivers at all zoom levels
       return {
         layer: "waterways",
         color: { r: 170, g: 211, b: 223, a: 255 },
@@ -874,6 +874,21 @@ class MapRenderer {
 
     // Roads - determine layer based on tunnel/bridge/surface
     if (props.highway) {
+      // Skip point-like highway features (street lamps, traffic signals, crossings, etc.)
+      const skipTypes = [
+        "street_lamp",
+        "traffic_signals",
+        "crossing",
+        "stop",
+        "give_way",
+        "speed_camera",
+        "turning_circle",
+        "mini_roundabout",
+      ];
+      if (skipTypes.includes(props.highway)) {
+        return { layer: null, minLOD: 999, fill: false };
+      }
+
       // Determine color and width based on road type
       let color;
       let minLOD;
@@ -964,6 +979,11 @@ class MapRenderer {
     // === POINTS ===
 
     if (type === "Point") {
+      // Skip all highway-related points (street lamps, traffic signals, etc.)
+      if (props.highway) {
+        return { layer: null, minLOD: 999, fill: false };
+      }
+
       // Only show meaningful POIs with names at very high zoom
       if (
         props.name &&
@@ -976,7 +996,7 @@ class MapRenderer {
           fill: false,
         };
       }
-      return { layer: null, minLOD: 999 }; // Skip other points
+      return { layer: null, minLOD: 999, fill: false }; // Skip other points
     }
 
     // Default: skip
