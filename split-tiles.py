@@ -15,13 +15,9 @@ Each tile: tiles/{zoom}/{x}/{y}.json.gz
 import gzip
 import json
 import math
-import os
-import struct
 import sys
 from collections import defaultdict
 from pathlib import Path
-
-import msgpack
 
 # Hamburg bounds
 MIN_LON = 9.77
@@ -339,177 +335,6 @@ def get_tiles_for_feature(feature, zoom):
     return tiles
 
 
-# Binary tile format constants
-GEOM_TYPE_POINT = 1
-GEOM_TYPE_LINESTRING = 2
-GEOM_TYPE_POLYGON = 3
-
-LAYER_MAP = {
-    "water": 0,
-    "forest": 1,
-    "road": 2,
-    "railway": 3,
-    "building": 4,
-    "park": 5,
-    "farmland": 6,
-    "boundary": 7,
-    "points": 8,
-}
-
-
-def get_tile_bounds(z, x, y):
-    """Get geographic bounds for a tile"""
-    n = 2.0**z
-    lon_min = x / n * 360.0 - 180.0
-    lon_max = (x + 1) / n * 360.0 - 180.0
-    lat_rad_min = math.atan(math.sinh(math.pi * (1 - 2 * (y + 1) / n)))
-    lat_rad_max = math.atan(math.sinh(math.pi * (1 - 2 * y / n)))
-    lat_min = math.degrees(lat_rad_min)
-    lat_max = math.degrees(lat_rad_max)
-    return {"minLon": lon_min, "maxLon": lon_max, "minLat": lat_min, "maxLat": lat_max}
-
-
-def quantize_coord(value, min_val, range_val):
-    """Quantize a coordinate to int16 range"""
-    if range_val == 0:
-        return 0
-    normalized = (value - min_val) / range_val
-    return int(max(-32768, min(32767, normalized * 32767)))
-
-
-def pack_rgba(color):
-    """Pack RGBA color dict to uint32"""
-    r = color.get("r", 0) & 0xFF
-    g = color.get("g", 0) & 0xFF
-    b = color.get("b", 0) & 0xFF
-    a = color.get("a", 255) & 0xFF
-    return (a << 24) | (b << 16) | (g << 8) | r
-
-
-def extract_coordinates(geometry):
-    """Extract flat list of coordinates from geometry"""
-    geom_type = geometry["type"]
-    coords = geometry["coordinates"]
-
-    if geom_type == "Point":
-        return [coords]
-    elif geom_type == "LineString":
-        return coords
-    elif geom_type == "Polygon":
-        # Just use outer ring for now
-        return coords[0] if coords else []
-    elif geom_type == "MultiLineString":
-        # Flatten all linestrings
-        result = []
-        for linestring in coords:
-            result.extend(linestring)
-        return result
-    elif geom_type == "MultiPolygon":
-        # Flatten all outer rings
-        result = []
-        for polygon in coords:
-            if polygon:
-                result.extend(polygon[0])
-        return result
-    return []
-
-
-def write_binary_tile(features, z, x, y, tile_bounds, output_path):
-    """Write features to binary .maptile format"""
-
-    # Collect features and coordinates
-    feature_records = []
-    all_coords = []
-    all_props = []
-
-    lon_range = tile_bounds["maxLon"] - tile_bounds["minLon"]
-    lat_range = tile_bounds["maxLat"] - tile_bounds["minLat"]
-
-    for feature in features:
-        geom = feature["geometry"]
-        geom_type = geom["type"]
-        render = feature.get("_render", {})
-
-        # Map geometry type to int
-        if geom_type in ["Point"]:
-            geom_type_id = GEOM_TYPE_POINT
-        elif geom_type in ["LineString", "MultiLineString"]:
-            geom_type_id = GEOM_TYPE_LINESTRING
-        elif geom_type in ["Polygon", "MultiPolygon"]:
-            geom_type_id = GEOM_TYPE_POLYGON
-        else:
-            continue  # Skip unknown types
-
-        # Get layer and color
-        layer = LAYER_MAP.get(render.get("layer", "points"), 8)
-        color = pack_rgba(render.get("color", {"r": 0, "g": 0, "b": 0, "a": 255}))
-        min_lod = render.get("minLOD", 0)
-
-        # Quantize coordinates
-        coords = extract_coordinates(geom)
-        coord_offset = len(all_coords)
-
-        for lon, lat in coords:
-            quantized_lon = quantize_coord(lon, tile_bounds["minLon"], lon_range)
-            quantized_lat = quantize_coord(lat, tile_bounds["minLat"], lat_range)
-            all_coords.append(quantized_lon)
-            all_coords.append(quantized_lat)
-
-        coord_count = len(coords)
-
-        # Encode properties with MessagePack
-        props_data = msgpack.packb(feature.get("properties", {}))
-        props_offset = len(all_props)
-        all_props.extend(props_data)
-
-        feature_records.append(
-            {
-                "geom_type": geom_type_id,
-                "layer": layer,
-                "color": color,
-                "min_lod": min_lod,
-                "coord_offset": coord_offset // 2,  # Divide by 2 since we store pairs
-                "coord_count": coord_count,
-                "props_offset": props_offset,
-                "props_length": len(props_data),
-            }
-        )
-
-    # Write binary file
-    tile_file = output_path / f"{y}.maptile"
-    with open(tile_file, "wb") as f:
-        # Header (32 bytes)
-        f.write(b"MPTL")  # Magic number (4 bytes)
-        f.write(struct.pack("B", 1))  # Version (1 byte)
-        f.write(struct.pack("B", z))  # Zoom (1 byte)
-        f.write(struct.pack("H", x))  # TileX (2 bytes)
-        f.write(struct.pack("H", y))  # TileY (2 bytes)
-        f.write(struct.pack("I", len(feature_records)))  # Feature count (4 bytes)
-        f.write(struct.pack("I", len(all_coords) // 2))  # Coord pair count (4 bytes)
-        f.write(struct.pack("f", tile_bounds["minLon"]))  # Bounds (16 bytes)
-        f.write(struct.pack("f", tile_bounds["maxLon"]))
-        f.write(struct.pack("f", tile_bounds["minLat"]))
-        f.write(struct.pack("f", tile_bounds["maxLat"]))
-
-        # Feature table (18 bytes per feature)
-        for record in feature_records:
-            f.write(struct.pack("B", record["geom_type"]))
-            f.write(struct.pack("B", record["layer"]))
-            f.write(struct.pack("I", record["color"]))
-            f.write(struct.pack("B", record["min_lod"]))
-            f.write(struct.pack("I", record["coord_offset"]))
-            f.write(struct.pack("H", record["coord_count"]))
-            f.write(struct.pack("I", record["props_offset"]))
-            f.write(struct.pack("H", record["props_length"]))
-
-        # Coordinate array (2 bytes per coordinate component)
-        for coord in all_coords:
-            f.write(struct.pack("h", coord))  # int16
-
-        # Properties blob
-        f.write(bytes(all_props))
-
-
 def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
     """Split GeoJSON into tiles"""
     print(f"Loading {input_file}...")
@@ -595,10 +420,6 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
         tile_file = tile_dir / f"{y}.json.gz"
         with gzip.open(tile_file, "wt", encoding="utf-8") as f:
             json.dump(tile_geojson, f, separators=(",", ":"))
-
-        # Write binary format
-        tile_bounds = get_tile_bounds(z, x, y)
-        write_binary_tile(sorted_features, z, x, y, tile_bounds, tile_dir)
 
     print(f"\n✓ Created {total_tiles} tiles in {output_dir}")
 
