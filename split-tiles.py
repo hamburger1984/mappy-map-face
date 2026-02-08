@@ -85,21 +85,21 @@ def get_render_metadata(props, geom_type):
     This is the build-time equivalent of map_renderer.js classifyFeature()
     """
 
-    # Parks and green spaces (only show at closer zoom)
+    # Parks and green spaces
     if props.get("leisure") == "park" or props.get("landuse") in ["grass", "meadow"]:
         return {
-            "layer": "parks",
+            "layer": "natural_background",
             "color": {"r": 200, "g": 230, "b": 180, "a": 255},
-            "minLOD": 2,  # Changed from 1 to 2 - too much detail for far view
+            "minLOD": 1,
             "fill": True,
         }
 
-    # Agricultural land (only show at closer zoom)
+    # Agricultural land
     if props.get("landuse") in ["farmland", "orchard", "vineyard"]:
         return {
-            "layer": "parks",
+            "layer": "natural_background",
             "color": {"r": 238, "g": 240, "b": 213, "a": 255},
-            "minLOD": 2,  # Changed from 1 to 2 - too much detail for far view
+            "minLOD": 1,
             "fill": True,
         }
 
@@ -119,7 +119,7 @@ def get_render_metadata(props, geom_type):
         or props.get("waterway") == "riverbank"
     ):
         return {
-            "layer": "water",
+            "layer": "water_areas",
             "color": {"r": 170, "g": 211, "b": 223, "a": 255},
             "minLOD": 0,
             "fill": True,
