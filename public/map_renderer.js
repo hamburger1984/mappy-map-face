@@ -1638,7 +1638,7 @@ class MapRenderer {
 
     // Render railways individually (they need special pattern rendering)
     for (const rw of railwayFeatures) {
-      if (this.zoom >= 4) {
+      if (this.zoom >= 8) {
         this.drawRailwayPattern(rw.screenCoords, rw.color, rw.width);
       } else {
         this.ctx.strokeStyle = `rgba(${rw.color.r},${rw.color.g},${rw.color.b},${rw.color.a / 255})`;
@@ -1672,9 +1672,9 @@ class MapRenderer {
     }
 
     if (isRailway) {
-      // Only show detailed railway pattern when zoomed in (zoom >= 4)
-      // At lower zoom levels, show simple dashed line
-      if (this.zoom >= 4) {
+      // Only show detailed railway pattern when zoomed in (zoom >= 8)
+      // At lower zoom levels, show simple solid line
+      if (this.zoom >= 8) {
         // Draw railway pattern: two parallel rails with ties (sleepers)
         this.drawRailwayPattern(screenCoords, color, width);
       } else {
