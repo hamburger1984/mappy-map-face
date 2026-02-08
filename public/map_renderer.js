@@ -1020,26 +1020,30 @@ class MapRenderer {
       let realWidthMeters; // Real-world width in meters
 
       if (props.highway === "motorway" || props.highway === "trunk") {
-        color = { r: 233, g: 115, b: 103, a: 255 };
+        color = { r: 233, g: 115, b: 103, a: 255 }; // OSM motorway orange
         realWidthMeters = 14; // ~4 lanes
         minLOD = 0;
-      } else if (props.highway === "primary" || props.highway === "secondary") {
-        color = { r: 252, g: 214, b: 164, a: 255 };
+      } else if (props.highway === "primary") {
+        color = { r: 249, g: 207, b: 144, a: 255 }; // OSM primary yellow
+        realWidthMeters = 7; // ~2 lanes
+        minLOD = 1;
+      } else if (props.highway === "secondary") {
+        color = { r: 248, g: 234, b: 164, a: 255 }; // OSM secondary light yellow
         realWidthMeters = 7; // ~2 lanes
         minLOD = 1;
       } else if (props.highway === "tertiary") {
-        color = { r: 255, g: 255, b: 255, a: 255 };
+        color = { r: 255, g: 255, b: 255, a: 255 }; // OSM tertiary white
         realWidthMeters = 6; // ~1.5 lanes
         minLOD = 2;
       } else if (
         props.highway === "residential" ||
         props.highway === "unclassified"
       ) {
-        color = { r: 255, g: 255, b: 255, a: 255 };
+        color = { r: 255, g: 255, b: 255, a: 255 }; // OSM residential white
         realWidthMeters = 5; // ~1-2 lanes
         minLOD = 2;
       } else if (props.highway === "service" || props.highway === "track") {
-        color = { r: 230, g: 230, b: 230, a: 255 };
+        color = { r: 255, g: 255, b: 255, a: 255 }; // OSM service white
         realWidthMeters = 3.5; // 1 lane
         minLOD = 3;
       } else if (
@@ -1048,11 +1052,11 @@ class MapRenderer {
         props.highway === "pedestrian" ||
         props.highway === "steps"
       ) {
-        color = { r: 200, g: 200, b: 200, a: 255 };
+        color = { r: 250, g: 190, b: 165, a: 255 }; // OSM footway salmon/pink
         realWidthMeters = 2; // Footpaths
         minLOD = 1;
       } else if (props.highway === "cycleway") {
-        color = { r: 180, g: 200, b: 255, a: 255 };
+        color = { r: 120, g: 150, b: 255, a: 255 }; // OSM cycleway blue
         realWidthMeters = 2; // Cycle paths
         minLOD = 3;
       } else {
