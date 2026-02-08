@@ -1244,10 +1244,26 @@ class MapRenderer {
   }
 
   renderRoadLayer(layerFeatures, bounds) {
-    // Sort by road priority: lower priority drawn first (underneath)
-    const sorted = layerFeatures
-      .slice()
-      .sort((a, b) => (a.roadPriority || 0) - (b.roadPriority || 0));
+    // Separate railways from roads - railways need their own rendering
+    const roads = [];
+    const railways = [];
+    for (const item of layerFeatures) {
+      if (item.isRailway) {
+        railways.push(item);
+      } else {
+        roads.push(item);
+      }
+    }
+
+    // Render railways via the standard layer renderer
+    if (railways.length > 0) {
+      this.renderLayer(railways, bounds, false);
+    }
+
+    // Sort roads by priority: lower priority drawn first (underneath)
+    const sorted = roads.sort(
+      (a, b) => (a.roadPriority || 0) - (b.roadPriority || 0),
+    );
 
     // Group features by priority level
     const byPriority = new Map();
