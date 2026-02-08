@@ -1034,7 +1034,7 @@ class MapRenderer {
       ) {
         color = { r: 200, g: 200, b: 200, a: 255 };
         width = 1; // Footpaths
-        minLOD = 3; // Only at very high zoom
+        minLOD = 1; // Show 2 zoom levels earlier (was 3)
       } else if (props.highway === "cycleway") {
         color = { r: 180, g: 200, b: 255, a: 255 }; // Light blue for cycle paths
         width = 1;
