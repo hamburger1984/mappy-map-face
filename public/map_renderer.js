@@ -170,10 +170,14 @@ class MapRenderer {
     // Zoom toward center of viewport
     // Simply increase zoom without changing offset
     const zoomFactor = 1.3;
+    const oldZoom = this.zoom;
     const newZoom = Math.min(this.maxZoom, this.zoom * zoomFactor);
 
     if (newZoom !== this.zoom) {
       this.zoom = newZoom;
+      console.log(
+        `[ZOOM] In: ${oldZoom.toFixed(2)} → ${newZoom.toFixed(2)} (factor: ${zoomFactor})`,
+      );
       this.renderMap();
       this.updateStats();
     }
@@ -183,10 +187,14 @@ class MapRenderer {
     // Zoom away from center of viewport
     // Simply decrease zoom without changing offset
     const zoomFactor = 1 / 1.3;
+    const oldZoom = this.zoom;
     const newZoom = Math.max(this.minZoom, this.zoom * zoomFactor);
 
     if (newZoom !== this.zoom) {
       this.zoom = newZoom;
+      console.log(
+        `[ZOOM] Out: ${oldZoom.toFixed(2)} → ${newZoom.toFixed(2)} (factor: ${zoomFactor.toFixed(2)})`,
+      );
       this.renderMap();
       this.updateStats();
     }
@@ -602,6 +610,10 @@ class MapRenderer {
     // Calculate and set map bounds
     const bounds = this.calculateBounds();
 
+    console.log(
+      `[RENDER] Zoom: ${this.zoom.toFixed(2)}, LOD: ${this.getLOD()}`,
+    );
+
     // Adjust bounds for zoom and pan
     // The key insight: we want to zoom/pan around the GEOGRAPHIC center, not the bounds center
     // Use fixed Hamburg center coordinates
@@ -616,15 +628,26 @@ class MapRenderer {
     // Canvas aspect ratio (width/height)
     const canvasAspect = this.canvasWidth / this.canvasHeight; // 1.5 for 1200x800
 
-    // Base ranges from original bounds
-    const baseLonRange = bounds.maxLon - bounds.minLon;
-    const baseLatRange = bounds.maxLat - bounds.minLat;
+    // Use fixed base ranges for consistent zoom behavior
+    // These match the Hamburg area constants
+    const BASE_LAT_RANGE = 0.27; // Hamburg latitude range
+    const BASE_LON_RANGE = 0.44; // Hamburg longitude range
+    const baseLatRange = BASE_LAT_RANGE;
+    const baseLonRange = BASE_LON_RANGE;
 
     // Calculate visible range accounting for zoom
     // We need to maintain aspect ratio: lonRange should be canvasAspect times latRange (in screen space)
     // But in geographic space, we need to account for Mercator distortion
     const latRange = baseLatRange / this.zoom;
     const lonRange = latRange * canvasAspect * aspectCorrection;
+
+    // Calculate approximate scale (km across the view)
+    const kmPerDegLat = 111; // Roughly 111km per degree latitude
+    const viewHeightKm = latRange * kmPerDegLat;
+    const viewWidthKm = lonRange * kmPerDegLat * Math.cos(latRad);
+    console.log(
+      `[SCALE] View: ${viewWidthKm.toFixed(1)}km × ${viewHeightKm.toFixed(1)}km`,
+    );
 
     // Adjust for pan (convert screen offset to geo offset)
     // offsetX/Y represent how much we've shifted the view
@@ -725,23 +748,39 @@ class MapRenderer {
 
     // Render layers in order (back to front)
     // Parks/farmland render first (background), then forests on top, then water, then buildings, then roads
-    this.renderLayer(layers.parks, adjustedBounds, true);
-    this.renderLayer(layers.forests, adjustedBounds, true);
-    this.renderLayer(layers.water, adjustedBounds, true);
-    this.renderLayer(layers.areas, adjustedBounds, true);
+    // Render lines/points to WASM buffer first
     this.renderLayer(layers.waterways, adjustedBounds, false);
     this.renderLayer(layers.railways, adjustedBounds, false);
     this.renderLayer(layers.major_roads, adjustedBounds, false);
     this.renderLayer(layers.roads, adjustedBounds, false);
     this.renderLayer(layers.points, adjustedBounds, false);
 
+    // Copy WASM buffer to canvas (lines/points)
+    this.updateCanvas();
+
+    // NOW render filled polygons directly to Canvas2D on top
+    // Order: background fills first, then buildings on top
+    this.renderLayer(layers.parks, adjustedBounds, true);
+    this.renderLayer(layers.forests, adjustedBounds, true);
+    this.renderLayer(layers.water, adjustedBounds, true);
+
+    // Separate buildings from other areas for proper layering
+    const buildings = layers.areas.filter(
+      (f) => f.properties.building || f.properties.landuse === undefined,
+    );
+    const landuse = layers.areas.filter(
+      (f) => !f.properties.building && f.properties.landuse,
+    );
+
+    // Render landuse areas first (commercial, residential, etc.)
+    this.renderLayer(landuse, adjustedBounds, true);
+    // Then buildings on top
+    this.renderLayer(buildings, adjustedBounds, true);
+
     featureCount = Object.values(layers).reduce(
       (sum, layer) => sum + layer.length,
       0,
     );
-
-    // Copy WASM buffer to canvas
-    this.updateCanvas();
 
     const endTime = performance.now();
     const renderTime = (endTime - startTime).toFixed(2);
@@ -1067,33 +1106,30 @@ class MapRenderer {
 
   renderPolygon(coordinates, color, bounds) {
     if (coordinates.length < 3) return [];
-    if (coordinates.length * 2 > this.coordBufferSize) return [];
 
-    // Write coordinates directly to WASM coord buffer
-    const memory = new Float64Array(this.memory.buffer);
+    // Use Canvas2D native fill - much faster than pixel-by-pixel in WASM
     const screenCoords = [];
 
-    for (let i = 0; i < coordinates.length; i++) {
-      memory[this.coordBufferPtr / 8 + i * 2] = coordinates[i][0]; // lon
-      memory[this.coordBufferPtr / 8 + i * 2 + 1] = coordinates[i][1]; // lat
+    this.ctx.fillStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a / 255})`;
+    this.ctx.beginPath();
 
-      // Also compute screen coordinates for hit detection
+    for (let i = 0; i < coordinates.length; i++) {
       const screen = this.latLonToScreen(
         coordinates[i][1],
         coordinates[i][0],
         bounds,
       );
       screenCoords.push(screen);
+
+      if (i === 0) {
+        this.ctx.moveTo(screen.x, screen.y);
+      } else {
+        this.ctx.lineTo(screen.x, screen.y);
+      }
     }
 
-    this.wasm.fillPolygon(
-      this.coordBufferPtr,
-      coordinates.length * 2,
-      color.r,
-      color.g,
-      color.b,
-      color.a,
-    );
+    this.ctx.closePath();
+    this.ctx.fill();
 
     return screenCoords;
   }
