@@ -759,13 +759,13 @@ class MapRenderer {
     }
 
     // Render layers in order (back to front)
-    this.renderLayer(layers.background, bounds, true);
-    this.renderLayer(layers.areas, bounds, true);
-    this.renderLayer(layers.waterways, bounds, false);
-    this.renderLayer(layers.railways, bounds, false);
-    this.renderLayer(layers.major_roads, bounds, false);
-    this.renderLayer(layers.roads, bounds, false);
-    this.renderLayer(layers.points, bounds, false);
+    this.renderLayer(layers.background, adjustedBounds, true);
+    this.renderLayer(layers.areas, adjustedBounds, true);
+    this.renderLayer(layers.waterways, adjustedBounds, false);
+    this.renderLayer(layers.railways, adjustedBounds, false);
+    this.renderLayer(layers.major_roads, adjustedBounds, false);
+    this.renderLayer(layers.roads, adjustedBounds, false);
+    this.renderLayer(layers.points, adjustedBounds, false);
 
     featureCount = Object.values(layers).reduce(
       (sum, layer) => sum + layer.length,
