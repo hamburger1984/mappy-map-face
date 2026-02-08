@@ -576,11 +576,6 @@ class MapRenderer {
   async renderMap() {
     const startTime = performance.now();
 
-    if (!this.wasm) {
-      console.error("WASM not loaded");
-      return;
-    }
-
     // Calculate and set map bounds
     const bounds = this.calculateBounds();
 
@@ -637,13 +632,6 @@ class MapRenderer {
       maxLat: centerLat + latRange / 2 + latOffset,
     };
 
-    this.wasm.setMapBounds(
-      adjustedBounds.minLon,
-      adjustedBounds.maxLon,
-      adjustedBounds.minLat,
-      adjustedBounds.maxLat,
-    );
-
     // Load visible tiles
     const tileLoadStart = performance.now();
     const visibleTiles = this.getVisibleTiles(adjustedBounds);
@@ -660,9 +648,6 @@ class MapRenderer {
     document.getElementById("tileLoadTime").textContent = tileLoadTime;
 
     // Tile loading stats available in UI
-
-    // Clear canvas
-    this.wasm.clearCanvas(240, 248, 255); // Light blue background
 
     let featureCount = 0;
     let culledCount = 0;
