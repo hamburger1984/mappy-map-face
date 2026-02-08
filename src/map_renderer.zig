@@ -180,31 +180,65 @@ export fn drawPoint(lon: f64, lat: f64, radius: u32, r: u8, g: u8, b: u8, a: u8)
 export fn fillPolygon(coords_ptr: [*]const f64, coords_len: usize, r: u8, g: u8, b: u8, a: u8) void {
     if (!buffer_initialized or coords_len < 6) return;
 
-    // Simple polygon fill using scanline algorithm
-    // First, draw the outline
+    // Convert lat/lon coordinates to pixels
+    const num_points = coords_len / 2;
+    if (num_points < 3) return;
+
+    // Find bounding box
+    var min_x: i32 = @intFromFloat(@as(f64, @floatFromInt(canvas_width)));
+    var max_x: i32 = 0;
+    var min_y: i32 = @intFromFloat(@as(f64, @floatFromInt(canvas_height)));
+    var max_y: i32 = 0;
+
     var i: usize = 0;
-    while (i + 3 < coords_len) : (i += 2) {
-        const lon0 = coords_ptr[i];
-        const lat0 = coords_ptr[i + 1];
-        const lon1 = coords_ptr[i + 2];
-        const lat1 = coords_ptr[i + 3];
+    while (i < coords_len) : (i += 2) {
+        const p = latLonToPixel(coords_ptr[i + 1], coords_ptr[i]);
+        const px: i32 = @intFromFloat(p.x);
+        const py: i32 = @intFromFloat(p.y);
 
-        const p0 = latLonToPixel(lat0, lon0);
-        const p1 = latLonToPixel(lat1, lon1);
-
-        drawLine(@intFromFloat(p0.x), @intFromFloat(p0.y), @intFromFloat(p1.x), @intFromFloat(p1.y), r, g, b, a);
+        if (px < min_x) min_x = px;
+        if (px > max_x) max_x = px;
+        if (py < min_y) min_y = py;
+        if (py > max_y) max_y = py;
     }
 
-    // Close the polygon
-    if (coords_len >= 4) {
-        const lon0 = coords_ptr[coords_len - 2];
-        const lat0 = coords_ptr[coords_len - 1];
-        const lon1 = coords_ptr[0];
-        const lat1 = coords_ptr[1];
+    // Clip to canvas bounds
+    if (min_x < 0) min_x = 0;
+    if (min_y < 0) min_y = 0;
+    if (max_x >= canvas_width) max_x = @intCast(canvas_width - 1);
+    if (max_y >= canvas_height) max_y = @intCast(canvas_height - 1);
 
-        const p0 = latLonToPixel(lat0, lon0);
-        const p1 = latLonToPixel(lat1, lon1);
+    // Scanline fill algorithm
+    var y = min_y;
+    while (y <= max_y) : (y += 1) {
+        const scan_y: f64 = @floatFromInt(y);
 
-        drawLine(@intFromFloat(p0.x), @intFromFloat(p0.y), @intFromFloat(p1.x), @intFromFloat(p1.y), r, g, b, a);
+        // For each scanline, fill pixels inside the polygon
+        var x = min_x;
+        while (x <= max_x) : (x += 1) {
+            const scan_x: f64 = @floatFromInt(x);
+
+            // Point-in-polygon test using ray casting
+            var inside = false;
+            var j: usize = 0;
+            var k: usize = coords_len - 2;
+
+            while (j < coords_len) : (j += 2) {
+                const p_j = latLonToPixel(coords_ptr[j + 1], coords_ptr[j]);
+                const p_k = latLonToPixel(coords_ptr[k + 1], coords_ptr[k]);
+
+                if (((p_j.y > scan_y) != (p_k.y > scan_y)) and
+                    (scan_x < (p_k.x - p_j.x) * (scan_y - p_j.y) / (p_k.y - p_j.y) + p_j.x))
+                {
+                    inside = !inside;
+                }
+
+                k = j;
+            }
+
+            if (inside) {
+                setPixel(x, y, r, g, b, a);
+            }
+        }
     }
 }
