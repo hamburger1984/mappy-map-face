@@ -181,34 +181,32 @@ class MapRenderer {
   }
 
   zoomIn() {
-    // Zoom toward center of viewport
-    // Simply increase zoom without changing offset
     const zoomFactor = 1.3;
     const oldZoom = this.zoom;
     const newZoom = Math.min(this.maxZoom, this.zoom * zoomFactor);
 
     if (newZoom !== this.zoom) {
+      // Scale pixel offset to keep the same geographic center
+      const scale = newZoom / oldZoom;
+      this.offsetX *= scale;
+      this.offsetY *= scale;
       this.zoom = newZoom;
-      console.log(
-        `[ZOOM] In: ${oldZoom.toFixed(2)} → ${newZoom.toFixed(2)} (factor: ${zoomFactor})`,
-      );
       this.renderMap();
       this.updateStats();
     }
   }
 
   zoomOut() {
-    // Zoom away from center of viewport
-    // Simply decrease zoom without changing offset
     const zoomFactor = 1 / 1.3;
     const oldZoom = this.zoom;
     const newZoom = Math.max(this.minZoom, this.zoom * zoomFactor);
 
     if (newZoom !== this.zoom) {
+      // Scale pixel offset to keep the same geographic center
+      const scale = newZoom / oldZoom;
+      this.offsetX *= scale;
+      this.offsetY *= scale;
       this.zoom = newZoom;
-      console.log(
-        `[ZOOM] Out: ${oldZoom.toFixed(2)} → ${newZoom.toFixed(2)} (factor: ${zoomFactor.toFixed(2)})`,
-      );
       this.renderMap();
       this.updateStats();
     }
