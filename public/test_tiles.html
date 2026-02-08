@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head><title>Tile Test</title></head>
+<body>
+<h1>Tile System Test</h1>
+<pre id="output">Loading...</pre>
+<script>
+async function testTiles() {
+  const output = document.getElementById('output');
+  let text = '';
+  
+  // Test loading index
+  try {
+    const indexResp = await fetch('tiles/index.json');
+    const index = await indexResp.json();
+    text += 'INDEX: ' + JSON.stringify(index, null, 2) + '\n\n';
+  } catch (e) {
+    text += 'INDEX ERROR: ' + e + '\n\n';
+  }
+  
+  // Test loading a Z8 tile (should have major features)
+  try {
+    const tileResp = await fetch('tiles/8/135/82.json.gz');
+    if (tileResp.ok) {
+      const compressed = await tileResp.arrayBuffer();
+      const decompressed = new Response(
+        new Response(compressed).body.pipeThrough(new DecompressionStream('gzip'))
+      );
+      const tile = await decompressed.json();
+      text += 'TILE 8/135/82: ' + tile.features.length + ' features\n';
+      text += 'Sample features:\n';
+      tile.features.slice(0, 3).forEach(f => {
+        text += '  - ' + (f.properties.name || f.properties.highway || f.properties.natural || 'unnamed') + '\n';
+      });
+    }
+  } catch (e) {
+    text += 'TILE ERROR: ' + e + '\n';
+  }
+  
+  output.textContent = text;
+}
+testTiles();
+</script>
+</body>
+</html>
