@@ -811,9 +811,8 @@ class MapRenderer {
       // LINEAR FEATURES (by vertical layer)
       tunnels: [], // Underground roads/railways (semi-transparent)
       waterways: [], // Rivers, streams (linear features)
-      surface_roads: [], // Ground-level roads
-      surface_railways: [], // Ground-level railways
-      bridges: [], // Elevated roads/railways (on top of water)
+      surface_roads: [], // Ground-level roads (including bridges)
+      surface_railways: [], // Ground-level railways (including bridges)
 
       // POINTS (foreground)
       points: [], // POIs, always on top
@@ -885,10 +884,7 @@ class MapRenderer {
     // 8. Surface railways
     this.renderLayer(layers.surface_railways, adjustedBounds, false);
 
-    // 9. Bridges (on top of water!, sorted by priority, with outlines)
-    this.renderRoadLayer(layers.bridges, adjustedBounds);
-
-    // 10. Points (always on top)
+    // 9. Points (always on top)
     this.renderLayer(layers.points, adjustedBounds, false);
 
     // 11. Highlight hovered or selected feature on top of everything
@@ -1140,15 +1136,6 @@ class MapRenderer {
           fill: false,
           roadPriority,
         };
-      } else if (isBridge) {
-        return {
-          layer: "bridges",
-          color,
-          minLOD,
-          width,
-          fill: false,
-          roadPriority,
-        };
       } else {
         return {
           layer: "surface_roads",
@@ -1188,15 +1175,6 @@ class MapRenderer {
           color.a = 80; // 30% opacity for tunnels
           return {
             layer: "tunnels",
-            color,
-            minLOD,
-            width,
-            fill: false,
-            isRailway: true,
-          };
-        } else if (isBridge) {
-          return {
-            layer: "bridges",
             color,
             minLOD,
             width,
