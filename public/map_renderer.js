@@ -92,10 +92,15 @@ class MapRenderer {
         Math.min(this.maxZoom, this.zoom * zoomFactor),
       );
 
-      // Zoom towards mouse position
-      const zoomRatio = newZoom / this.zoom;
-      this.offsetX = mouseX - (mouseX - this.offsetX) * zoomRatio;
-      this.offsetY = mouseY - (mouseY - this.offsetY) * zoomRatio;
+      // Calculate the zoom change and adjust offset to zoom toward mouse
+      // The point under the mouse should stay stationary
+      const zoomChange = newZoom / this.zoom;
+
+      // Adjust offsets: the canvas point under mouse should map to the same geo point
+      // We need to scale the distance from mouse to origin
+      this.offsetX = mouseX - (mouseX - this.offsetX) * zoomChange;
+      this.offsetY = mouseY - (mouseY - this.offsetY) * zoomChange;
+
       this.zoom = newZoom;
 
       this.debouncedRender();
@@ -439,19 +444,17 @@ class MapRenderer {
   }
 
   latLonToScreen(lat, lon, bounds) {
-    // Apply zoom and pan
-    const baseX =
+    // Bounds are already adjusted for zoom and pan in renderMap
+    // Just do a simple normalized transformation
+    const x =
       ((lon - bounds.minLon) / (bounds.maxLon - bounds.minLon)) *
       this.canvasWidth;
-    const baseY =
+    const y =
       this.canvasHeight -
       ((lat - bounds.minLat) / (bounds.maxLat - bounds.minLat)) *
         this.canvasHeight;
 
-    return {
-      x: baseX * this.zoom + this.offsetX,
-      y: baseY * this.zoom + this.offsetY,
-    };
+    return { x, y };
   }
 
   renderMap() {
@@ -921,7 +924,7 @@ class MapRenderer {
   }
 
   resetView() {
-    this.zoom = 1.0;
+    this.zoom = 1.5; // Match initial zoom
     this.offsetX = 0;
     this.offsetY = 0;
     this.renderMap();
