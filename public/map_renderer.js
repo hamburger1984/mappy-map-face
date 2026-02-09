@@ -2291,13 +2291,12 @@ class MapRenderer {
     this.ctx.textBaseline = "middle";
 
     for (const road of namedRoads) {
-      // Font size based on road width - smaller to fit within road bounds
-      // Text height is roughly fontSize * 0.7, we want it to fit within road.width pixels
-      const maxFontSize = Math.floor(road.width * 1.2);
-      const fontSize = Math.max(9, Math.min(14, maxFontSize));
+      // Font size: base of 11px, increases with road width (but capped)
+      // This keeps text readable while scaling slightly with importance
+      const fontSize = Math.max(10, Math.min(15, 11 + road.width * 0.4));
 
-      // Skip if road is too narrow for readable text (< 3 pixels wide)
-      if (road.width < 3) continue;
+      // Skip very narrow roads (< 2 pixels wide) where text won't fit nicely
+      if (road.width < 2) continue;
 
       this.ctx.font = `${fontSize}px Arial, sans-serif`;
 
