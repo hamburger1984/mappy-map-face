@@ -410,24 +410,32 @@ def get_render_metadata(props, geom_type):
             "color": {"r": 233, "g": 115, "b": 103, "a": 255},
             "minLOD": 0,
             "fill": False,
+            "name": props.get("name", ""),
+            "name_priority": 1,  # Highest priority for labels
         }
 
     # Primary and secondary roads
     if effective_highway in ["primary", "secondary"]:
+        priority = 2 if effective_highway == "primary" else 3
         return {
             "layer": "major_roads",
             "color": {"r": 252, "g": 214, "b": 164, "a": 255},
             "minLOD": 1,
             "fill": False,
+            "name": props.get("name", ""),
+            "name_priority": priority,
         }
 
     # Tertiary and residential roads
     if effective_highway in ["tertiary", "residential", "unclassified"]:
+        priority = 4 if effective_highway == "tertiary" else 5
         return {
             "layer": "roads",
             "color": {"r": 255, "g": 255, "b": 255, "a": 255},
             "minLOD": 2,
             "fill": False,
+            "name": props.get("name", ""),
+            "name_priority": priority,
         }
 
     # Small roads and paths
@@ -437,6 +445,8 @@ def get_render_metadata(props, geom_type):
             "color": {"r": 220, "g": 220, "b": 220, "a": 255},
             "minLOD": 3,
             "fill": False,
+            "name": props.get("name", ""),
+            "name_priority": 6,  # Lowest priority
         }
 
     # Railways (only major rail lines at LOD 1, minor at LOD 2)

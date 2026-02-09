@@ -23,6 +23,8 @@ const RenderMetadata = struct {
     width: ?u8 = null,
     isRailway: bool = false,
     roadPriority: ?u8 = null,
+    name: []const u8 = "",
+    name_priority: ?u8 = null,
 };
 
 const Feature = struct {
@@ -55,8 +57,58 @@ fn lat2tile(lat: f64, zoom: u8) u32 {
     return @intFromFloat(@floor((1.0 - @log(std.math.tan(lat_rad) + 1.0 / @cos(lat_rad)) / std.math.pi) / 2.0 * z));
 }
 
+// Simple JSON writer for json.Value (workaround for Zig 0.15.2 stringify bug)
+fn writeJsonValue(writer: anytype, value: json.Value) !void {
+    switch (value) {
+        .null => try writer.writeAll("null"),
+        .bool => |b| try writer.writeAll(if (b) "true" else "false"),
+        .integer => |i| try writer.print("{d}", .{i}),
+        .float => |f| try writer.print("{d}", .{f}),
+        .number_string => |s| try writer.writeAll(s),
+        .string => |s| {
+            try writer.writeByte('"');
+            for (s) |c| {
+                switch (c) {
+                    '"' => try writer.writeAll("\\\""),
+                    '\\' => try writer.writeAll("\\\\"),
+                    '\n' => try writer.writeAll("\\n"),
+                    '\r' => try writer.writeAll("\\r"),
+                    '\t' => try writer.writeAll("\\t"),
+                    else => try writer.writeByte(c),
+                }
+            }
+            try writer.writeByte('"');
+        },
+        .array => |arr| {
+            try writer.writeByte('[');
+            for (arr.items, 0..) |item, i| {
+                if (i > 0) try writer.writeByte(',');
+                try writeJsonValue(writer, item);
+            }
+            try writer.writeByte(']');
+        },
+        .object => |obj| {
+            try writer.writeByte('{');
+            var iter = obj.iterator();
+            var first = true;
+            while (iter.next()) |entry| {
+                if (!first) try writer.writeByte(',');
+                first = false;
+                try writer.writeByte('"');
+                try writer.writeAll(entry.key_ptr.*);
+                try writer.writeAll("\":");
+                try writeJsonValue(writer, entry.value_ptr.*);
+            }
+            try writer.writeByte('}');
+        },
+    }
+}
+
 fn classifyFeature(allocator: std.mem.Allocator, props: json.Value) !?RenderMetadata {
     const obj = props.object;
+
+    // Extract name if present
+    const name = if (obj.get("name")) |n| n.string else "";
 
     // Check for water
     if (obj.get("natural")) |natural| {
@@ -110,6 +162,8 @@ fn classifyFeature(allocator: std.mem.Allocator, props: json.Value) !?RenderMeta
                 .fill = false,
                 .width = 6,
                 .roadPriority = 7,
+                .name = name,
+                .name_priority = 1,
             };
         }
 
@@ -121,10 +175,13 @@ fn classifyFeature(allocator: std.mem.Allocator, props: json.Value) !?RenderMeta
                 .fill = false,
                 .width = 5,
                 .roadPriority = 6,
+                .name = name,
+                .name_priority = 2,
             };
         }
 
         if (std.mem.eql(u8, hw, "secondary") or std.mem.eql(u8, hw, "tertiary")) {
+            const priority: u8 = if (std.mem.eql(u8, hw, "secondary")) 3 else 4;
             return RenderMetadata{
                 .layer = "surface_roads",
                 .color = .{ .r = 255, .g = 255, .b = 255, .a = 255 },
@@ -132,6 +189,8 @@ fn classifyFeature(allocator: std.mem.Allocator, props: json.Value) !?RenderMeta
                 .fill = false,
                 .width = 4,
                 .roadPriority = 5,
+                .name = name,
+                .name_priority = priority,
             };
         }
 
@@ -143,6 +202,8 @@ fn classifyFeature(allocator: std.mem.Allocator, props: json.Value) !?RenderMeta
                 .fill = false,
                 .width = 3,
                 .roadPriority = 3,
+                .name = name,
+                .name_priority = 5,
             };
         }
     }
@@ -316,6 +377,41 @@ pub fn main() !void {
         const meta = metadata.?;
         classified += 1;
 
+        // Add _render metadata to properties
+        var props_obj = props.object;
+
+        // Create _render object
+        var render_obj = std.json.ObjectMap.init(allocator);
+        try render_obj.put("layer", .{ .string = meta.layer });
+
+        var color_obj = std.json.ObjectMap.init(allocator);
+        try color_obj.put("r", .{ .integer = meta.color.r });
+        try color_obj.put("g", .{ .integer = meta.color.g });
+        try color_obj.put("b", .{ .integer = meta.color.b });
+        try color_obj.put("a", .{ .integer = meta.color.a });
+        try render_obj.put("color", .{ .object = color_obj });
+
+        try render_obj.put("minLOD", .{ .integer = meta.minLOD });
+        try render_obj.put("fill", .{ .bool = meta.fill });
+
+        if (meta.width) |w| {
+            try render_obj.put("width", .{ .integer = w });
+        }
+        if (meta.isRailway) {
+            try render_obj.put("isRailway", .{ .bool = true });
+        }
+        if (meta.roadPriority) |rp| {
+            try render_obj.put("roadPriority", .{ .integer = rp });
+        }
+        if (meta.name.len > 0) {
+            try render_obj.put("name", .{ .string = meta.name });
+        }
+        if (meta.name_priority) |np| {
+            try render_obj.put("name_priority", .{ .integer = np });
+        }
+
+        try props_obj.put("_render", .{ .object = render_obj });
+
         // Get geometry to determine tile placement
         const geometry = feature.get("geometry") orelse continue;
         const geom_obj = geometry.object;
@@ -407,7 +503,7 @@ pub fn main() !void {
 
         for (entry.value_ptr.items, 0..) |feature, i| {
             if (i > 0) try writer.writeAll(",");
-            try writer.print("{any}", .{std.json.fmt(feature, .{})});
+            try writeJsonValue(writer, feature);
         }
 
         try writer.writeAll("]}");
