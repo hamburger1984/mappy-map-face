@@ -2333,59 +2333,75 @@ class MapRenderer {
       // Only render if road is long enough for the text with padding
       if (road.length < textWidth + 30) continue;
 
-      // Find midpoint of the road
-      let targetDist = road.length / 2;
-      let accumulatedDist = 0;
-      let segmentIndex = -1;
-      let segmentProgress = 0;
+      // Draw curved text along the path
+      // Start position: center the text along the road
+      const startDist = (road.length - textWidth) / 2;
 
-      for (let i = 1; i < road.screenCoords.length; i++) {
-        const dx = road.screenCoords[i].x - road.screenCoords[i - 1].x;
-        const dy = road.screenCoords[i].y - road.screenCoords[i - 1].y;
-        const segmentLength = Math.sqrt(dx * dx + dy * dy);
+      // Helper: find position and angle at a given distance along the path
+      const getPointAtDistance = (targetDist) => {
+        let accumulated = 0;
+        for (let i = 1; i < road.screenCoords.length; i++) {
+          const dx = road.screenCoords[i].x - road.screenCoords[i - 1].x;
+          const dy = road.screenCoords[i].y - road.screenCoords[i - 1].y;
+          const segLen = Math.sqrt(dx * dx + dy * dy);
 
-        if (accumulatedDist + segmentLength >= targetDist) {
-          segmentIndex = i - 1;
-          segmentProgress = (targetDist - accumulatedDist) / segmentLength;
-          break;
+          if (accumulated + segLen >= targetDist) {
+            const t = (targetDist - accumulated) / segLen;
+            const x = road.screenCoords[i - 1].x + dx * t;
+            const y = road.screenCoords[i - 1].y + dy * t;
+            const angle = Math.atan2(dy, dx);
+            return { x, y, angle };
+          }
+          accumulated += segLen;
+        }
+        // Fallback to end of path
+        const last = road.screenCoords[road.screenCoords.length - 1];
+        const prev = road.screenCoords[road.screenCoords.length - 2];
+        return {
+          x: last.x,
+          y: last.y,
+          angle: Math.atan2(last.y - prev.y, last.x - prev.x),
+        };
+      };
+
+      // Draw each character along the path
+      let currentDist = startDist;
+      this.ctx.textAlign = "center";
+      this.ctx.textBaseline = "middle";
+
+      for (let i = 0; i < road.name.length; i++) {
+        const char = road.name[i];
+        const charWidth = this.ctx.measureText(char).width;
+
+        // Get position and angle at the center of this character
+        const charCenter = currentDist + charWidth / 2;
+        const point = getPointAtDistance(charCenter);
+
+        // Normalize angle to avoid upside-down text
+        let angle = point.angle;
+        if (Math.abs(angle) > Math.PI / 2) {
+          angle = angle + Math.PI;
         }
 
-        accumulatedDist += segmentLength;
+        // Draw character
+        this.ctx.save();
+        this.ctx.translate(point.x, point.y);
+        this.ctx.rotate(angle);
+
+        // White outline
+        this.ctx.strokeStyle = "white";
+        this.ctx.lineWidth = 2.5;
+        this.ctx.strokeText(char, 0, 0);
+
+        // Black text
+        this.ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
+        this.ctx.fillText(char, 0, 0);
+
+        this.ctx.restore();
+
+        // Move to next character position
+        currentDist += charWidth;
       }
-
-      if (segmentIndex === -1) continue;
-
-      // Calculate position and angle at midpoint
-      const p1 = road.screenCoords[segmentIndex];
-      const p2 = road.screenCoords[segmentIndex + 1];
-      const x = p1.x + (p2.x - p1.x) * segmentProgress;
-      const y = p1.y + (p2.y - p1.y) * segmentProgress;
-      const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
-
-      // Normalize angle to avoid upside-down text
-      let textAngle = angle;
-      if (Math.abs(angle) > Math.PI / 2) {
-        textAngle = angle + Math.PI;
-      }
-
-      // Draw text with white halo for readability
-      this.ctx.save();
-      this.ctx.translate(x, y);
-      this.ctx.rotate(textAngle);
-
-      // Keep text centered on road centerline (verticalOffset = 0)
-      // The textBaseline is 'middle' so text is already centered
-
-      // White outline (thinner for better readability)
-      this.ctx.strokeStyle = "white";
-      this.ctx.lineWidth = 2.5;
-      this.ctx.strokeText(road.name, 0, 0);
-
-      // Black text with slightly more opacity
-      this.ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
-      this.ctx.fillText(road.name, 0, 0);
-
-      this.ctx.restore();
     }
   }
 
