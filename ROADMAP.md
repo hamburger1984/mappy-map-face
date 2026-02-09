@@ -532,26 +532,50 @@ public/
 ### 3.2 Text Search API (High Priority)
 **Why:** Users need to search by name (e.g., "Hauptbahnhof", "Aldi", "Alster").
 
-**Architecture:**
+**Architecture: sql.js-httpvfs (Lazy Loading)**
 
-**Option A: Client-Side (sql.js)**
+This approach uses [sql.js-httpvfs](https://github.com/phiresky/sql.js-httpvfs) to query SQLite databases via HTTP range requests **without downloading the entire file**.
+
+**Benefits:**
+- Load only needed data chunks (not entire DB)
+- Works on static hosting / CDN
+- Germany DB (500MB) → fetch only ~1-5MB for typical queries
+- Faster initial load, lower bandwidth
+
+**Setup:**
 ```javascript
-// Load SQLite database in browser using sql.js
-import initSqlJs from 'sql.js';
+// Using sql.js-httpvfs for lazy loading
+import { createDbWorker } from "sql.js-httpvfs";
 
 class SearchEngine {
   async init(region) {
-    const SQL = await initSqlJs({
-      locateFile: file => `./sql.js/${file}`
-    });
+    const workerUrl = new URL(
+      "sql.js-httpvfs/dist/sqlite.worker.js",
+      import.meta.url,
+    );
+    const wasmUrl = new URL(
+      "sql.js-httpvfs/dist/sql-wasm.wasm",
+      import.meta.url,
+    );
     
-    // Load database
-    const response = await fetch(`search/${region}.db`);
-    const buffer = await response.arrayBuffer();
-    this.db = new SQL.Database(new Uint8Array(buffer));
+    // Database will be fetched in chunks as needed
+    this.worker = await createDbWorker(
+      [
+        {
+          from: "inline",
+          config: {
+            serverMode: "full",
+            url: `search/${region}.db`,
+            requestChunkSize: 4096, // 4KB chunks
+          },
+        },
+      ],
+      workerUrl.toString(),
+      wasmUrl.toString(),
+    );
   }
   
-  search(query, options = {}) {
+  async search(query, options = {}) {
     const { type, limit = 10, bounds } = options;
     
     let sql = `
@@ -575,11 +599,12 @@ class SearchEngine {
     sql += ` ORDER BY LENGTH(f.name) ASC LIMIT ?`;
     params.push(limit);
     
-    const results = this.db.exec(sql, params);
-    return this.parseResults(results);
+    // Query via worker (fetches only needed chunks)
+    const results = await this.worker.db.query(sql, params);
+    return results;
   }
   
-  searchNearby(lon, lat, radiusKm, options = {}) {
+  async searchNearby(lon, lat, radiusKm, options = {}) {
     // Spatial search within radius
     const { type, category, limit = 20 } = options;
     
@@ -604,13 +629,17 @@ class SearchEngine {
     if (category) params.push(category);
     params.push(limit);
     
-    const results = this.db.exec(sql, params);
-    return this.parseResults(results);
+    const results = await this.worker.db.query(sql, params);
+    return results;
   }
 }
 ```
 
-**Option B: Server-Side API (Better for Large DBs)**
+**Why sql.js-httpvfs?**
+- **Scales to Europe:** 500MB+ databases work fine (only fetch what's needed)
+- **Static hosting:** No server needed, works on GitHub Pages/CDN
+- **Fast queries:** Indexed queries fetch <5MB even from 500MB database
+- **Lazy regions:** Load Germany DB only when user switches to Germany
 ```javascript
 // Simple Express.js backend
 const express = require('express');
@@ -686,14 +715,33 @@ function jumpTo(lon, lat) {
 ```
 
 **Implementation Steps:**
-1. **Choose approach** (recommend: client-side for Hamburg, server-side for Europe)
-2. **Implement client-side search** with sql.js
+1. **Install sql.js-httpvfs** (`npm install sql.js-httpvfs`)
+2. **Set up database worker** with lazy loading config
 3. **Add search UI** (input box, results dropdown, autocomplete)
-4. **Add "jump to location"** on result click
-5. **Test** with Hamburg data (~10MB database)
-6. **Optimize** for larger regions (lazy loading, server-side if needed)
+4. **Implement search queries** (text, spatial, category)
+5. **Add "jump to location"** on result click
+6. **Test** with Hamburg data (~10MB database)
+7. **Verify HTTP range requests** work (check DevTools Network tab)
+8. **Test with larger DB** (simulate Germany with subset)
 
-**Estimated Time:** 4-5 days
+**Database Optimization for sql.js-httpvfs:**
+```sql
+-- Important: Structure DB for range-request efficiency
+-- Create indexes BEFORE data insertion
+CREATE INDEX idx_name ON features(name COLLATE NOCASE);
+CREATE INDEX idx_location ON features(lon, lat);
+
+-- Use WITHOUT ROWID for compact storage
+CREATE TABLE features (...) WITHOUT ROWID;
+
+-- Run VACUUM to defragment
+VACUUM;
+
+-- Analyze for query planner
+ANALYZE;
+```
+
+**Estimated Time:** 5-6 days (includes sql.js-httpvfs learning curve)
 **Priority:** HIGH (core feature)
 
 ---
@@ -1128,18 +1176,19 @@ For faster progress, prioritize:
 
 ---
 
-## Open Questions for Confirmation
+## Decisions Made
 
-1. **Tile Format:** Binary (Protocol Buffers) or Compact JSON?
-   - Binary: Best performance, needs tooling
-   - Compact JSON: Good performance, simpler
+1. **Tile Format:** ✅ Compact JSON
+   - Good balance: 60-80% size reduction, human-readable, simpler than binary
+   - No additional tooling needed, works directly in browser
 
-2. **Search Architecture:** Client-side (sql.js) or Server-side API?
-   - Client: Works offline, larger download
-   - Server: Smaller download, needs backend
+2. **Search Architecture:** ✅ Client-side with sql.js-httpvfs
+   - Lazy loads only needed data chunks via HTTP range requests
+   - Works on static hosting / CDN (no backend needed)
+   - Scales to large databases (Germany: 500MB → fetch only ~1-5MB per query)
+   - Offline-capable with service worker caching
 
-3. **Zig vs Python:** Continue Zig development or focus on parallel Python?
-   - Zig: 5-10x faster, more complex
-   - Python: Good enough with multiprocessing
-
-Let me know your preferences and I'll create detailed implementation plans for the first sprint!
+3. **Tile Generation:** ✅ Zig with streaming JSON parser
+   - 5-10x faster than Python (critical for Europe dataset)
+   - Complete the streaming parser implementation
+   - Worth the investment for long-term scalability
