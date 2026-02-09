@@ -1360,6 +1360,9 @@ class MapRenderer {
           roadPriority: featureInfo.roadPriority,
           isConstruction: featureInfo.isConstruction,
           poiCategory: featureInfo.poiCategory,
+          stroke: featureInfo.stroke,
+          strokeColor: featureInfo.strokeColor,
+          strokeWidth: featureInfo.strokeWidth,
           _lineKey: featureInfo._lineKey,
           _fillKey: featureInfo._fillKey,
         });
@@ -1373,7 +1376,7 @@ class MapRenderer {
 
     // Use a neutral land-colored background
     // Water features (rivers, lakes, sea) will render as blue on top
-    this.ctx.fillStyle = "rgb(242, 239, 233)"; // Light tan/beige for land
+    this.ctx.fillStyle = "rgb(230, 227, 220)"; // Slightly darker beige for better contrast with white roads
     this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
 
     perfTimings.clearCanvas = performance.now() - renderStart;
@@ -1677,6 +1680,9 @@ class MapRenderer {
         color: { r: 218, g: 208, b: 200, a: 255 },
         minLOD: 2,
         fill: true,
+        stroke: true,
+        strokeColor: { r: 180, g: 170, b: 160, a: 255 },
+        strokeWidth: 0.5,
       };
     }
 
@@ -2218,15 +2224,21 @@ class MapRenderer {
     this.ctx.textBaseline = "middle";
 
     for (const road of namedRoads) {
-      // Font size based on road width and zoom
-      const fontSize = Math.max(10, Math.min(16, 10 + road.width));
+      // Font size based on road width - smaller to fit within road bounds
+      // Text height is roughly fontSize * 0.7, we want it to fit within road.width pixels
+      const maxFontSize = Math.floor(road.width * 1.2);
+      const fontSize = Math.max(9, Math.min(14, maxFontSize));
+
+      // Skip if road is too narrow for readable text (< 3 pixels wide)
+      if (road.width < 3) continue;
+
       this.ctx.font = `${fontSize}px Arial, sans-serif`;
 
       // Measure text width
       const textWidth = this.ctx.measureText(road.name).width;
 
-      // Only render if road is long enough for the text
-      if (road.length < textWidth + 20) continue;
+      // Only render if road is long enough for the text with padding
+      if (road.length < textWidth + 30) continue;
 
       // Find midpoint of the road
       let targetDist = road.length / 2;
@@ -2268,13 +2280,16 @@ class MapRenderer {
       this.ctx.translate(x, y);
       this.ctx.rotate(textAngle);
 
-      // White outline
+      // Keep text centered on road centerline (verticalOffset = 0)
+      // The textBaseline is 'middle' so text is already centered
+
+      // White outline (thinner for better readability)
       this.ctx.strokeStyle = "white";
-      this.ctx.lineWidth = 3;
+      this.ctx.lineWidth = 2.5;
       this.ctx.strokeText(road.name, 0, 0);
 
-      // Black text
-      this.ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+      // Black text with slightly more opacity
+      this.ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
       this.ctx.fillText(road.name, 0, 0);
 
       this.ctx.restore();
@@ -2286,6 +2301,7 @@ class MapRenderer {
     // Key = "r,g,b,a|width", value = array of coordinate arrays to draw.
     const lineBatches = new Map(); // key -> { coords: [...], features: [...] }
     const fillBatches = new Map(); // key -> { coords: [...], features: [...] }
+    const strokeBatches = new Map(); // for building borders
     const railwayFeatures = []; // railways need special rendering
 
     // Pre-compute bounds scaling factors once
@@ -2437,6 +2453,19 @@ class MapRenderer {
                 });
               }
               fillBatches.get(colorStr).polygons.push(flat);
+
+              // If feature has stroke property, add to stroke batch
+              if (item.stroke && item.strokeColor) {
+                const strokeKey = `${item.strokeColor.r},${item.strokeColor.g},${item.strokeColor.b},${item.strokeColor.a}|${item.strokeWidth}`;
+                if (!strokeBatches.has(strokeKey)) {
+                  strokeBatches.set(strokeKey, {
+                    color: item.strokeColor,
+                    width: item.strokeWidth,
+                    polygons: [],
+                  });
+                }
+                strokeBatches.get(strokeKey).polygons.push(flat);
+              }
             } else {
               // Outline only - batch as lines with width 1
               const key = item._lineKey;
@@ -2488,6 +2517,23 @@ class MapRenderer {
       }
 
       this.ctx.fill();
+    }
+
+    // Render building borders (after fills, before lines)
+    for (const [key, batch] of strokeBatches) {
+      this.ctx.strokeStyle = `rgba(${batch.color.r},${batch.color.g},${batch.color.b},${batch.color.a / 255})`;
+      this.ctx.lineWidth = batch.width;
+      this.ctx.beginPath();
+
+      for (const flat of batch.polygons) {
+        this.ctx.moveTo(flat[0], flat[1]);
+        for (let i = 2; i < flat.length; i += 2) {
+          this.ctx.lineTo(flat[i], flat[i + 1]);
+        }
+        this.ctx.closePath();
+      }
+
+      this.ctx.stroke();
     }
 
     // Flush line batches (one beginPath/stroke per color+width combo)
