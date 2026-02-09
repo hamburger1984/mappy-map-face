@@ -2222,9 +2222,20 @@ class MapRenderer {
       }
     }
 
-    // Screen center for distance calculations
+    // Screen center and viewport bounds for distance/visibility calculations
     const centerX = this.canvasWidth / 2;
     const centerY = this.canvasHeight / 2;
+    const viewportMargin = 50; // pixels - margin for "significantly in viewport"
+
+    // Helper: check if segment midpoint is in viewport
+    const isInViewport = (midX, midY) => {
+      return (
+        midX >= -viewportMargin &&
+        midX <= this.canvasWidth + viewportMargin &&
+        midY >= -viewportMargin &&
+        midY <= this.canvasHeight + viewportMargin
+      );
+    };
 
     // For each street name, pick the best segment to label
     const namedRoads = [];
@@ -2237,13 +2248,8 @@ class MapRenderer {
         continue;
       }
 
-      // Multiple segments with the same name - pick the best one
-      // Criteria: closest to center, longest, or highest priority
-      let bestSegment = segments[0];
-      let bestScore = -Infinity;
-
-      for (const segment of segments) {
-        // Calculate midpoint
+      // Calculate midpoints and check visibility for all segments
+      const segmentsWithMidpoints = segments.map((segment) => {
         let midDist = segment.length / 2;
         let accumulated = 0;
         let midX = segment.screenCoords[0].x;
@@ -2263,6 +2269,27 @@ class MapRenderer {
           accumulated += segLen;
         }
 
+        return { segment, midX, midY, inViewport: isInViewport(midX, midY) };
+      });
+
+      // Filter to only segments in viewport
+      const visibleSegments = segmentsWithMidpoints.filter((s) => s.inViewport);
+
+      // If no segments are visible, skip this street name entirely
+      if (visibleSegments.length === 0) continue;
+
+      // If only one visible segment, use it
+      if (visibleSegments.length === 1) {
+        namedRoads.push(visibleSegments[0].segment);
+        continue;
+      }
+
+      // Multiple visible segments - pick the best one
+      // Criteria: closest to center, longest, or highest priority
+      let bestSegment = visibleSegments[0].segment;
+      let bestScore = -Infinity;
+
+      for (const { segment, midX, midY } of visibleSegments) {
         // Score based on distance to center (closer is better) and length (longer is better)
         const distToCenter = Math.sqrt(
           (midX - centerX) ** 2 + (midY - centerY) ** 2,
