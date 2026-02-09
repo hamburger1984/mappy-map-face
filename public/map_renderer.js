@@ -1422,6 +1422,11 @@ class MapRenderer {
     this.renderRoadLayer(layers.surface_roads, adjustedBounds);
     layerTimings.roads = performance.now() - layerStart;
 
+    // 7b. Street names (rendered on top of roads)
+    layerStart = performance.now();
+    this.renderStreetNames(layers.surface_roads, adjustedBounds);
+    layerTimings.streetNames = performance.now() - layerStart;
+
     // 8. Surface railways
     layerStart = performance.now();
     this.renderLayer(layers.surface_railways, adjustedBounds, false);
@@ -2138,6 +2143,141 @@ class MapRenderer {
         }
         this.ctx.setLineDash([]);
       }
+    }
+  }
+
+  renderStreetNames(layerFeatures, bounds) {
+    // Only render street names at higher zoom levels (LOD >= 2)
+    const lod = this.getLOD();
+    if (lod < 2) return;
+
+    // Pre-compute bounds scaling
+    const lonRange = bounds.maxLon - bounds.minLon;
+    const latRange = bounds.maxLat - bounds.minLat;
+    const scaleX = this.canvasWidth / lonRange;
+    const scaleY = this.canvasHeight / latRange;
+    const minLon = bounds.minLon;
+    const minLat = bounds.minLat;
+    const canvasHeight = this.canvasHeight;
+    const toScreenX = (lon) => (lon - minLon) * scaleX;
+    const toScreenY = (lat) => canvasHeight - (lat - minLat) * scaleY;
+
+    // Collect roads with names
+    const namedRoads = [];
+    for (const item of layerFeatures) {
+      const name = item.props.name;
+      if (!name || name.trim() === "") continue;
+
+      const geom = item.feature.geometry;
+      if (!geom || !geom.coordinates) continue;
+
+      const coordArrays =
+        item.type === "LineString"
+          ? [geom.coordinates]
+          : item.type === "MultiLineString"
+            ? geom.coordinates
+            : null;
+
+      if (!coordArrays) continue;
+
+      for (const coords of coordArrays) {
+        if (coords.length < 2) continue;
+
+        // Convert to screen coordinates
+        const screenCoords = coords.map((c) => ({
+          x: toScreenX(c[0]),
+          y: toScreenY(c[1]),
+        }));
+
+        // Calculate total line length
+        let length = 0;
+        for (let i = 1; i < screenCoords.length; i++) {
+          const dx = screenCoords[i].x - screenCoords[i - 1].x;
+          const dy = screenCoords[i].y - screenCoords[i - 1].y;
+          length += Math.sqrt(dx * dx + dy * dy);
+        }
+
+        // Only render if line is long enough for text
+        if (length < 50) continue;
+
+        namedRoads.push({
+          name,
+          screenCoords,
+          length,
+          priority: item.roadPriority || 0,
+          width: item.width || 1,
+        });
+      }
+    }
+
+    // Sort by priority (higher priority = drawn on top)
+    namedRoads.sort((a, b) => a.priority - b.priority);
+
+    // Render text along paths
+    this.ctx.textAlign = "center";
+    this.ctx.textBaseline = "middle";
+
+    for (const road of namedRoads) {
+      // Font size based on road width and zoom
+      const fontSize = Math.max(10, Math.min(16, 10 + road.width));
+      this.ctx.font = `${fontSize}px Arial, sans-serif`;
+
+      // Measure text width
+      const textWidth = this.ctx.measureText(road.name).width;
+
+      // Only render if road is long enough for the text
+      if (road.length < textWidth + 20) continue;
+
+      // Find midpoint of the road
+      let targetDist = road.length / 2;
+      let accumulatedDist = 0;
+      let segmentIndex = -1;
+      let segmentProgress = 0;
+
+      for (let i = 1; i < road.screenCoords.length; i++) {
+        const dx = road.screenCoords[i].x - road.screenCoords[i - 1].x;
+        const dy = road.screenCoords[i].y - road.screenCoords[i - 1].y;
+        const segmentLength = Math.sqrt(dx * dx + dy * dy);
+
+        if (accumulatedDist + segmentLength >= targetDist) {
+          segmentIndex = i - 1;
+          segmentProgress = (targetDist - accumulatedDist) / segmentLength;
+          break;
+        }
+
+        accumulatedDist += segmentLength;
+      }
+
+      if (segmentIndex === -1) continue;
+
+      // Calculate position and angle at midpoint
+      const p1 = road.screenCoords[segmentIndex];
+      const p2 = road.screenCoords[segmentIndex + 1];
+      const x = p1.x + (p2.x - p1.x) * segmentProgress;
+      const y = p1.y + (p2.y - p1.y) * segmentProgress;
+      const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+
+      // Normalize angle to avoid upside-down text
+      let textAngle = angle;
+      if (Math.abs(angle) > Math.PI / 2) {
+        textAngle = angle + Math.PI;
+      }
+
+      // Draw text with white halo for readability
+      this.ctx.save();
+      this.ctx.translate(x, y);
+      this.ctx.rotate(textAngle);
+
+      // White outline
+      this.ctx.strokeStyle = "white";
+      this.ctx.lineWidth = 3;
+      this.ctx.strokeText(road.name, 0, 0);
+
+      // Black text
+      this.ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+      this.ctx.fillText(road.name, 0, 0);
+
+      this.ctx.restore();
     }
   }
 
