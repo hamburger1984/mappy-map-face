@@ -2168,8 +2168,9 @@ class MapRenderer {
     const toScreenX = (lon) => (lon - minLon) * scaleX;
     const toScreenY = (lat) => canvasHeight - (lat - minLat) * scaleY;
 
-    // Collect roads with names
-    const namedRoads = [];
+    // Collect roads with names, grouped by street name
+    const roadsByName = new Map();
+
     for (const item of layerFeatures) {
       const name = item.props.name;
       if (!name || name.trim() === "") continue;
@@ -2203,17 +2204,83 @@ class MapRenderer {
           length += Math.sqrt(dx * dx + dy * dy);
         }
 
-        // Only render if line is long enough for text
+        // Only consider if line is long enough for text
         if (length < 50) continue;
 
-        namedRoads.push({
+        const road = {
           name,
           screenCoords,
           length,
           priority: item.roadPriority || 0,
           width: item.width || 1,
-        });
+        };
+
+        if (!roadsByName.has(name)) {
+          roadsByName.set(name, []);
+        }
+        roadsByName.get(name).push(road);
       }
+    }
+
+    // Screen center for distance calculations
+    const centerX = this.canvasWidth / 2;
+    const centerY = this.canvasHeight / 2;
+
+    // For each street name, pick the best segment to label
+    const namedRoads = [];
+    for (const [name, segments] of roadsByName) {
+      if (segments.length === 0) continue;
+
+      // If only one segment, use it
+      if (segments.length === 1) {
+        namedRoads.push(segments[0]);
+        continue;
+      }
+
+      // Multiple segments with the same name - pick the best one
+      // Criteria: closest to center, longest, or highest priority
+      let bestSegment = segments[0];
+      let bestScore = -Infinity;
+
+      for (const segment of segments) {
+        // Calculate midpoint
+        let midDist = segment.length / 2;
+        let accumulated = 0;
+        let midX = segment.screenCoords[0].x;
+        let midY = segment.screenCoords[0].y;
+
+        for (let i = 1; i < segment.screenCoords.length; i++) {
+          const dx = segment.screenCoords[i].x - segment.screenCoords[i - 1].x;
+          const dy = segment.screenCoords[i].y - segment.screenCoords[i - 1].y;
+          const segLen = Math.sqrt(dx * dx + dy * dy);
+
+          if (accumulated + segLen >= midDist) {
+            const t = (midDist - accumulated) / segLen;
+            midX = segment.screenCoords[i - 1].x + dx * t;
+            midY = segment.screenCoords[i - 1].y + dy * t;
+            break;
+          }
+          accumulated += segLen;
+        }
+
+        // Score based on distance to center (closer is better) and length (longer is better)
+        const distToCenter = Math.sqrt(
+          (midX - centerX) ** 2 + (midY - centerY) ** 2,
+        );
+        const normalizedDist =
+          distToCenter / Math.sqrt(centerX ** 2 + centerY ** 2);
+        const normalizedLength = segment.length / 500; // 500px is a "good" length
+
+        const score =
+          -normalizedDist + normalizedLength * 0.3 + segment.priority * 0.1;
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestSegment = segment;
+        }
+      }
+
+      namedRoads.push(bestSegment);
     }
 
     // Sort by priority (higher priority = drawn on top)
