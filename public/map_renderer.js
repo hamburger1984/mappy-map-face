@@ -2334,27 +2334,20 @@ class MapRenderer {
       if (road.length < textWidth + 30) continue;
 
       // Draw curved text along the path
-      // Check average angle to determine if text should be reversed
-      let totalAngle = 0;
-      let angleCount = 0;
-      for (let i = 1; i < road.screenCoords.length; i++) {
-        const dx = road.screenCoords[i].x - road.screenCoords[i - 1].x;
-        const dy = road.screenCoords[i].y - road.screenCoords[i - 1].y;
-        const angle = Math.atan2(dy, dx);
-        totalAngle += angle;
-        angleCount++;
-      }
-      const avgAngle = totalAngle / angleCount;
+      // Check the overall direction of the road (start to end)
+      const startPoint = road.screenCoords[0];
+      const endPoint = road.screenCoords[road.screenCoords.length - 1];
+      const overallAngle = Math.atan2(
+        endPoint.y - startPoint.y,
+        endPoint.x - startPoint.x,
+      );
 
-      // If average angle points left (upside-down), reverse the text
-      const shouldReverse = Math.abs(avgAngle) > Math.PI / 2;
-      const textToRender = shouldReverse
-        ? road.name.split("").reverse().join("")
-        : road.name;
+      // If road points left, we traverse the path backwards so text reads left-to-right
+      const drawReversed = Math.abs(overallAngle) > Math.PI / 2;
 
       // Start position: center the text along the road
       // If reversed, start from the end
-      const startDist = shouldReverse
+      const startDist = drawReversed
         ? (road.length + textWidth) / 2
         : (road.length - textWidth) / 2;
 
@@ -2390,19 +2383,19 @@ class MapRenderer {
       this.ctx.textAlign = "center";
       this.ctx.textBaseline = "middle";
 
-      for (let i = 0; i < textToRender.length; i++) {
-        const char = textToRender[i];
+      for (let i = 0; i < road.name.length; i++) {
+        const char = road.name[i];
         const charWidth = this.ctx.measureText(char).width;
 
         // Get position and angle at the center of this character
-        const charCenter = shouldReverse
+        const charCenter = drawReversed
           ? currentDist - charWidth / 2
           : currentDist + charWidth / 2;
         const point = getPointAtDistance(charCenter);
 
         // Angle adjustment based on direction
         let angle = point.angle;
-        if (shouldReverse) {
+        if (drawReversed) {
           angle = angle + Math.PI;
         }
 
@@ -2423,7 +2416,7 @@ class MapRenderer {
         this.ctx.restore();
 
         // Move to next character position
-        currentDist += shouldReverse ? -charWidth : charWidth;
+        currentDist += drawReversed ? -charWidth : charWidth;
       }
     }
   }
