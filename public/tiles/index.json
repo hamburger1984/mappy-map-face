@@ -1,16 +1,16 @@
 {
   "bounds": {
-    "minLon": 9.77,
-    "maxLon": 10.21,
-    "minLat": 53.415,
-    "maxLat": 53.685
+    "minLon": 8.48,
+    "maxLon": 11.5,
+    "minLat": 52.65,
+    "maxLat": 54.45
   },
   "zoom_levels": [
     8,
     11,
     14
   ],
-  "tile_count": 515,
+  "tile_count": 24469,
   "center": {
     "lon": 9.99,
     "lat": 53.55

@@ -348,11 +348,12 @@ def get_render_metadata(props, geom_type):
             "fill": True,
         }
 
-    # Water bodies
+    # Water bodies (including coastline for sea/ocean areas)
     if (
         props.get("natural") == "water"
         or props.get("water")
         or props.get("waterway") == "riverbank"
+        or props.get("natural") == "coastline"
     ):
         return {
             "layer": "water_areas",
@@ -667,9 +668,9 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
 
         tile_geojson = {"type": "FeatureCollection", "features": sorted_features}
 
-        # Write compressed GeoJSON
-        tile_file = tile_dir / f"{y}.json.gz"
-        with gzip.open(tile_file, "wt", encoding="utf-8") as f:
+        # Write uncompressed JSON (faster than gzip decompression for small tiles)
+        tile_file = tile_dir / f"{y}.json"
+        with open(tile_file, "w", encoding="utf-8") as f:
             json.dump(tile_geojson, f, separators=(",", ":"))
 
     print(f"\n✓ Created {total_tiles} tiles in {output_dir}")

@@ -225,14 +225,12 @@ class MapRenderer {
     this.canvasWidth = 1200;
     this.canvasHeight = 800;
 
-    // Viewport state
-    // Default zoom shows ~10km radius (20km across)
-    // Max zoom shows ~500m across
-    this.zoom = 1; // Initial zoom: show full region
+    // Viewport state (in real-world meters)
+    this.viewWidthMeters = 10000; // Initial view: 10km across
     this.offsetX = 0;
     this.offsetY = 0;
-    this.minZoom = 0.3; // Shows full ~200km dataset
-    this.maxZoom = 120.0; // Max zoom: ~100m across screen
+    this.minViewWidthMeters = 100; // Max zoom: 100m across
+    this.maxViewWidthMeters = 200000; // Min zoom: 200km across (full dataset)
 
     // Hamburg city center coordinates
     this.centerLat = 53.55;
@@ -272,6 +270,17 @@ class MapRenderer {
       minLat: 52.65,
       maxLat: 54.45,
     };
+
+    // Object pools to reduce GC pressure
+    this._pointPool = []; // Reusable {x, y} objects
+    this._pointPoolIndex = 0;
+    this._coordArrayPool = []; // Reusable coordinate arrays
+    this._rgbaCache = new Map(); // Cache rgba() strings to avoid recreating
+
+    // Pre-allocate point objects for pooling
+    for (let i = 0; i < 10000; i++) {
+      this._pointPool.push({ x: 0, y: 0 });
+    }
   }
 
   async init() {
@@ -547,7 +556,7 @@ class MapRenderer {
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         const dist = Math.sqrt(dx * dx + dy * dy);
         const zoomFactor = dist / touchStartDist;
-        this.setZoom(this.zoom * zoomFactor);
+        this.setViewWidth(this.viewWidthMeters / zoomFactor); // inverted: larger distance = zoom in
         touchStartDist = dist;
       }
     });
@@ -558,39 +567,55 @@ class MapRenderer {
       (e) => {
         e.preventDefault();
         const delta = -e.deltaY * 0.002;
-        const logZoom = Math.log2(this.zoom) + delta;
-        this.setZoom(Math.pow(2, logZoom));
+        const logViewWidth = Math.log2(this.viewWidthMeters) - delta; // inverted: scroll up = zoom in = smaller view
+        this.setViewWidth(Math.pow(2, logViewWidth));
       },
       { passive: false },
     );
   }
 
-  setZoom(newZoom) {
-    newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, newZoom));
-    if (newZoom === this.zoom) return;
-    const scale = newZoom / this.zoom;
+  // Helper to convert viewWidthMeters to old zoom factor for calculations
+  getZoomFactor() {
+    // BASE_LAT_RANGE = 1.8 degrees ≈ 200km at zoom=1
+    // viewWidthMeters = 200000 / zoom, so zoom = 200000 / viewWidthMeters
+    return 200000 / this.viewWidthMeters;
+  }
+
+  setViewWidth(newWidthMeters) {
+    newWidthMeters = Math.max(
+      this.minViewWidthMeters,
+      Math.min(this.maxViewWidthMeters, newWidthMeters),
+    );
+    if (newWidthMeters === this.viewWidthMeters) return;
+    const scale = this.viewWidthMeters / newWidthMeters; // inverted because larger width = zoomed out
     this.offsetX *= scale;
     this.offsetY *= scale;
-    this.zoom = newZoom;
+    this.viewWidthMeters = newWidthMeters;
     this.updateZoomSlider();
     this.updateStats();
     this.debouncedRender();
   }
 
   zoomIn() {
-    // Step up by ~0.15 on the log2 scale (smooth, ~11% increments)
-    const logZoom = Math.log2(this.zoom) + 0.15;
-    this.setZoom(Math.pow(2, logZoom));
+    // Decrease view width by 10% (zoom in = see less area)
+    this.setViewWidth(this.viewWidthMeters * 0.9);
   }
 
   zoomOut() {
-    const logZoom = Math.log2(this.zoom) - 0.15;
-    this.setZoom(Math.pow(2, logZoom));
+    // Increase view width by 11% (zoom out = see more area)
+    this.setViewWidth(this.viewWidthMeters / 0.9);
   }
 
   updateZoomSlider() {
     const slider = document.getElementById("zoomSlider");
-    if (slider) slider.value = Math.log2(this.zoom);
+    if (slider) {
+      // Map viewWidthMeters to slider (log scale, inverted)
+      const logMin = Math.log2(this.minViewWidthMeters);
+      const logMax = Math.log2(this.maxViewWidthMeters);
+      const logCurrent = Math.log2(this.viewWidthMeters);
+      // Invert: small viewWidth (zoomed in) = high slider value
+      slider.value = logMax + logMin - logCurrent;
+    }
   }
 
   checkFeatureHover(e) {
@@ -922,12 +947,12 @@ class MapRenderer {
   }
 
   getZoomLevelForScale() {
-    // Determine which tile zoom level to use based on current zoom
-    // At low zoom, use Z8 (far view)
-    // At medium zoom, use Z11 (medium view)
-    // At high zoom, use Z14 (close view)
-    if (this.zoom < 20) return 8;
-    if (this.zoom < 120) return 11;
+    // Determine which tile zoom level to use based on view width
+    // Wide view (>10km): use Z8 tiles
+    // Medium view (1-10km): use Z11 tiles
+    // Close view (<1km): use Z14 tiles
+    if (this.viewWidthMeters > 10000) return 8;
+    if (this.viewWidthMeters > 1000) return 11;
     return 14;
   }
 
@@ -974,7 +999,7 @@ class MapRenderer {
     this.loadingTiles.add(key);
 
     try {
-      const response = await fetch(`tiles/${z}/${x}/${y}.json.gz`);
+      const response = await fetch(`tiles/${z}/${x}/${y}.json`);
 
       if (!response.ok) {
         // Tile doesn't exist (no data in this area)
@@ -983,14 +1008,8 @@ class MapRenderer {
         return this.tileCache.get(key);
       }
 
-      // Decompress tile
-      const compressedData = await response.arrayBuffer();
-      const decompressedStream = new Response(
-        new Response(compressedData).body.pipeThrough(
-          new DecompressionStream("gzip"),
-        ),
-      );
-      const tileData = await decompressedStream.json();
+      // Parse JSON directly (no decompression needed)
+      const tileData = await response.json();
 
       this.tileCache.set(key, tileData);
       this.loadingTiles.delete(key);
@@ -1007,17 +1026,31 @@ class MapRenderer {
   async loadVisibleTiles(bounds) {
     const tiles = this.getVisibleTiles(bounds);
 
+    console.log(
+      `[TILES] Loading ${tiles.length} tiles at zoom ${tiles[0]?.z || "unknown"}`,
+    );
+
     // Load all visible tiles in parallel
+    const loadStart = performance.now();
     const tilePromises = tiles.map(({ z, x, y }) => this.loadTile(z, x, y));
     const tileData = await Promise.all(tilePromises);
+    const loadTime = performance.now() - loadStart;
+
+    console.log(`[TILES] Loaded in ${loadTime.toFixed(0)}ms`);
 
     // Merge all tile features into a single GeoJSON
+    const mergeStart = performance.now();
     const features = [];
     for (const tile of tileData) {
       if (tile && tile.features) {
         features.push(...tile.features);
       }
     }
+    const mergeTime = performance.now() - mergeStart;
+
+    console.log(
+      `[TILES] Merged ${features.length} features in ${mergeTime.toFixed(0)}ms`,
+    );
 
     return {
       type: "FeatureCollection",
@@ -1107,6 +1140,34 @@ class MapRenderer {
     };
   }
 
+  // Get a pooled point object (reduces allocations)
+  _getPooledPoint(x, y) {
+    if (this._pointPoolIndex >= this._pointPool.length) {
+      // Pool exhausted, allocate new (shouldn't happen often)
+      return { x, y };
+    }
+    const point = this._pointPool[this._pointPoolIndex++];
+    point.x = x;
+    point.y = y;
+    return point;
+  }
+
+  // Reset point pool for next frame
+  _resetPointPool() {
+    this._pointPoolIndex = 0;
+  }
+
+  // Get cached rgba string (reduces string allocations)
+  _getRGBA(r, g, b, a) {
+    const key = `${r},${g},${b},${a}`;
+    let rgba = this._rgbaCache.get(key);
+    if (!rgba) {
+      rgba = `rgba(${r},${g},${b},${a})`;
+      this._rgbaCache.set(key, rgba);
+    }
+    return rgba;
+  }
+
   latLonToScreen(lat, lon, bounds) {
     // Bounds are already adjusted for zoom and pan in renderMap
     // Just do a simple normalized transformation
@@ -1118,18 +1179,26 @@ class MapRenderer {
       ((lat - bounds.minLat) / (bounds.maxLat - bounds.minLat)) *
         this.canvasHeight;
 
-    return { x, y };
+    return this._getPooledPoint(x, y);
   }
 
   async renderMap() {
     const startTime = performance.now();
+    const perfTimings = {}; // Track performance of each step
+
+    // Reset object pools for this frame
+    this._resetPointPool();
 
     // Calculate and set map bounds
+    const boundsStart = performance.now();
     const bounds = this.calculateBounds();
+    perfTimings.bounds = performance.now() - boundsStart;
 
-    console.log(
-      `[RENDER] Zoom: ${this.zoom.toFixed(2)}, LOD: ${this.getLOD()}`,
-    );
+    const viewKm =
+      this.viewWidthMeters >= 1000
+        ? `${(this.viewWidthMeters / 1000).toFixed(1)}km`
+        : `${this.viewWidthMeters.toFixed(0)}m`;
+    console.log(`[RENDER] View: ${viewKm} across, LOD: ${this.getLOD()}`);
 
     // Adjust bounds for zoom and pan
     // The key insight: we want to zoom/pan around the GEOGRAPHIC center, not the bounds center
@@ -1155,7 +1224,7 @@ class MapRenderer {
     // Calculate visible range accounting for zoom
     // We need to maintain aspect ratio: lonRange should be canvasAspect times latRange (in screen space)
     // But in geographic space, we need to account for Mercator distortion
-    const latRange = baseLatRange / this.zoom;
+    const latRange = baseLatRange / this.getZoomFactor();
     const lonRange = latRange * canvasAspect * aspectCorrection;
 
     // Calculate approximate scale (km across the view)
@@ -1188,12 +1257,13 @@ class MapRenderer {
     ).length;
 
     this.mapData = await this.loadVisibleTiles(adjustedBounds);
-    const tileLoadTime = (performance.now() - tileLoadStart).toFixed(2);
+    perfTimings.tileLoad = performance.now() - tileLoadStart;
 
     // Update tile stats
     document.getElementById("tileCount").textContent = visibleTiles.length;
     document.getElementById("cachedTiles").textContent = cachedCount;
-    document.getElementById("tileLoadTime").textContent = tileLoadTime;
+    document.getElementById("tileLoadTime").textContent =
+      perfTimings.tileLoad.toFixed(2);
 
     // Tile loading stats available in UI
 
@@ -1206,6 +1276,9 @@ class MapRenderer {
     // At low zoom: only major features
     // At high zoom: all details
     const lod = this.getLOD();
+
+    // Start feature classification timing
+    const classifyStart = performance.now();
 
     // Reuse layer arrays (avoid reallocating every frame)
     if (!this._layers) {
@@ -1247,7 +1320,7 @@ class MapRenderer {
           const c = featureInfo.color;
           const w = featureInfo.width || 1;
           featureInfo._lineKey = `${c.r},${c.g},${c.b},${c.a}|${w}`;
-          featureInfo._fillKey = `rgba(${c.r},${c.g},${c.b},${c.a / 255})`;
+          featureInfo._fillKey = this._getRGBA(c.r, c.g, c.b, c.a / 255);
         }
         feature._classCache = featureInfo;
       }
@@ -1284,49 +1357,82 @@ class MapRenderer {
       }
     }
 
-    // Clear canvas background
-    this.ctx.fillStyle = "rgb(240, 248, 255)"; // Light blue background
+    perfTimings.classify = performance.now() - classifyStart;
+
+    // Start rendering timing
+    const renderStart = performance.now();
+
+    // Use a neutral land-colored background
+    // Water features (rivers, lakes, sea) will render as blue on top
+    this.ctx.fillStyle = "rgb(242, 239, 233)"; // Light tan/beige for land
     this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
+
+    perfTimings.clearCanvas = performance.now() - renderStart;
 
     // Render all layers in correct z-order using Canvas2D
     // Background to foreground (bottom to top)
+    const layerTimings = {};
 
     // 1. Natural background (parks, farmland, meadows)
+    let layerStart = performance.now();
     this.renderLayer(layers.natural_background, adjustedBounds, true);
+    layerTimings.natural = performance.now() - layerStart;
 
     // 1b. Forests (on top of parks so they're visible inside parks)
+    layerStart = performance.now();
     this.renderLayer(layers.forests, adjustedBounds, true);
+    layerTimings.forests = performance.now() - layerStart;
 
     // 2. Water areas (lakes, rivers)
+    layerStart = performance.now();
     this.renderLayer(layers.water_areas, adjustedBounds, true);
+    layerTimings.water = performance.now() - layerStart;
 
     // 3. Landuse areas (commercial, industrial, residential)
+    layerStart = performance.now();
     this.renderLayer(layers.landuse_areas, adjustedBounds, true);
+    layerTimings.landuse = performance.now() - layerStart;
 
     // 4. Buildings
+    layerStart = performance.now();
     this.renderLayer(layers.buildings, adjustedBounds, true);
+    layerTimings.buildings = performance.now() - layerStart;
 
     // 5. Tunnels (underground, semi-transparent)
+    layerStart = performance.now();
     this.renderRoadLayer(layers.tunnels, adjustedBounds);
+    layerTimings.tunnels = performance.now() - layerStart;
 
     // 6. Waterways (rivers, streams as lines)
+    layerStart = performance.now();
     this.renderLayer(layers.waterways, adjustedBounds, false);
+    layerTimings.waterways = performance.now() - layerStart;
 
     // 7. Surface roads (sorted by priority, with outlines)
+    layerStart = performance.now();
     this.renderRoadLayer(layers.surface_roads, adjustedBounds);
+    layerTimings.roads = performance.now() - layerStart;
 
     // 8. Surface railways
+    layerStart = performance.now();
     this.renderLayer(layers.surface_railways, adjustedBounds, false);
+    layerTimings.railways = performance.now() - layerStart;
 
     // 9. Points (always on top)
+    layerStart = performance.now();
     this.renderLayer(layers.points, adjustedBounds, false);
+    layerTimings.points = performance.now() - layerStart;
 
     // 11. Highlight hovered or selected feature on top of everything
+    layerStart = performance.now();
     if (this.selectedFeature) {
       this.highlightFeature(this.selectedFeature, adjustedBounds, "selected");
     } else if (this.hoveredFeature) {
       this.highlightFeature(this.hoveredFeature, adjustedBounds, "hovered");
     }
+    layerTimings.highlight = performance.now() - layerStart;
+
+    perfTimings.totalRender = performance.now() - renderStart;
 
     featureCount = Object.values(layers).reduce(
       (sum, layer) => sum + layer.length,
@@ -1335,6 +1441,26 @@ class MapRenderer {
 
     const endTime = performance.now();
     const renderTime = (endTime - startTime).toFixed(2);
+
+    // Log performance breakdown
+    console.log("[PERF] Render breakdown:");
+    console.log(`  Total: ${renderTime}ms`);
+    console.log(`  ├─ Bounds calc: ${perfTimings.bounds.toFixed(2)}ms`);
+    console.log(`  ├─ Tile load: ${perfTimings.tileLoad.toFixed(2)}ms`);
+    console.log(
+      `  ├─ Classify: ${perfTimings.classify.toFixed(2)}ms (${featureCount} features, ${culledCount} culled, ${lodCulledCount} LOD culled)`,
+    );
+    console.log(`  └─ Render: ${perfTimings.totalRender.toFixed(2)}ms`);
+
+    // Find slowest layers (> 5ms)
+    const slowLayers = Object.entries(layerTimings)
+      .filter(([_, time]) => time > 5)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, time]) => `${name}: ${time.toFixed(2)}ms`)
+      .join(", ");
+    if (slowLayers) {
+      console.log(`  └─ Slow layers: ${slowLayers}`);
+    }
 
     document.getElementById("featureCount").textContent = featureCount;
     document.getElementById("renderTime").textContent = renderTime;
@@ -1345,14 +1471,14 @@ class MapRenderer {
   }
 
   getLOD() {
-    // Return LOD level based on zoom
-    // 0: Very zoomed out (show only major features)
-    // 1: Medium zoom (show major + secondary features)
-    // 2: Zoomed in (show most features)
-    // 3: Very zoomed in (show all details)
-    if (this.zoom < 10) return 0;
-    if (this.zoom < 27) return 1;
-    if (this.zoom < 67) return 2;
+    // Return LOD level based on view width
+    // 0: Very zoomed out (show only major features) - >20km
+    // 1: Medium zoom (show major + secondary features) - 7.5-20km
+    // 2: Zoomed in (show most features) - 3-7.5km
+    // 3: Very zoomed in (show all details) - <3km
+    if (this.viewWidthMeters > 20000) return 0;
+    if (this.viewWidthMeters > 7500) return 1;
+    if (this.viewWidthMeters > 3000) return 2;
     return 3;
   }
 
@@ -1443,11 +1569,12 @@ class MapRenderer {
       };
     }
 
-    // Water areas (filled polygons)
+    // Water areas (filled polygons, including coastline)
     if (
       props.natural === "water" ||
       props.water ||
-      props.waterway === "riverbank"
+      props.waterway === "riverbank" ||
+      props.natural === "coastline"
     ) {
       return {
         layer: "water_areas",
@@ -1575,7 +1702,7 @@ class MapRenderer {
       } else if (effectiveHighway === "primary") {
         color = { r: 249, g: 207, b: 144, a: 255 }; // OSM primary yellow
         realWidthMeters = 7; // ~2 lanes
-        minLOD = 1;
+        minLOD = 0; // Show at all zoom levels (including 25km)
         roadPriority = 6;
       } else if (effectiveHighway === "secondary") {
         color = { r: 248, g: 234, b: 164, a: 255 }; // OSM secondary light yellow
@@ -1623,10 +1750,9 @@ class MapRenderer {
         return { layer: null, minLOD: 999, fill: false };
       }
 
-      // Calculate width based on zoom level and real-world size
-      // BASE_LAT_RANGE=1.80 -> ~200km across at zoom=1
+      // Calculate width based on view and real-world size
       // Width should scale: 1px minimum, real width when zoomed in enough
-      const metersPerPixel = 200000 / (this.zoom * 1200);
+      const metersPerPixel = this.viewWidthMeters / this.canvasWidth;
       const calculatedWidth = realWidthMeters / metersPerPixel;
       let width = Math.max(1, Math.min(10, calculatedWidth)); // Clamp between 1-10px
 
@@ -1678,12 +1804,14 @@ class MapRenderer {
       ];
       if (trackTypes.includes(props.railway) || !props.railway) {
         let color = { r: 153, g: 153, b: 153, a: 255 };
-        const minLOD = 1;
 
         // Railway width based on type (controls spacing between rails and tie length)
         let width = 8; // Standard railway (~5-6m wide including tracks and bed)
+        let minLOD = 0; // Standard rail: show at all zoom levels (including 25km)
+
         if (props.railway === "tram" || props.railway === "light_rail") {
           width = 6; // Trams are narrower
+          minLOD = 1; // Trams/light rail: only show at closer zoom
         } else if (props.railway === "narrow_gauge") {
           width = 6; // Narrow gauge railways
         }
@@ -1901,7 +2029,12 @@ class MapRenderer {
           fillBatches.get(key).flats.push(fc.flat);
         }
         for (const [key, batch] of fillBatches) {
-          this.ctx.strokeStyle = `rgba(${batch.color.r},${batch.color.g},${batch.color.b},${batch.color.a / 255})`;
+          this.ctx.strokeStyle = this._getRGBA(
+            batch.color.r,
+            batch.color.g,
+            batch.color.b,
+            batch.color.a / 255,
+          );
           this.ctx.lineWidth = batch.width;
           this.ctx.lineCap = "round";
           this.ctx.lineJoin = "round";
@@ -1937,7 +2070,7 @@ class MapRenderer {
           this.ctx.stroke();
         }
 
-        const dashLen = Math.max(4, this.zoom * 0.3);
+        const dashLen = Math.max(4, this.getZoomFactor() * 0.3);
 
         for (const cf of constructionFlats) {
           // White base
@@ -2198,7 +2331,8 @@ class MapRenderer {
 
     // Render railways individually (they need special pattern rendering)
     for (const rw of railwayFeatures) {
-      if (this.zoom >= 50) {
+      if (this.viewWidthMeters <= 4000) {
+        // <4km: show detailed railway pattern
         this.drawRailwayPattern(rw.screenCoords, rw.color, rw.width);
       } else {
         this.ctx.strokeStyle = `rgba(${rw.color.r},${rw.color.g},${rw.color.b},${rw.color.a / 255})`;
@@ -2259,7 +2393,8 @@ class MapRenderer {
     if (isRailway) {
       // Only show detailed railway pattern when zoomed in
       // At lower zoom levels, show simple solid line
-      if (this.zoom >= 50) {
+      if (this.viewWidthMeters <= 4000) {
+        // <4km: show detailed railway pattern
         // Draw railway pattern: two parallel rails with ties (sleepers)
         this.drawRailwayPattern(screenCoords, color, width);
       } else {
@@ -2309,8 +2444,8 @@ class MapRenderer {
     // Standard gauge: 1.435m between rail centers
     // Narrow gauge (trams): ~1.0m between rail centers
 
-    // Calculate rail separation based on zoom
-    const metersPerPixel = 200000 / (this.zoom * 1200);
+    // Calculate rail separation based on view
+    const metersPerPixel = this.viewWidthMeters / this.canvasWidth;
     const gaugeMeters = width === 6 ? 1.0 : 1.435; // Narrow gauge vs standard
     const railSeparationPx = Math.max(3, gaugeMeters / metersPerPixel);
 
@@ -2364,7 +2499,7 @@ class MapRenderer {
     }
 
     // Draw dashed center fill line between the rails (scales with zoom)
-    const dashLength = Math.max(1, this.zoom * 0.045); // Small dashes
+    const dashLength = Math.max(1, this.getZoomFactor() * 0.045); // Small dashes
     const gapLength = dashLength; // Exactly 50:50 pattern
 
     // Fill line width should touch the outer rails
@@ -2393,10 +2528,15 @@ class MapRenderer {
   renderPolygon(coordinates, color, bounds) {
     if (coordinates.length < 3) return [];
 
-    // Use Canvas2D native fill - much faster than pixel-by-pixel in WASM
+    // Use Canvas2D native fill - hardware accelerated
     const screenCoords = [];
 
-    this.ctx.fillStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a / 255})`;
+    this.ctx.fillStyle = this._getRGBA(
+      color.r,
+      color.g,
+      color.b,
+      color.a / 255,
+    );
     this.ctx.beginPath();
 
     for (let i = 0; i < coordinates.length; i++) {
@@ -2422,14 +2562,14 @@ class MapRenderer {
 
   clearCanvas() {
     // Clear canvas using Canvas2D
-    this.ctx.fillStyle = "rgb(240, 248, 255)"; // Light blue background
+    this.ctx.fillStyle = "rgb(242, 239, 233)"; // Light tan/beige for land
     this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
     document.getElementById("stats").querySelector("div").textContent =
       "Status: Cleared";
   }
 
   resetView() {
-    this.zoom = 1; // Match initial zoom
+    this.viewWidthMeters = 10000; // Reset to initial 10km view
     this.offsetX = 0;
     this.offsetY = 0;
     this.updateZoomSlider();
@@ -2490,8 +2630,11 @@ class MapRenderer {
   }
 
   updateStats() {
-    document.getElementById("zoomLevel").textContent =
-      this.zoom.toFixed(2) + "x";
+    const viewStr =
+      this.viewWidthMeters >= 1000
+        ? `${(this.viewWidthMeters / 1000).toFixed(1)}km`
+        : `${this.viewWidthMeters.toFixed(0)}m`;
+    document.getElementById("zoomLevel").textContent = viewStr + " wide";
   }
 
   exportAsPNG() {
@@ -2553,7 +2696,12 @@ async function initApp() {
   });
 
   document.getElementById("zoomSlider").addEventListener("input", (e) => {
-    renderer.setZoom(Math.pow(2, parseFloat(e.target.value)));
+    // Slider value is inverted log scale
+    const logMin = Math.log2(renderer.minViewWidthMeters);
+    const logMax = Math.log2(renderer.maxViewWidthMeters);
+    const sliderValue = parseFloat(e.target.value);
+    const logViewWidth = logMax + logMin - sliderValue;
+    renderer.setViewWidth(Math.pow(2, logViewWidth));
   });
 
   document.getElementById("toggleHoverBtn").addEventListener("click", () => {

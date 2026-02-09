@@ -4,38 +4,44 @@
 default:
     @just --list
 
-# Build everything (WASM + fetch data)
-all: build data
+# Build everything (fetch data and generate tiles)
+all: data tiles
 
-# Compile Zig code to WebAssembly
-build:
-    @echo "Building WebAssembly module..."
-    zig build -Doptimize=ReleaseSmall
-    cp zig-out/bin/map_renderer.wasm public/
-    @echo "✓ WASM module built and copied to public/"
-
-# Download and process OSM data (includes tile generation)
+# Download and process OSM data
 data:
-    @echo "Fetching and processing OSM data..."
-    ./fetch-data.sh
+    @echo "Fetching OSM data..."
+    cd preprocessing && ./fetch-data.sh
 
-# Generate tiles from existing GeoJSON
+# Generate tiles from existing GeoJSON (Python version)
 tiles:
     @echo "Generating tiles from hamburg-region.geojson..."
-    python3 split-tiles.py data/hamburg-region.geojson
+    cd preprocessing && python3 split-tiles.py ../data/hamburg-region.geojson
     @echo "✓ Tiles generated in public/tiles/"
 
-# Clean build artifacts
-clean:
-    @echo "Cleaning build artifacts..."
-    rm -rf zig-out zig-cache .zig-cache
-    @echo "✓ Build artifacts cleaned"
+# Generate tiles using Zig (faster, but needs compilation)
+tiles-zig:
+    @echo "Building Zig tile splitter..."
+    zig build
+    @echo "Generating tiles from hamburg-region.geojson..."
+    ./zig-out/bin/split-tiles data/hamburg-region.geojson
+    @echo "✓ Tiles generated in public/tiles/"
 
-# Clean everything including downloaded data
-clean-all: clean
-    @echo "Cleaning OSM data files..."
-    rm -f public/*.osm public/*.osm.pbf public/*.geojson public/*.geojson.gz
+# Clean generated tiles only
+clean:
+    @echo "Cleaning tiles..."
     rm -rf public/tiles
+    @echo "✓ Tiles cleaned"
+
+# Clean tiles and downloaded data
+clean-data:
+    @echo "Cleaning tiles and data..."
+    rm -rf public/tiles data/*.geojson
+    @echo "✓ Tiles and data cleaned"
+
+# Clean everything including build artifacts
+clean-all: clean-data
+    @echo "Cleaning build artifacts..."
+    rm -rf zig-out .zig-cache
     @echo "✓ All generated files cleaned"
 
 # Start local web server
@@ -44,23 +50,21 @@ serve:
     @echo "Press Ctrl+C to stop"
     cd public && python3 -m http.server 8888
 
-# Run in development mode (build + serve)
-dev: build
-    @echo "Development mode: WASM built, starting server..."
+# Run in development mode (serve directly)
+dev:
+    @echo "Starting development server..."
     @just serve
-
-# Watch for changes and rebuild (requires watchexec)
-watch:
-    watchexec -e zig -w src "just build"
 
 # Show project info
 info:
     @echo "Hamburg OSM Map Renderer"
     @echo "======================="
     @echo ""
-    @echo "Zig version:    $(zig version)"
+    @echo "Python:         $(python3 --version)"
+    @echo "Zig:            $(zig version 2>/dev/null || echo 'not installed')"
     @echo "Repository:     $(git rev-parse --short HEAD 2>/dev/null || echo 'not a git repo')"
     @echo ""
-    @echo "Files:"
-    @ls -lh public/map_renderer.wasm 2>/dev/null || echo "  WASM not built (run: just build)"
-    @ls -lh public/hamburg.geojson 2>/dev/null || echo "  Data not fetched (run: just data)"
+    @echo "Data files:"
+    @ls -lh data/hamburg-region.geojson 2>/dev/null || echo "  GeoJSON not created (run: just data)"
+    @echo "Tile status:"
+    @ls -d public/tiles 2>/dev/null && echo "  Tiles generated ✓" || echo "  Tiles not generated (run: just tiles)"

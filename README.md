@@ -1,75 +1,86 @@
 # Hamburg OpenStreetMap Renderer
 
-A high-performance map renderer using OpenStreetMap data with WebAssembly (compiled from Zig) for compute-intensive operations.
+A high-performance map renderer using OpenStreetMap data with Canvas2D rendering and progressive tile loading.
 
 ## Features
 
-- **WebAssembly Performance**: Compute-intensive rendering operations (line drawing, pixel manipulation) are implemented in Zig and compiled to WASM
-- **Real OpenStreetMap Data**: Uses actual map data from Geofabrik for Hamburg, Germany
-- **Canvas Rendering**: Direct pixel manipulation on HTML5 Canvas for fast visualization
-- **Feature-based Coloring**: Different map features (roads, buildings, water, forests) are rendered with appropriate colors
+- **Progressive Tile Loading**: Map data split into tiles (Z8, Z11, Z14) for efficient loading at different zoom levels
+- **Real OpenStreetMap Data**: Uses actual map data from Geofabrik for Hamburg region, Germany (~200km coverage)
+- **Canvas2D Rendering**: Direct Canvas2D API for fast visualization with hardware acceleration
+- **Level-of-Detail (LOD)**: Automatic feature culling based on zoom level for optimal performance
+- **Feature-based Rendering**: Different map features (roads, buildings, water, forests, POIs) rendered with appropriate colors and styles
 - **Interactive Navigation**: 
   - 🖱️ Mouse wheel to zoom in/out
   - 🤚 Click and drag to pan around the map
   - 📱 Touch gestures for mobile devices
+  - 🔍 Zoom buttons and slider
 - **Feature Inspection**:
   - Hover over features to see tooltips with details
   - Info panel displays comprehensive feature properties
   - Detect streets, buildings, water bodies, and points of interest
+- **POI Categories**: Toggle visibility of 9 POI categories (Food & Drink, Shopping, Health, etc.)
+- **Real-World Units**: Zoom displayed in actual distances (meters/kilometers), not abstract zoom factors
 - **Export Capability**: Save rendered maps as PNG images
 
 ## Architecture
 
 ### Components
 
-1. **Zig/WASM Module** (`src/map_renderer.zig`)
-   - Canvas initialization and memory management
-   - Bresenham's line drawing algorithm
-   - Pixel manipulation and buffer management
-   - Coordinate transformation (lat/lon to pixel space)
-   - Polygon and polyline rendering
+1. **Preprocessing Pipeline** (`preprocessing/`)
+   - **fetch-data.sh**: Downloads OSM data for Hamburg region
+   - **split-tiles.py**: Processes GeoJSON → progressive tiles (Python)
+   - **split_tiles.zig**: Alternative Zig implementation (WIP, faster)
+   - Pre-classifies features with rendering metadata
+   - Generates plain JSON tiles at zoom levels 8, 11, 14
+   - Assigns features to appropriate zoom levels based on importance
 
-2. **JavaScript Integration** (`public/map_renderer.js`)
-   - WASM module loading and initialization
-   - GeoJSON data parsing
-   - Feature classification and coloring
-   - Memory management between JS and WASM
-   - Canvas update and export functionality
+2. **JavaScript Renderer** (`public/map_renderer.js`)
+   - Progressive tile loading based on viewport
+   - Canvas2D rendering with layered approach (water → land → roads → buildings → POIs)
+   - Level-of-detail system for performance optimization
+   - Feature hit detection for tooltips
+   - Real-world coordinate system with view width in meters
 
 3. **HTML Interface** (`public/index.html`)
-   - Clean, modern UI
-   - Interactive controls
+   - Clean, modern UI with zoom controls
+   - POI category toggles
    - Performance statistics display
+   - Info panel for feature details
 
 ## Project Structure
 
 ```
 osm-renderer/
-├── build.zig              # Zig build configuration
-├── src/
-│   └── map_renderer.zig   # WASM renderer implementation
-├── public/
-│   ├── index.html         # Web interface
-│   ├── map_renderer.js    # JavaScript integration
-│   ├── map_renderer.wasm  # Compiled WASM module
-│   ├── hamburg.geojson    # Map data (GeoJSON format)
-│   └── hamburg*.osm.pbf   # Original OSM data
-└── zig-out/
-    └── bin/
-        └── map_renderer.wasm
-
+├── preprocessing/          # Data processing pipeline
+│   ├── fetch-data.sh       # OSM data download
+│   ├── split-tiles.py      # Tile generation (Python)
+│   ├── split_tiles.zig     # Tile generation (Zig, WIP)
+│   └── README.md           # Preprocessing documentation
+├── justfile                # Command runner recipes
+├── build.zig               # Zig build configuration
+├── public/                 # Web application
+│   ├── index.html          # Web interface
+│   ├── map_renderer.js     # Canvas2D renderer
+│   └── tiles/              # Generated tile data
+│       ├── 8/              # Z8: Major features (motorways, railways)
+│       ├── 11/             # Z11: + Secondary roads, parks
+│       └── 14/             # Z14: + All details (buildings, etc.)
+└── data/
+    └── hamburg-region.geojson  # Source GeoJSON (~3.3 GB)
 ```
 
 ## Quick Start
 
 ### Prerequisites
 
-- Zig 0.15.2 or later
+- Python 3.7+ (for tile generation)
 - osmium-tool (for processing OSM data)
   - macOS: `brew install osmium-tool`
   - Ubuntu/Debian: `apt-get install osmium-tool`
+- ogr2ogr (for OSM → GeoJSON conversion)
+  - macOS: `brew install gdal`
+  - Ubuntu/Debian: `apt-get install gdal-bin`
 - curl (for downloading data)
-- Python 3 (for local web server)
 - just (command runner, optional but recommended)
   - macOS: `brew install just`
   - See: https://github.com/casey/just
@@ -82,108 +93,148 @@ Using `just` (recommended):
 # See all available commands
 just
 
-# Build WASM and download data
-just all
+# Download OSM data
+just data
+
+# Generate tiles from GeoJSON (Python - slower but stable)
+just tiles
+
+# OR use Zig version (faster, but needs compilation)
+just tiles-zig
 
 # Start the development server
 just serve
-
-# Or build and serve in one command
-just dev
 ```
 
-Using Zig build system:
+Manual setup:
 
 ```bash
-# Build WASM (auto-copies to public/)
-zig build
+# Download and convert OSM data
+cd preprocessing && ./fetch-data.sh
 
-# Download and process OSM data
-zig build data
-
-# Start server manually
-cd public && python3 -m http.server 8080
-```
-
-Using shell scripts:
-
-```bash
-# Build WASM
-zig build -Doptimize=ReleaseSmall
-
-# Download data
-./fetch-data.sh
+# Generate tiles
+cd preprocessing && python3 split-tiles.py ../data/hamburg-region.geojson
 
 # Start server
-./start-server.sh
+cd public && python3 -m http.server 8888
 ```
 
-Then open your browser to: `http://localhost:8080`
+Then open your browser to: `http://localhost:8888`
 
 ### Interactive Controls
 
 Once the map loads:
-- **Zoom**: Scroll mouse wheel
+- **Zoom**: Scroll mouse wheel, or use +/- buttons and slider
 - **Pan**: Click and drag
 - **Inspect**: Hover over features to see tooltips and info panel
-- **Reset**: Click "Reset View" to return to default zoom/pan
+- **POI Toggle**: Click category buttons to show/hide POI types
+- **Reset**: Click "Reset View" to return to 10km view centered on Hamburg
 - **Export**: Save the current view as PNG
 
 ## How It Works
 
-### Coordinate Transformation
+### Progressive Tile System
 
-The renderer converts geographic coordinates (latitude/longitude) to pixel coordinates:
+Map data is split into three zoom levels:
 
-```zig
-const x = (lon - min_lon) / (max_lon - min_lon) * canvas_width;
-const y = canvas_height - ((lat - min_lat) / (max_lat - min_lat) * canvas_height);
-```
+- **Z8** (Wide view, >10km): Motorways, primary roads, railways, forests, major water bodies
+- **Z11** (Medium view, 1-10km): + Secondary/tertiary roads, parks, rivers
+- **Z14** (Close view, <1km): + Residential roads, buildings, all details
 
-### Line Rendering
+Tiles are loaded dynamically based on the current viewport and zoom level.
 
-Uses Bresenham's algorithm for efficient line drawing directly in WASM, avoiding JavaScript overhead for pixel-level operations.
+### Level of Detail (LOD)
 
-### Memory Model
+Features are assigned minimum LOD values:
+- **LOD 0** (>20km view): Only major infrastructure (motorways, primary roads, rail, major water)
+- **LOD 1** (7.5-20km): + Secondary features
+- **LOD 2** (3-7.5km): + Most features
+- **LOD 3** (<3km): All details (buildings, paths, small POIs)
 
-- JavaScript allocates WebAssembly memory (16-32 MB)
-- Zig manages a pixel buffer for the canvas
-- JavaScript reads the buffer and updates the HTML canvas via ImageData
-- Coordinate arrays are passed from JS to WASM via shared memory
+### Rendering Pipeline
+
+1. **Background**: Sea blue (areas without data show as sea)
+2. **Layer Order** (bottom to top):
+   - Natural background (parks, meadows)
+   - Forests
+   - Water areas (lakes, rivers)
+   - Landuse areas (residential, commercial, industrial)
+   - Buildings
+   - Tunnels (semi-transparent)
+   - Waterways (as lines)
+   - Surface roads (with outlines, sorted by priority)
+   - Surface railways (with detailed rail pattern when zoomed in)
+   - POI points
+
+### Real-World Coordinate System
+
+The renderer uses actual distances rather than abstract zoom factors:
+- View width specified in meters (e.g., 10,000m = 10km)
+- Zoom levels: 100m (max zoom) to 200km (min zoom)
+- UI displays: "10.0km wide" instead of "30x zoom"
 
 ### Feature Classification
 
-The renderer identifies and colors different map features:
-
-- **Highways**: Orange-red for motorways, white for smaller roads
-- **Buildings**: Beige
+Features are pre-classified during tile generation:
+- **Highways**: Color-coded by type (motorway=orange, primary=yellow, etc.)
+- **Railways**: Detailed pattern with gauge-accurate rail spacing when zoomed in
+- **Buildings**: Light grey/tan
 - **Water**: Blue
-- **Forests**: Green
-- **Railways**: Dark gray
+- **Forests**: Dark green
+- **Parks/Nature**: Light green
+- **POIs**: 9 categories with distinct colors and icon glyphs
 
 ## Performance
 
-The WASM module provides significant performance benefits:
+Key optimizations:
 
-- **Direct pixel manipulation**: No JavaScript overhead for each pixel
-- **Optimized algorithms**: Bresenham's algorithm compiled to native WASM
-- **Bulk operations**: Entire ways and polygons processed in single WASM calls
-- **Small binary**: ~6KB WASM module (with ReleaseSmall optimization)
+- **Tile-based Loading**: Only load data for visible area
+- **LOD Culling**: Skip rendering features inappropriate for current zoom
+- **Pre-classification**: Feature styling computed during tile generation
+- **Gzip Compression**: Tiles compressed to ~30-50% of original size
+- **Batch Rendering**: Features grouped by layer and rendered in optimized batches
+- **Coordinate Transform Caching**: Reuse screen coordinate calculations
 
 Typical rendering performance:
-- ~10,000+ features rendered in <1000ms (depending on complexity)
+- ~1,000-10,000 features rendered in <200ms
 - 1200x800 canvas with real Hamburg OSM data
+- Smooth pan/zoom interactions
+
+## Data Coverage
+
+Hamburg region bounds:
+- Longitude: 8.48°E to 11.5°E
+- Latitude: 52.65°N to 54.45°N
+- Coverage: ~200km across (includes Hamburg city, Elbe river, partial North Sea coastline)
 
 ## Future Enhancements
 
 Potential improvements:
 
-1. **Zoom and Pan**: Interactive map navigation
-2. **Label Rendering**: Street names and place labels
-3. **More Efficient Polygon Fill**: Scanline algorithm for filled polygons
-4. **Caching**: Tile-based rendering for better performance
+1. **Label Rendering**: Street names and place labels
+2. **WebGL Backend**: For better performance with very large datasets
+3. **Search Functionality**: Find streets, places, POIs
+4. **Routing Visualization**: Display routes on the map
 5. **Style Customization**: User-selectable map styles
-6. **WebGL Backend**: For even better performance with large datasets
+6. **Real-time Updates**: Live OSM data integration
+7. **Vector Tiles**: Switch to MVT format for even better performance
+
+## Why Not WebAssembly?
+
+This project initially used WebAssembly (Zig) for rendering, but evolved to pure JavaScript/Canvas2D because:
+
+- **Canvas2D is hardware-accelerated**: Modern browsers provide excellent Canvas2D performance
+- **Simpler architecture**: No need for WASM memory management and JS↔WASM communication overhead
+- **Tile system is more important**: Progressive loading and LOD have bigger performance impact than WASM
+- **Feature-rich APIs**: Canvas2D provides convenient APIs for paths, fills, transforms
+
+**When WASM makes sense**:
+- Complex computational geometry (polygon clipping, spatial queries)
+- Pathfinding/routing algorithms
+- Real-time data processing pipelines
+- Physics simulations
+
+For this rendering use case, the tile system + Canvas2D provides excellent performance without WASM complexity.
 
 ## License
 
@@ -193,5 +244,5 @@ This project uses OpenStreetMap data © OpenStreetMap contributors, available un
 
 - Map data: [Geofabrik](https://download.geofabrik.de/)
 - OSM data: [OpenStreetMap](https://www.openstreetmap.org/)
-- Processing: osmium-tool
-- Rendering: Zig + WebAssembly
+- Processing: osmium-tool, ogr2ogr
+- Rendering: HTML5 Canvas2D

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Hamburg OSM Map Renderer - WebAssembly</title>
+    <title>Hamburg OSM Map Renderer - Canvas2D</title>
     <style>
       * {
         margin: 0;
@@ -329,14 +329,14 @@
     <div class="container">
       <h1>Hamburg OpenStreetMap Renderer</h1>
       <div class="info">
-        <strong>WebAssembly + Zig</strong> - High-performance map rendering with
-        compute-intensive operations in WASM <br />Map data: Hamburg city center
-        (Geofabrik extract)
+        <strong>Canvas2D + Progressive Tiles</strong> - High-performance map
+        rendering with tiled GeoJSON and level-of-detail optimization <br />Map
+        data: Hamburg region (Geofabrik extract)
       </div>
 
       <div id="loading" class="loading">
         <div class="spinner"></div>
-        <div>Loading WebAssembly module and map data...</div>
+        <div>Loading map tiles...</div>
       </div>
 
       <div id="mapContainer" style="display: none">
@@ -354,10 +354,10 @@
                   type="range"
                   id="zoomSlider"
                   class="zoom-slider"
-                  min="-1.74"
-                  max="6.91"
+                  min="6.64"
+                  max="17.61"
                   step="0.01"
-                  value="0"
+                  value="10.96"
                 />
               </div>
               <button id="zoomOutBtn" class="zoom-btn" title="Zoom Out">
@@ -382,7 +382,7 @@
             Hover Info: ON
           </button>
           <div class="zoom-indicator">
-            Zoom: <span id="zoomLevel">1.00x</span>
+            View: <span id="zoomLevel">10.0km wide</span>
           </div>
           <div class="poi-toggles" id="poiToggles">
             <span class="poi-toggles-label">POIs:</span>

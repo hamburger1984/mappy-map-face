@@ -1,36 +1,34 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const target = b.resolveTargetQuery(.{
-        .cpu_arch = .wasm32,
-        .os_tag = .freestanding,
-    });
-
+    const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const wasm = b.addExecutable(.{
-        .name = "map_renderer",
+    // Tile splitter executable (native)
+    const split_tiles = b.addExecutable(.{
+        .name = "split-tiles",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/map_renderer.zig"),
+            .root_source_file = b.path("preprocessing/split_tiles.zig"),
             .target = target,
             .optimize = optimize,
         }),
     });
 
-    wasm.entry = .disabled;
-    wasm.rdynamic = true;
+    b.installArtifact(split_tiles);
 
-    b.installArtifact(wasm);
+    // Create a run step for the tile splitter
+    const run_split = b.addRunArtifact(split_tiles);
+    run_split.step.dependOn(b.getInstallStep());
 
-    // Copy WASM to public directory
-    const copy_wasm = b.addInstallFile(
-        wasm.getEmittedBin(),
-        "../public/map_renderer.wasm",
-    );
-    b.getInstallStep().dependOn(&copy_wasm.step);
+    if (b.args) |args| {
+        run_split.addArgs(args);
+    }
+
+    const split_step = b.step("split-tiles", "Run the tile splitter");
+    split_step.dependOn(&run_split.step);
 
     // Add a step to fetch OSM data
     const fetch_data = b.step("data", "Download and process OSM data");
-    const fetch_cmd = b.addSystemCommand(&.{"./fetch-data.sh"});
+    const fetch_cmd = b.addSystemCommand(&.{"./preprocessing/fetch-data.sh"});
     fetch_data.dependOn(&fetch_cmd.step);
 }
