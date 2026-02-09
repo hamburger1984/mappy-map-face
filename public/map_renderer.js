@@ -277,6 +277,10 @@ class MapRenderer {
     this._coordArrayPool = []; // Reusable coordinate arrays
     this._rgbaCache = new Map(); // Cache rgba() strings to avoid recreating
 
+    // Canvas panning optimization
+    this._offscreenCanvas = null; // Store last rendered frame
+    this._lastRenderOffset = { x: 0, y: 0 }; // Track offset when last rendered
+
     // Pre-allocate point objects for pooling
     for (let i = 0; i < 10000; i++) {
       this._pointPool.push({ x: 0, y: 0 });
@@ -472,6 +476,11 @@ class MapRenderer {
         this.offsetY += dy;
         this.lastPanX = e.clientX;
         this.lastPanY = e.clientY;
+
+        // Instant canvas translation while dragging
+        this.translateCanvas(dx, dy);
+
+        // Schedule full redraw after user stops moving
         this.debouncedRender();
       } else {
         // Check for feature hover (only if hover info is enabled and nothing is selected)
@@ -1467,7 +1476,37 @@ class MapRenderer {
     document.getElementById("stats").querySelector("div").textContent =
       "Status: Rendered";
 
+    // Save rendered frame for canvas translation optimization
+    this.saveOffscreenCanvas();
+    this._lastRenderOffset = { x: this.offsetX, y: this.offsetY };
+
     // Render stats available in UI
+  }
+
+  // Save current canvas to offscreen buffer for panning optimization
+  saveOffscreenCanvas() {
+    if (!this._offscreenCanvas) {
+      this._offscreenCanvas = document.createElement("canvas");
+    }
+    this._offscreenCanvas.width = this.canvas.width;
+    this._offscreenCanvas.height = this.canvas.height;
+    const offCtx = this._offscreenCanvas.getContext("2d");
+    offCtx.drawImage(this.canvas, 0, 0);
+  }
+
+  // Instantly translate canvas during drag (smooth panning)
+  translateCanvas(dx, dy) {
+    if (!this._offscreenCanvas) return;
+
+    // Calculate total offset since last full render
+    const totalDx = this.offsetX - this._lastRenderOffset.x;
+    const totalDy = this.offsetY - this._lastRenderOffset.y;
+
+    // Clear canvas
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+    // Draw saved frame translated by total accumulated offset
+    this.ctx.drawImage(this._offscreenCanvas, totalDx, totalDy);
   }
 
   getLOD() {
