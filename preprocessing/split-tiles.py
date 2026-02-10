@@ -336,10 +336,19 @@ def get_render_metadata(props, geom_type):
     This is the build-time equivalent of map_renderer.js classifyFeature()
     """
 
+    # Cache commonly accessed properties to avoid repeated dict lookups
+    landuse = props.get("landuse")
+    natural = props.get("natural")
+    waterway = props.get("waterway")
+    building = props.get("building")
+    highway = props.get("highway")
+    railway = props.get("railway")
+    leisure = props.get("leisure")
+
+    is_polygon = geom_type in ["Polygon", "MultiPolygon"]
+
     # Parks and green spaces (only polygons)
-    if (
-        props.get("leisure") == "park" or props.get("landuse") in ["grass", "meadow"]
-    ) and geom_type in ["Polygon", "MultiPolygon"]:
+    if (leisure == "park" or landuse in ["grass", "meadow"]) and is_polygon:
         return {
             "layer": "natural_background",
             "color": {"r": 200, "g": 230, "b": 180, "a": 255},
@@ -348,10 +357,7 @@ def get_render_metadata(props, geom_type):
         }
 
     # Agricultural land (only polygons)
-    if props.get("landuse") in ["farmland", "orchard", "vineyard"] and geom_type in [
-        "Polygon",
-        "MultiPolygon",
-    ]:
+    if landuse in ["farmland", "orchard", "vineyard"] and is_polygon:
         return {
             "layer": "natural_background",
             "color": {"r": 238, "g": 240, "b": 213, "a": 255},
@@ -360,9 +366,7 @@ def get_render_metadata(props, geom_type):
         }
 
     # Forests and woods (only polygons)
-    if (
-        props.get("landuse") == "forest" or props.get("natural") == "wood"
-    ) and geom_type in ["Polygon", "MultiPolygon"]:
+    if (landuse == "forest" or natural == "wood") and is_polygon:
         return {
             "layer": "forests",
             "color": {"r": 173, "g": 209, "b": 158, "a": 255},
@@ -372,11 +376,11 @@ def get_render_metadata(props, geom_type):
 
     # Water bodies (only polygons - including coastline for sea/ocean areas)
     if (
-        props.get("natural") == "water"
+        natural == "water"
         or props.get("water")
-        or props.get("waterway") == "riverbank"
-        or props.get("natural") == "coastline"
-    ) and geom_type in ["Polygon", "MultiPolygon"]:
+        or waterway == "riverbank"
+        or natural == "coastline"
+    ) and is_polygon:
         return {
             "layer": "water_areas",
             "color": {"r": 170, "g": 211, "b": 223, "a": 255},
@@ -385,8 +389,8 @@ def get_render_metadata(props, geom_type):
         }
 
     # Rivers and streams as lines
-    if props.get("waterway") and props.get("waterway") != "riverbank":
-        importance = 1 if props.get("waterway") in ["river", "canal"] else 2
+    if waterway and waterway != "riverbank":
+        importance = 1 if waterway in ["river", "canal"] else 2
         return {
             "layer": "waterways",
             "color": {"r": 170, "g": 211, "b": 223, "a": 255},
@@ -395,10 +399,7 @@ def get_render_metadata(props, geom_type):
         }
 
     # Commercial/industrial areas (only polygons)
-    if props.get("landuse") in ["commercial", "retail"] and geom_type in [
-        "Polygon",
-        "MultiPolygon",
-    ]:
+    if landuse in ["commercial", "retail"] and is_polygon:
         return {
             "layer": "landuse_areas",
             "color": {"r": 243, "g": 233, "b": 234, "a": 255},
@@ -406,10 +407,7 @@ def get_render_metadata(props, geom_type):
             "fill": True,
         }
 
-    if props.get("landuse") == "industrial" and geom_type in [
-        "Polygon",
-        "MultiPolygon",
-    ]:
+    if landuse == "industrial" and is_polygon:
         return {
             "layer": "landuse_areas",
             "color": {"r": 240, "g": 233, "b": 240, "a": 255},
@@ -418,7 +416,7 @@ def get_render_metadata(props, geom_type):
         }
 
     # Buildings (only polygons - filter out LineString building outlines)
-    if props.get("building") and geom_type in ["Polygon", "MultiPolygon"]:
+    if building and is_polygon:
         return {
             "layer": "areas",
             "color": {"r": 218, "g": 208, "b": 200, "a": 255},
@@ -427,9 +425,11 @@ def get_render_metadata(props, geom_type):
         }
 
     # Remap construction roads to their target type for render metadata
-    effective_highway = props.get("highway")
-    if effective_highway == "construction" and props.get("construction"):
-        effective_highway = props.get("construction")
+    effective_highway = highway
+    if effective_highway == "construction":
+        construction = props.get("construction")
+        if construction:
+            effective_highway = construction
 
     # Major highways
     if effective_highway in ["motorway", "trunk"]:
@@ -478,7 +478,7 @@ def get_render_metadata(props, geom_type):
         }
 
     # Railways (long distance/regional at LOD 0, subway/tram at LOD 2)
-    if props.get("railway") and geom_type != "Point":
+    if railway and geom_type != "Point":
         # Long distance and regional trains - show at all zoom levels
         major_rail = ["rail"]
         # Subways and light rail - show at medium zoom
@@ -486,21 +486,21 @@ def get_render_metadata(props, geom_type):
         # Trams and minor rail - show at close zoom only
         minor_rail = ["tram", "monorail", "narrow_gauge", "preserved"]
 
-        if props.get("railway") in major_rail or not props.get("railway"):
+        if railway in major_rail or not railway:
             return {
                 "layer": "railways",
                 "color": {"r": 153, "g": 153, "b": 153, "a": 255},
                 "minLOD": 0,  # Long distance/regional rail visible at all zoom levels
                 "fill": False,
             }
-        elif props.get("railway") in medium_rail:
+        elif railway in medium_rail:
             return {
                 "layer": "railways",
                 "color": {"r": 153, "g": 153, "b": 153, "a": 255},
                 "minLOD": 1,  # Subway/light rail at medium zoom
                 "fill": False,
             }
-        elif props.get("railway") in minor_rail:
+        elif railway in minor_rail:
             return {
                 "layer": "railways",
                 "color": {"r": 153, "g": 153, "b": 153, "a": 255},
@@ -545,21 +545,28 @@ def classify_feature_importance(props, geom_type):
     importance_score: for sorting within zoom level
     """
 
+    # Cache commonly accessed properties
+    highway = props.get("highway")
+    railway = props.get("railway")
+    waterway = props.get("waterway")
+    natural = props.get("natural")
+    landuse = props.get("landuse")
+    building = props.get("building")
+    leisure = props.get("leisure")
+
     # Remap construction roads to their target type for importance classification
-    effective_highway = props.get("highway")
-    if effective_highway == "construction" and props.get("construction"):
-        effective_highway = props.get("construction")
+    effective_highway = highway
+    if effective_highway == "construction":
+        construction = props.get("construction")
+        if construction:
+            effective_highway = construction
 
     # Major water bodies (always visible)
-    if (
-        props.get("natural") == "water"
-        or props.get("water")
-        or props.get("waterway") == "riverbank"
-    ):
+    if natural == "water" or props.get("water") or waterway == "riverbank":
         return (0, 100)  # Z0-Z5, very important
 
     # Forests (always visible)
-    if props.get("landuse") == "forest" or props.get("natural") == "wood":
+    if landuse == "forest" or natural == "wood":
         return (0, 90)  # Z0-Z5, very important
 
     # Major highways (always visible)
@@ -567,7 +574,7 @@ def classify_feature_importance(props, geom_type):
         return (0, 80)  # Z0-Z5, very important
 
     # Railways (always visible)
-    if props.get("railway") and geom_type != "Point":
+    if railway and geom_type != "Point":
         track_types = [
             "rail",
             "light_rail",
@@ -577,11 +584,11 @@ def classify_feature_importance(props, geom_type):
             "narrow_gauge",
             "preserved",
         ]
-        if props.get("railway") in track_types:
+        if railway in track_types:
             return (0, 70)  # Z0-Z5, important
 
     # Major rivers
-    if props.get("waterway") in ["river", "canal"]:
+    if waterway in ["river", "canal"]:
         return (6, 60)  # Z6-Z10
 
     # Primary/secondary roads
@@ -589,11 +596,7 @@ def classify_feature_importance(props, geom_type):
         return (6, 50)  # Z6-Z10
 
     # Parks and green spaces
-    if props.get("leisure") == "park" or props.get("landuse") in [
-        "grass",
-        "meadow",
-        "farmland",
-    ]:
+    if leisure == "park" or landuse in ["grass", "meadow", "farmland"]:
         return (6, 40)  # Z6-Z10
 
     # Tertiary and residential roads
@@ -601,7 +604,7 @@ def classify_feature_importance(props, geom_type):
         return (11, 30)  # Z11-Z14
 
     # Buildings
-    if props.get("building"):
+    if building:
         return (11, 20)  # Z11-Z14
 
     # Small roads and paths
