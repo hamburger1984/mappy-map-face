@@ -49,8 +49,10 @@ ALL_RAIL_TYPES = frozenset(
 POLYGON_TYPES = frozenset(["Polygon", "MultiPolygon"])
 
 # Highway/road type classifications
-MAJOR_HIGHWAYS = frozenset(["motorway", "trunk"])
-PRIMARY_SECONDARY_HIGHWAYS = frozenset(["primary", "secondary"])
+MAJOR_HIGHWAYS = frozenset(
+    ["motorway", "trunk", "primary"]
+)  # Includes Bundesstraßen (B-roads)
+SECONDARY_HIGHWAYS = frozenset(["secondary"])
 TERTIARY_RESIDENTIAL_HIGHWAYS = frozenset(["tertiary", "residential", "unclassified"])
 
 # Landuse type classifications
@@ -459,27 +461,33 @@ def get_render_metadata(props, geom_type):
         if construction:
             effective_highway = construction
 
-    # Major highways
+    # Major highways (motorway, trunk, primary/Bundesstraßen)
     if effective_highway in MAJOR_HIGHWAYS:
+        # Motorways/trunk get red-orange, primary/Bundesstraßen get orange-yellow
+        if effective_highway in ["motorway", "trunk"]:
+            color = {"r": 233, "g": 115, "b": 103, "a": 255}  # Red-orange
+            priority = 1
+        else:  # primary
+            color = {"r": 252, "g": 214, "b": 164, "a": 255}  # Orange-yellow
+            priority = 2
         return {
             "layer": "major_roads",
-            "color": {"r": 233, "g": 115, "b": 103, "a": 255},
-            "minLOD": 0,
+            "color": color,
+            "minLOD": 0,  # All major highways visible at all zoom levels
             "fill": False,
             "name": props.get("name", ""),
-            "name_priority": 1,  # Highest priority for labels
+            "name_priority": priority,
         }
 
-    # Primary and secondary roads
-    if effective_highway in PRIMARY_SECONDARY_HIGHWAYS:
-        priority = 2 if effective_highway == "primary" else 3
+    # Secondary roads
+    if effective_highway in SECONDARY_HIGHWAYS:
         return {
             "layer": "major_roads",
             "color": {"r": 252, "g": 214, "b": 164, "a": 255},
             "minLOD": 1,
             "fill": False,
             "name": props.get("name", ""),
-            "name_priority": priority,
+            "name_priority": 3,
         }
 
     # Tertiary and residential roads
@@ -590,7 +598,7 @@ def classify_feature_importance(props, geom_type):
     if landuse == "forest" or natural == "wood":
         return (0, 90)  # Z0-Z5, very important
 
-    # Major highways (always visible)
+    # Major highways (motorway, trunk, primary - always visible)
     if effective_highway in MAJOR_HIGHWAYS:
         return (0, 80)  # Z0-Z5, very important
 
@@ -603,8 +611,8 @@ def classify_feature_importance(props, geom_type):
     if waterway in MAJOR_WATERWAYS:
         return (6, 60)  # Z6-Z10
 
-    # Primary/secondary roads
-    if effective_highway in PRIMARY_SECONDARY_HIGHWAYS:
+    # Secondary roads
+    if effective_highway in SECONDARY_HIGHWAYS:
         return (6, 50)  # Z6-Z10
 
     # Parks and green spaces
