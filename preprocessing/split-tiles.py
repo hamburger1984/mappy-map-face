@@ -692,8 +692,7 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
         last_update = start_time
         last_count = 0
         update_interval = 5.0  # seconds
-        next_update = start_time + update_interval
-        check_interval = 10000  # Initial check every 10k features
+        next_check_at = 10000  # Target iteration to check and update
 
         # Rolling window for rate calculation (keep last 5 samples)
         rate_history = []  # List of (elapsed_time, items_processed) tuples
@@ -703,56 +702,53 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
             for feature in ijson.items(f, "features.item"):
                 i += 1
 
-                # Check time only occasionally (adaptive based on processing rate)
-                if i % check_interval == 0:
+                # Update at target iteration (adaptive based on processing rate)
+                if i >= next_check_at:
                     current_time = time.time()
-                    if current_time >= next_update:
-                        # Record this sample
-                        elapsed_since_last = current_time - last_update
-                        features_since_last = i - last_count
+                    # Record this sample
+                    elapsed_since_last = current_time - last_update
+                    features_since_last = i - last_count
 
-                        # Add to rolling window
-                        rate_history.append((elapsed_since_last, features_since_last))
-                        if len(rate_history) > max_history:
-                            rate_history.pop(0)
+                    # Add to rolling window
+                    rate_history.append((elapsed_since_last, features_since_last))
+                    if len(rate_history) > max_history:
+                        rate_history.pop(0)
 
-                        # Calculate rate based on all samples in window
-                        total_elapsed = sum(sample[0] for sample in rate_history)
-                        total_features = sum(sample[1] for sample in rate_history)
-                        features_per_sec = (
-                            total_features / total_elapsed if total_elapsed > 0 else 0
-                        )
+                    # Calculate rate based on all samples in window
+                    total_elapsed = sum(sample[0] for sample in rate_history)
+                    total_features = sum(sample[1] for sample in rate_history)
+                    features_per_sec = (
+                        total_features / total_elapsed if total_elapsed > 0 else 0
+                    )
 
-                        # Get file position for progress percentage
-                        file_pos = f.tell()
-                        progress_pct = (
-                            (file_pos / file_size * 100) if file_size > 0 else 0
-                        )
+                    # Get file position for progress percentage
+                    file_pos = f.tell()
+                    progress_pct = (file_pos / file_size * 100) if file_size > 0 else 0
 
-                        # Format features/sec based on magnitude
-                        if features_per_sec >= 1000:
-                            rate_str = f"{features_per_sec / 1000:.1f}k"
-                        else:
-                            rate_str = f"{features_per_sec:.0f}"
+                    # Format features/sec based on magnitude
+                    if features_per_sec >= 1000:
+                        rate_str = f"{features_per_sec / 1000:.1f}k"
+                    else:
+                        rate_str = f"{features_per_sec:.0f}"
 
-                        # Print on same line with carriage return
-                        print(
-                            f"\r  Processed: {i:,} features | {rate_str} features/sec | {progress_pct:.1f}% through file",
-                            end="",
-                            flush=True,
-                        )
-                        last_update = current_time
-                        last_count = i
-                        next_update = current_time + update_interval
+                    # Print on same line with carriage return
+                    print(
+                        f"\r  Processed: {i:,} features | {rate_str} features/sec | {progress_pct:.1f}% through file",
+                        end="",
+                        flush=True,
+                    )
+                    last_update = current_time
+                    last_count = i
 
-                        # Adjust check_interval based on current rate to hit next update more accurately
-                        # Target: check when we expect to reach next_update (5 seconds from now)
-                        if features_per_sec > 0:
-                            estimated_features = int(features_per_sec * update_interval)
-                            # Clamp between 1000 and 50000 to avoid too frequent or too rare checks
-                            check_interval = max(1000, min(50000, estimated_features))
-                        else:
-                            check_interval = 10000
+                    # Calculate next target iteration based on current rate
+                    # Target: update approximately every 5 seconds
+                    if features_per_sec > 0:
+                        estimated_features = int(features_per_sec * update_interval)
+                        # Clamp between 1000 and 50000 to avoid too frequent or too rare checks
+                        estimated_features = max(1000, min(50000, estimated_features))
+                    else:
+                        estimated_features = 10000
+                    next_check_at = i + estimated_features
 
                 props = feature.get("properties", {})
                 geom_type = feature["geometry"]["type"]
@@ -848,8 +844,7 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
     last_update = write_start
     last_tile_count = 0
     update_interval = 5.0  # seconds
-    next_update = write_start + update_interval
-    tile_check_interval = 100  # Initial check every 100 tiles
+    next_tile_check_at = 100  # Target tile count to check and update
 
     # Rolling window for tile write rate calculation (keep last 5 samples)
     tile_rate_history = []  # List of (elapsed_time, tiles_written) tuples
@@ -881,52 +876,48 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
                         f.write("]}")
                     tile_count += 1
 
-                    # Check time only occasionally (adaptive based on write rate)
-                    if tile_count % tile_check_interval == 0:
+                    # Update at target tile count (adaptive based on write rate)
+                    if tile_count >= next_tile_check_at:
                         current_time = time.time()
-                        if current_time >= next_update:
-                            # Record this sample
-                            elapsed_since_last = current_time - last_update
-                            tiles_since_last = tile_count - last_tile_count
+                        # Record this sample
+                        elapsed_since_last = current_time - last_update
+                        tiles_since_last = tile_count - last_tile_count
 
-                            # Add to rolling window
-                            tile_rate_history.append(
-                                (elapsed_since_last, tiles_since_last)
-                            )
-                            if len(tile_rate_history) > max_history:
-                                tile_rate_history.pop(0)
+                        # Add to rolling window
+                        tile_rate_history.append((elapsed_since_last, tiles_since_last))
+                        if len(tile_rate_history) > max_history:
+                            tile_rate_history.pop(0)
 
-                            # Calculate rate based on all samples in window
-                            total_elapsed = sum(
-                                sample[0] for sample in tile_rate_history
-                            )
-                            total_tiles = sum(sample[1] for sample in tile_rate_history)
-                            tiles_per_sec = (
-                                total_tiles / total_elapsed if total_elapsed > 0 else 0
-                            )
-                            progress_pct = (
-                                (tile_count / total_tiles * 100)
-                                if total_tiles > 0
-                                else 0
-                            )
-                            print(
-                                f"\r  Written: {tile_count:,}/{total_tiles:,} tiles | {tiles_per_sec:.0f} tiles/sec | {progress_pct:.1f}%",
-                                end="",
-                                flush=True,
-                            )
-                            last_update = current_time
-                            last_tile_count = tile_count
-                            next_update = current_time + update_interval
+                        # Calculate rate based on all samples in window
+                        total_elapsed = sum(sample[0] for sample in tile_rate_history)
+                        total_tiles_written = sum(
+                            sample[1] for sample in tile_rate_history
+                        )
+                        tiles_per_sec = (
+                            total_tiles_written / total_elapsed
+                            if total_elapsed > 0
+                            else 0
+                        )
+                        progress_pct = (
+                            (tile_count / total_tiles * 100) if total_tiles > 0 else 0
+                        )
+                        print(
+                            f"\r  Written: {tile_count:,}/{total_tiles:,} tiles | {tiles_per_sec:.0f} tiles/sec | {progress_pct:.1f}%",
+                            end="",
+                            flush=True,
+                        )
+                        last_update = current_time
+                        last_tile_count = tile_count
 
-                            # Adjust tile_check_interval based on current rate
-                            if tiles_per_sec > 0:
-                                estimated_tiles = int(tiles_per_sec * update_interval)
-                                # Clamp between 10 and 1000 to avoid too frequent or too rare checks
-                                tile_check_interval = max(
-                                    10, min(1000, estimated_tiles)
-                                )
-                            else:
-                                tile_check_interval = 100
+                        # Calculate next target tile count based on current rate
+                        # Target: update approximately every 5 seconds
+                        if tiles_per_sec > 0:
+                            estimated_tiles = int(tiles_per_sec * update_interval)
+                            # Clamp between 10 and 1000 to avoid too frequent or too rare checks
+                            estimated_tiles = max(10, min(1000, estimated_tiles))
+                        else:
+                            estimated_tiles = 100
+                        next_tile_check_at = tile_count + estimated_tiles
                 current_tile = tile_key
                 feature_jsons = []
             feature_jsons.append(feature_json)
