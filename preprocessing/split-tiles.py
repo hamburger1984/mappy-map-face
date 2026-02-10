@@ -693,13 +693,14 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
         last_count = 0
         update_interval = 5.0  # seconds
         next_update = start_time + update_interval
+        check_interval = 10000  # Initial check every 10k features
 
         with open(input_file, "rb") as f:
             for feature in ijson.items(f, "features.item"):
                 i += 1
 
-                # Check time only occasionally (every 10000 features) to avoid overhead
-                if i % 10000 == 0:
+                # Check time only occasionally (adaptive based on processing rate)
+                if i % check_interval == 0:
                     current_time = time.time()
                     if current_time >= next_update:
                         # Calculate rate over the last interval (sliding window)
@@ -732,6 +733,15 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
                         last_update = current_time
                         last_count = i
                         next_update = current_time + update_interval
+
+                        # Adjust check_interval based on current rate to hit next update more accurately
+                        # Target: check when we expect to reach next_update (5 seconds from now)
+                        if features_per_sec > 0:
+                            estimated_features = int(features_per_sec * update_interval)
+                            # Clamp between 1000 and 50000 to avoid too frequent or too rare checks
+                            check_interval = max(1000, min(50000, estimated_features))
+                        else:
+                            check_interval = 10000
 
                 props = feature.get("properties", {})
                 geom_type = feature["geometry"]["type"]
@@ -828,6 +838,7 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
     last_tile_count = 0
     update_interval = 5.0  # seconds
     next_update = write_start + update_interval
+    tile_check_interval = 100  # Initial check every 100 tiles
 
     for zoom in zoom_levels:
         conn = zoom_dbs[zoom]
@@ -855,8 +866,8 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
                         f.write("]}")
                     tile_count += 1
 
-                    # Check time only occasionally (every 100 tiles) to avoid overhead
-                    if tile_count % 100 == 0:
+                    # Check time only occasionally (adaptive based on write rate)
+                    if tile_count % tile_check_interval == 0:
                         current_time = time.time()
                         if current_time >= next_update:
                             # Calculate rate over the last interval (sliding window)
@@ -880,6 +891,16 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
                             last_update = current_time
                             last_tile_count = tile_count
                             next_update = current_time + update_interval
+
+                            # Adjust tile_check_interval based on current rate
+                            if tiles_per_sec > 0:
+                                estimated_tiles = int(tiles_per_sec * update_interval)
+                                # Clamp between 10 and 1000 to avoid too frequent or too rare checks
+                                tile_check_interval = max(
+                                    10, min(1000, estimated_tiles)
+                                )
+                            else:
+                                tile_check_interval = 100
                 current_tile = tile_key
                 feature_jsons = []
             feature_jsons.append(feature_json)
