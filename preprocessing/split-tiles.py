@@ -695,6 +695,10 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
         next_update = start_time + update_interval
         check_interval = 10000  # Initial check every 10k features
 
+        # Rolling window for rate calculation (keep last 5 samples)
+        rate_history = []  # List of (elapsed_time, items_processed) tuples
+        max_history = 5
+
         with open(input_file, "rb") as f:
             for feature in ijson.items(f, "features.item"):
                 i += 1
@@ -703,13 +707,20 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
                 if i % check_interval == 0:
                     current_time = time.time()
                     if current_time >= next_update:
-                        # Calculate rate over the last interval (sliding window)
+                        # Record this sample
                         elapsed_since_last = current_time - last_update
                         features_since_last = i - last_count
+
+                        # Add to rolling window
+                        rate_history.append((elapsed_since_last, features_since_last))
+                        if len(rate_history) > max_history:
+                            rate_history.pop(0)
+
+                        # Calculate rate based on all samples in window
+                        total_elapsed = sum(sample[0] for sample in rate_history)
+                        total_features = sum(sample[1] for sample in rate_history)
                         features_per_sec = (
-                            features_since_last / elapsed_since_last
-                            if elapsed_since_last > 0
-                            else 0
+                            total_features / total_elapsed if total_elapsed > 0 else 0
                         )
 
                         # Get file position for progress percentage
@@ -840,6 +851,10 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
     next_update = write_start + update_interval
     tile_check_interval = 100  # Initial check every 100 tiles
 
+    # Rolling window for tile write rate calculation (keep last 5 samples)
+    tile_rate_history = []  # List of (elapsed_time, tiles_written) tuples
+    max_history = 5
+
     for zoom in zoom_levels:
         conn = zoom_dbs[zoom]
         cursor = conn.execute(
@@ -870,13 +885,24 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
                     if tile_count % tile_check_interval == 0:
                         current_time = time.time()
                         if current_time >= next_update:
-                            # Calculate rate over the last interval (sliding window)
+                            # Record this sample
                             elapsed_since_last = current_time - last_update
                             tiles_since_last = tile_count - last_tile_count
+
+                            # Add to rolling window
+                            tile_rate_history.append(
+                                (elapsed_since_last, tiles_since_last)
+                            )
+                            if len(tile_rate_history) > max_history:
+                                tile_rate_history.pop(0)
+
+                            # Calculate rate based on all samples in window
+                            total_elapsed = sum(
+                                sample[0] for sample in tile_rate_history
+                            )
+                            total_tiles = sum(sample[1] for sample in tile_rate_history)
                             tiles_per_sec = (
-                                tiles_since_last / elapsed_since_last
-                                if elapsed_since_last > 0
-                                else 0
+                                total_tiles / total_elapsed if total_elapsed > 0 else 0
                             )
                             progress_pct = (
                                 (tile_count / total_tiles * 100)
