@@ -1053,10 +1053,19 @@ class MapRenderer {
     const features = [];
     const seenFeatures = new Set(); // Track seen features to avoid duplicates
 
+    // Geometry type to numeric ID mapping for hash
+    const geomTypeId = {
+      Point: 1,
+      LineString: 2,
+      Polygon: 3,
+      MultiLineString: 4,
+      MultiPolygon: 5,
+    };
+
     for (const tile of tileData) {
       if (tile && tile.features) {
         for (const feature of tile.features) {
-          // Fast deduplication: use first + last coordinate + geometry type as key
+          // Fast deduplication: use first + last coordinate + geometry type as numeric key
           // This catches true duplicates while avoiding false positives
           const geom = feature.geometry;
           let featureKey;
@@ -1085,11 +1094,24 @@ class MapRenderer {
                 ];
             }
 
-            // Create key from type + first + last coordinate
-            featureKey = `${geom.type}_${Math.round(firstCoord[0] * 1e6)}_${Math.round(firstCoord[1] * 1e6)}_${Math.round(lastCoord[0] * 1e6)}_${Math.round(lastCoord[1] * 1e6)}`;
+            // Create numeric hash: combine type ID and rounded coordinates
+            // Use bit shifting and XOR to combine values into a single number
+            const typeId = geomTypeId[geom.type] || 0;
+            const x1 = Math.round(firstCoord[0] * 1e6);
+            const y1 = Math.round(firstCoord[1] * 1e6);
+            const x2 = Math.round(lastCoord[0] * 1e6);
+            const y2 = Math.round(lastCoord[1] * 1e6);
+
+            // Combine into numeric hash (JavaScript numbers are 64-bit floats, safe for 53-bit integers)
+            featureKey =
+              typeId * 1e24 +
+              (x1 & 0xffffff) * 1e18 +
+              (y1 & 0xffffff) * 1e12 +
+              (x2 & 0xffffff) * 1e6 +
+              (y2 & 0xffffff);
           } else {
-            // Fallback for features without geometry
-            featureKey = `nogeom_${Math.random()}`;
+            // Fallback for features without geometry - use object reference
+            featureKey = Math.random();
           }
 
           // Only add if we haven't seen this feature before
