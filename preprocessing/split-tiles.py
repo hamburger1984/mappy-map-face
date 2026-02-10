@@ -744,8 +744,8 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
                     # Target: update approximately every 5 seconds
                     if features_per_sec > 0:
                         estimated_features = int(features_per_sec * update_interval)
-                        # Clamp between 1000 and 50000 to avoid too frequent or too rare checks
-                        estimated_features = max(1000, min(50000, estimated_features))
+                        # Clamp between 1000 and 500000 to avoid too frequent or too rare checks
+                        estimated_features = max(1000, min(500000, estimated_features))
                     else:
                         estimated_features = 10000
                     next_check_at = i + estimated_features
@@ -913,8 +913,8 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
                         # Target: update approximately every 5 seconds
                         if tiles_per_sec > 0:
                             estimated_tiles = int(tiles_per_sec * update_interval)
-                            # Clamp between 10 and 1000 to avoid too frequent or too rare checks
-                            estimated_tiles = max(10, min(1000, estimated_tiles))
+                            # Clamp between 10 and 10000 to avoid too frequent or too rare checks
+                            estimated_tiles = max(10, min(10000, estimated_tiles))
                         else:
                             estimated_tiles = 100
                         next_tile_check_at = tile_count + estimated_tiles
