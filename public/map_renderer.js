@@ -2099,8 +2099,11 @@ class MapRenderer {
     const toScreenX = (lon) => (lon - minLon) * scaleX;
     const toScreenY = (lat) => canvasHeight - (lat - minLat) * scaleY;
 
-    // For each priority level (low to high): draw outlines, then fills
-    // This ensures same-priority roads join cleanly at intersections
+    // Collect all road geometry first, organized by priority
+    // Then do two-pass rendering: all casings, then all fills
+    // This ensures higher-priority roads visually go "through" lower-priority ones at intersections
+    const roadDataByPriority = new Map();
+
     for (const [priority, items] of byPriority) {
       // Collect flat screen coords for each feature in this priority group
       const featureCoords = [];
@@ -2151,8 +2154,7 @@ class MapRenderer {
 
       if (featureCoords.length === 0) continue;
 
-      // Unified road rendering: border stroke + fill stroke for all roads.
-      // Border color blends from darkened road color (thin) toward black (wide).
+      // Store this priority level's data for later rendering
       const roadFeatures = [];
       const constructionFlats = [];
       for (const fc of featureCoords) {
@@ -2162,6 +2164,13 @@ class MapRenderer {
           roadFeatures.push(fc);
         }
       }
+
+      roadDataByPriority.set(priority, { roadFeatures, constructionFlats });
+    }
+
+    // RENDERING PASS 1: Draw all road casings (borders) in priority order
+    for (const [priority, data] of roadDataByPriority) {
+      const { roadFeatures, constructionFlats } = data;
 
       if (roadFeatures.length > 0) {
         // Pass 1: border stroke
@@ -2197,8 +2206,35 @@ class MapRenderer {
           }
           this.ctx.stroke();
         }
+      }
 
-        // Pass 2: fill stroke
+      // Construction roads: borders only in pass 1
+      if (constructionFlats.length > 0) {
+        for (const cf of constructionFlats) {
+          const t = Math.min(1, Math.max(0, (cf.width - 1) / 5));
+          const r = Math.round(Math.max(0, cf.color.r - 40) * (1 - t));
+          const g = Math.round(Math.max(0, cf.color.g - 40) * (1 - t));
+          const b = Math.round(Math.max(0, cf.color.b - 40) * (1 - t));
+          const a = (0.6 + 0.4 * t) * (cf.color.a / 255);
+          this.ctx.strokeStyle = `rgba(${r},${g},${b},${a})`;
+          this.ctx.lineWidth = cf.width + 2;
+          this.ctx.lineCap = "round";
+          this.ctx.lineJoin = "round";
+          this.ctx.beginPath();
+          this.ctx.moveTo(cf.flat[0], cf.flat[1]);
+          for (let i = 2; i < cf.flat.length; i += 2) {
+            this.ctx.lineTo(cf.flat[i], cf.flat[i + 1]);
+          }
+          this.ctx.stroke();
+        }
+      }
+    }
+
+    // RENDERING PASS 2: Draw all road fills in priority order
+    for (const [priority, data] of roadDataByPriority) {
+      const { roadFeatures, constructionFlats } = data;
+
+      if (roadFeatures.length > 0) {
         const fillBatches = new Map();
         for (const fc of roadFeatures) {
           const key = `${fc.color.r},${fc.color.g},${fc.color.b},${fc.color.a}|${fc.width}`;
@@ -2231,27 +2267,8 @@ class MapRenderer {
         }
       }
 
-      // Construction roads: border + white base + red dashes
+      // Construction roads: fills in pass 2
       if (constructionFlats.length > 0) {
-        // Border pass (same blending as regular roads)
-        for (const cf of constructionFlats) {
-          const t = Math.min(1, Math.max(0, (cf.width - 1) / 5));
-          const r = Math.round(Math.max(0, cf.color.r - 40) * (1 - t));
-          const g = Math.round(Math.max(0, cf.color.g - 40) * (1 - t));
-          const b = Math.round(Math.max(0, cf.color.b - 40) * (1 - t));
-          const a = (0.6 + 0.4 * t) * (cf.color.a / 255);
-          this.ctx.strokeStyle = `rgba(${r},${g},${b},${a})`;
-          this.ctx.lineWidth = cf.width + 2;
-          this.ctx.lineCap = "round";
-          this.ctx.lineJoin = "round";
-          this.ctx.beginPath();
-          this.ctx.moveTo(cf.flat[0], cf.flat[1]);
-          for (let i = 2; i < cf.flat.length; i += 2) {
-            this.ctx.lineTo(cf.flat[i], cf.flat[i + 1]);
-          }
-          this.ctx.stroke();
-        }
-
         const dashLen = Math.max(4, this.getZoomFactor() * 0.3);
 
         for (const cf of constructionFlats) {
