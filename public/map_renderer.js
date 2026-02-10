@@ -1055,20 +1055,37 @@ class MapRenderer {
     for (const tile of tileData) {
       if (tile && tile.features) {
         for (const feature of tile.features) {
-          // Fast deduplication: use first coordinate + geometry type as key
-          // This is much faster than JSON.stringify while still catching duplicates
+          // Fast deduplication: use first + last coordinate + geometry type as key
+          // This catches true duplicates while avoiding false positives
           const geom = feature.geometry;
           let featureKey;
 
           if (geom && geom.coordinates) {
-            const firstCoord = geom.coordinates[0];
-            // Get first actual coordinate (unwrap arrays for Polygon/MultiPolygon)
-            let coord = firstCoord;
-            while (Array.isArray(coord[0])) {
-              coord = coord[0];
+            const coords = geom.coordinates;
+            let firstCoord, lastCoord;
+
+            if (geom.type === "Point") {
+              firstCoord = lastCoord = coords;
+            } else if (geom.type === "LineString") {
+              firstCoord = coords[0];
+              lastCoord = coords[coords.length - 1];
+            } else if (geom.type === "Polygon") {
+              firstCoord = coords[0][0];
+              lastCoord = coords[0][coords[0].length - 1];
+            } else if (geom.type === "MultiLineString") {
+              firstCoord = coords[0][0];
+              lastCoord =
+                coords[coords.length - 1][coords[coords.length - 1].length - 1];
+            } else if (geom.type === "MultiPolygon") {
+              firstCoord = coords[0][0][0];
+              lastCoord =
+                coords[coords.length - 1][0][
+                  coords[coords.length - 1][0].length - 1
+                ];
             }
-            // Create key from type + first coordinate (rounded to avoid floating point issues)
-            featureKey = `${geom.type}_${Math.round(coord[0] * 1e6)}_${Math.round(coord[1] * 1e6)}`;
+
+            // Create key from type + first + last coordinate
+            featureKey = `${geom.type}_${Math.round(firstCoord[0] * 1e6)}_${Math.round(firstCoord[1] * 1e6)}_${Math.round(lastCoord[0] * 1e6)}_${Math.round(lastCoord[1] * 1e6)}`;
           } else {
             // Fallback for features without geometry
             featureKey = `nogeom_${Math.random()}`;
