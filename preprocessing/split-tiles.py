@@ -761,13 +761,23 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
                 min_lod = render_meta["minLOD"]
                 _, importance = classify_feature_importance(props, geom_type)
 
+                # Optimize tile assignments based on when features are actually rendered
+                # Z8 tiles: used at LOD 0-1 (view >7.5km)
+                # Z11 tiles: used at LOD 1-2 (view 1-10km)
+                # Z14 tiles: used at LOD 2-3 (view <3km)
                 target_zooms = []
-                if min_lod <= 1:
-                    target_zooms.extend([8, 11, 14])
+                if min_lod == 0:
+                    target_zooms = [
+                        8,
+                        11,
+                        14,
+                    ]  # Major features: show at all zoom levels
+                elif min_lod == 1:
+                    target_zooms = [11, 14]  # Secondary features: not needed in Z8
                 elif min_lod == 2:
-                    target_zooms.extend([11, 14])
+                    target_zooms = [14]  # Buildings/detail: only in Z14
                 elif min_lod >= 3:
-                    target_zooms.append(14)
+                    target_zooms = [14]  # Very close detail: only in Z14
 
                 feature_json = json.dumps(
                     feature, separators=(",", ":"), cls=DecimalEncoder
