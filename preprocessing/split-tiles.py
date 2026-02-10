@@ -695,9 +695,9 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
             for feature in ijson.items(f, "features.item"):
                 i += 1
 
-                # Update progress every 0.5 seconds
+                # Update progress every second
                 current_time = time.time()
-                if current_time - last_update >= 0.5:
+                if current_time - last_update >= 1.0:
                     elapsed = current_time - start_time
                     features_per_sec = i / elapsed if elapsed > 0 else 0
 
@@ -838,9 +838,9 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
                         f.write("]}")
                     tile_count += 1
 
-                    # Update progress every 0.5 seconds
+                    # Update progress every second
                     current_time = time.time()
-                    if current_time - last_update >= 0.5:
+                    if current_time - last_update >= 1.0:
                         elapsed = current_time - write_start
                         tiles_per_sec = tile_count / elapsed if elapsed > 0 else 0
                         progress_pct = (
