@@ -1017,32 +1017,66 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
     print(f"✓ Created tile index: {index_file}")
 
 
-if __name__ == "__main__":
+def main():
     if len(sys.argv) < 2:
-        print("Usage: ./split-tiles.py <input.geojson>")
+        print("Usage: ./split-tiles.py <input.geojson> [input2.geojson ...]")
+        print(
+            "       ./split-tiles.py --dir <directory>  # Process all .geojson in directory"
+        )
         sys.exit(1)
 
-    input_file = sys.argv[1]
-    output_dir = "public/tiles"
+    # Parse arguments
+    input_files = []
+    args = sys.argv[1:]
 
-    # Use zoom levels 8, 11, 14
-    # Z8: Major features (visible from far away)
-    # Z11: Medium detail
-    # Z14: High detail
+    if args[0] == "--dir":
+        if len(args) < 2:
+            print("Error: --dir requires directory path")
+            sys.exit(1)
+        directory = Path(args[1])
+        if not directory.is_dir():
+            print(f"Error: {directory} is not a directory")
+            sys.exit(1)
+        # Find all .geojson files
+        input_files = [str(f) for f in sorted(directory.glob("*.geojson"))]
+        if not input_files:
+            print(f"Error: No .geojson files found in {directory}")
+            sys.exit(1)
+    else:
+        input_files = args
+
+    # Validate all files exist
+    for input_file in input_files:
+        if not Path(input_file).exists():
+            print(f"Error: File not found: {input_file}")
+            sys.exit(1)
+
+    output_dir = "public/tiles"
     zoom_levels = [8, 11, 14]
 
     print("Hamburg OSM Tile Splitter")
     print("=" * 50)
-    print(f"Input: {input_file}")
+    print(f"Input files: {len(input_files)}")
+    for f in input_files:
+        file_size = Path(f).stat().st_size / (1024 * 1024)
+        print(f"  - {Path(f).name} ({file_size:.1f} MB)")
     print(f"Output: {output_dir}")
     print(f"Zoom levels: {zoom_levels}")
     print(f"Progressive loading:")
-    print(f"  Z0-Z5 → Use Z8 tiles: Motorways, railways, forests, water")
-    print(f"  Z6-Z10 → Use Z11 tiles: + Primary roads, parks, rivers")
+    print(f"  Z0-Z5 → Use Z8 tiles: Motorways, Bundesstraßen, railways, forests, water")
+    print(f"  Z6-Z10 → Use Z11 tiles: + Secondary roads, parks, rivers")
     print(f"  Z11-Z14 → Use Z14 tiles: + Residential roads, buildings")
     print(f"  Z15+ → Use Z14 tiles: All details")
     print("=" * 50)
     print()
 
-    split_geojson_into_tiles(input_file, output_dir, zoom_levels)
+    # Process all files into the same tile set
+    for input_file in input_files:
+        print(f"\nProcessing: {Path(input_file).name}")
+        split_geojson_into_tiles(input_file, output_dir, zoom_levels)
+
     print("\n✓ Done!")
+
+
+if __name__ == "__main__":
+    main()

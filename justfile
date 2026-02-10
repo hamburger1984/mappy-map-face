@@ -31,6 +31,10 @@ data:
 tiles: setup
     @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'Generating tiles from hamburg-region.geojson...'; " + "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/split-tiles.py' " + "'" + justfile_directory() + "/preprocessing/data/hamburg-region.geojson'; " + "Write-Host 'Tiles generated in public/tiles/'\"" } else { "echo 'Generating tiles from hamburg-region.geojson...' && " + "venv/bin/python '" + justfile_directory() + "/preprocessing/split-tiles.py' " + "'" + justfile_directory() + "/preprocessing/data/hamburg-region.geojson' && " + "echo 'Tiles generated in public/tiles/'" } }}
 
+# Generate tiles directly from original OSM PBF files (no merge needed)
+tiles-from-osm: setup
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'Generating tiles from OSM PBF files...'; " + "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/tiles-from-osm.py' --dir '" + justfile_directory() + "/preprocessing/data'; " + "Write-Host 'Tiles generated in public/tiles/'\"" } else { "echo 'Generating tiles from OSM PBF files...' && " + "venv/bin/python '" + justfile_directory() + "/preprocessing/tiles-from-osm.py' --dir '" + justfile_directory() + "/preprocessing/data' && " + "echo 'Tiles generated in public/tiles/'" } }}
+
 # Clean generated tiles only
 clean:
     @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'Cleaning tiles...'; " + "if (Test-Path public/tiles) { Remove-Item -Recurse -Force public/tiles }; " + "Write-Host 'Tiles cleaned'\"" } else { "echo 'Cleaning tiles...' && " + "rm -rf public/tiles && " + "echo 'Tiles cleaned'" } }}
