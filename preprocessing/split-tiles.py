@@ -39,6 +39,17 @@ MIN_LON = 8.48
 MAX_LON = 11.50
 MIN_LAT = 52.65
 
+# Railway type classifications (avoid recreating on every feature)
+MAJOR_RAIL = frozenset(["rail"])
+MEDIUM_RAIL = frozenset(["light_rail", "subway"])
+MINOR_RAIL = frozenset(["tram", "monorail", "narrow_gauge", "preserved"])
+ALL_RAIL_TYPES = frozenset(
+    ["rail", "light_rail", "subway", "tram", "monorail", "narrow_gauge", "preserved"]
+)
+
+# Geometry type checks
+POLYGON_TYPES = frozenset(["Polygon", "MultiPolygon"])
+
 # POI category definitions (mirrors map_renderer.js POI_CATEGORIES)
 POI_CATEGORIES = {
     "food_drink": {
@@ -345,7 +356,7 @@ def get_render_metadata(props, geom_type):
     railway = props.get("railway")
     leisure = props.get("leisure")
 
-    is_polygon = geom_type in ["Polygon", "MultiPolygon"]
+    is_polygon = geom_type in POLYGON_TYPES
 
     # Parks and green spaces (only polygons)
     if (leisure == "park" or landuse in ["grass", "meadow"]) and is_polygon:
@@ -479,28 +490,21 @@ def get_render_metadata(props, geom_type):
 
     # Railways (long distance/regional at LOD 0, subway/tram at LOD 2)
     if railway and geom_type != "Point":
-        # Long distance and regional trains - show at all zoom levels
-        major_rail = ["rail"]
-        # Subways and light rail - show at medium zoom
-        medium_rail = ["light_rail", "subway"]
-        # Trams and minor rail - show at close zoom only
-        minor_rail = ["tram", "monorail", "narrow_gauge", "preserved"]
-
-        if railway in major_rail or not railway:
+        if railway in MAJOR_RAIL or not railway:
             return {
                 "layer": "railways",
                 "color": {"r": 153, "g": 153, "b": 153, "a": 255},
                 "minLOD": 0,  # Long distance/regional rail visible at all zoom levels
                 "fill": False,
             }
-        elif railway in medium_rail:
+        elif railway in MEDIUM_RAIL:
             return {
                 "layer": "railways",
                 "color": {"r": 153, "g": 153, "b": 153, "a": 255},
                 "minLOD": 1,  # Subway/light rail at medium zoom
                 "fill": False,
             }
-        elif railway in minor_rail:
+        elif railway in MINOR_RAIL:
             return {
                 "layer": "railways",
                 "color": {"r": 153, "g": 153, "b": 153, "a": 255},
@@ -575,16 +579,7 @@ def classify_feature_importance(props, geom_type):
 
     # Railways (always visible)
     if railway and geom_type != "Point":
-        track_types = [
-            "rail",
-            "light_rail",
-            "subway",
-            "tram",
-            "monorail",
-            "narrow_gauge",
-            "preserved",
-        ]
-        if railway in track_types:
+        if railway in ALL_RAIL_TYPES:
             return (0, 70)  # Z0-Z5, important
 
     # Major rivers
