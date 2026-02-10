@@ -690,34 +690,48 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
         file_size = os.path.getsize(input_file)
         start_time = time.time()
         last_update = start_time
+        last_count = 0
+        update_interval = 5.0  # seconds
+        next_update = start_time + update_interval
 
         with open(input_file, "rb") as f:
             for feature in ijson.items(f, "features.item"):
                 i += 1
 
-                # Update progress every 5 seconds
-                current_time = time.time()
-                if current_time - last_update >= 5.0:
-                    elapsed = current_time - start_time
-                    features_per_sec = i / elapsed if elapsed > 0 else 0
+                # Check time only occasionally (every 10000 features) to avoid overhead
+                if i % 10000 == 0:
+                    current_time = time.time()
+                    if current_time >= next_update:
+                        # Calculate rate over the last interval (sliding window)
+                        elapsed_since_last = current_time - last_update
+                        features_since_last = i - last_count
+                        features_per_sec = (
+                            features_since_last / elapsed_since_last
+                            if elapsed_since_last > 0
+                            else 0
+                        )
 
-                    # Get file position for progress percentage
-                    file_pos = f.tell()
-                    progress_pct = (file_pos / file_size * 100) if file_size > 0 else 0
+                        # Get file position for progress percentage
+                        file_pos = f.tell()
+                        progress_pct = (
+                            (file_pos / file_size * 100) if file_size > 0 else 0
+                        )
 
-                    # Format features/sec based on magnitude
-                    if features_per_sec >= 1000:
-                        rate_str = f"{features_per_sec / 1000:.1f}k"
-                    else:
-                        rate_str = f"{features_per_sec:.0f}"
+                        # Format features/sec based on magnitude
+                        if features_per_sec >= 1000:
+                            rate_str = f"{features_per_sec / 1000:.1f}k"
+                        else:
+                            rate_str = f"{features_per_sec:.0f}"
 
-                    # Print on same line with carriage return
-                    print(
-                        f"\r  Processed: {i:,} features | {rate_str} features/sec | {progress_pct:.1f}% through file",
-                        end="",
-                        flush=True,
-                    )
-                    last_update = current_time
+                        # Print on same line with carriage return
+                        print(
+                            f"\r  Processed: {i:,} features | {rate_str} features/sec | {progress_pct:.1f}% through file",
+                            end="",
+                            flush=True,
+                        )
+                        last_update = current_time
+                        last_count = i
+                        next_update = current_time + update_interval
 
                 props = feature.get("properties", {})
                 geom_type = feature["geometry"]["type"]
@@ -811,6 +825,9 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
 
     write_start = time.time()
     last_update = write_start
+    last_tile_count = 0
+    update_interval = 5.0  # seconds
+    next_update = write_start + update_interval
 
     for zoom in zoom_levels:
         conn = zoom_dbs[zoom]
@@ -838,20 +855,31 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
                         f.write("]}")
                     tile_count += 1
 
-                    # Update progress every 5 seconds
-                    current_time = time.time()
-                    if current_time - last_update >= 5.0:
-                        elapsed = current_time - write_start
-                        tiles_per_sec = tile_count / elapsed if elapsed > 0 else 0
-                        progress_pct = (
-                            (tile_count / total_tiles * 100) if total_tiles > 0 else 0
-                        )
-                        print(
-                            f"\r  Written: {tile_count:,}/{total_tiles:,} tiles | {tiles_per_sec:.0f} tiles/sec | {progress_pct:.1f}%",
-                            end="",
-                            flush=True,
-                        )
-                        last_update = current_time
+                    # Check time only occasionally (every 100 tiles) to avoid overhead
+                    if tile_count % 100 == 0:
+                        current_time = time.time()
+                        if current_time >= next_update:
+                            # Calculate rate over the last interval (sliding window)
+                            elapsed_since_last = current_time - last_update
+                            tiles_since_last = tile_count - last_tile_count
+                            tiles_per_sec = (
+                                tiles_since_last / elapsed_since_last
+                                if elapsed_since_last > 0
+                                else 0
+                            )
+                            progress_pct = (
+                                (tile_count / total_tiles * 100)
+                                if total_tiles > 0
+                                else 0
+                            )
+                            print(
+                                f"\r  Written: {tile_count:,}/{total_tiles:,} tiles | {tiles_per_sec:.0f} tiles/sec | {progress_pct:.1f}%",
+                                end="",
+                                flush=True,
+                            )
+                            last_update = current_time
+                            last_tile_count = tile_count
+                            next_update = current_time + update_interval
                 current_tile = tile_key
                 feature_jsons = []
             feature_jsons.append(feature_json)
