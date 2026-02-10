@@ -1050,15 +1050,40 @@ class MapRenderer {
     // Merge all tile features into a single GeoJSON
     const mergeStart = performance.now();
     const features = [];
+    const seenFeatures = new Set(); // Track seen features to avoid duplicates
+
     for (const tile of tileData) {
       if (tile && tile.features) {
-        features.push(...tile.features);
+        for (const feature of tile.features) {
+          // Generate unique key for feature (use OSM id if available, otherwise hash geometry)
+          let featureKey;
+          if (feature.id) {
+            featureKey = feature.id;
+          } else if (feature.properties && feature.properties.id) {
+            featureKey = feature.properties.id;
+          } else {
+            // Generate simple hash from geometry coordinates
+            const coords = JSON.stringify(feature.geometry.coordinates);
+            featureKey = `geom_${coords.length}_${coords.substring(0, 50)}`;
+          }
+
+          // Only add if we haven't seen this feature before
+          if (!seenFeatures.has(featureKey)) {
+            seenFeatures.add(featureKey);
+            features.push(feature);
+          }
+        }
       }
     }
     const mergeTime = performance.now() - mergeStart;
+    const duplicatesRemoved =
+      seenFeatures.size > 0
+        ? tileData.reduce((sum, t) => sum + (t?.features?.length || 0), 0) -
+          features.length
+        : 0;
 
     console.log(
-      `[TILES] Merged ${features.length} features in ${mergeTime.toFixed(0)}ms`,
+      `[TILES] Merged ${features.length} features (removed ${duplicatesRemoved} duplicates) in ${mergeTime.toFixed(0)}ms`,
     );
 
     return {
