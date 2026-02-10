@@ -16,9 +16,11 @@ import decimal
 import gzip
 import json
 import math
+import os
 import sqlite3
 import sys
 import tempfile
+import time
 from collections import defaultdict
 from pathlib import Path
 
@@ -684,11 +686,38 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
         batches = {zoom: [] for zoom in zoom_levels}
         BATCH_SIZE = 50000
 
+        # Get file size for progress tracking
+        file_size = os.path.getsize(input_file)
+        start_time = time.time()
+        last_update = start_time
+
         with open(input_file, "rb") as f:
             for feature in ijson.items(f, "features.item"):
-                if i % 10000 == 0:
-                    print(f"  Processed {i} features...", flush=True)
                 i += 1
+
+                # Update progress every 0.5 seconds
+                current_time = time.time()
+                if current_time - last_update >= 0.5:
+                    elapsed = current_time - start_time
+                    features_per_sec = i / elapsed if elapsed > 0 else 0
+
+                    # Get file position for progress percentage
+                    file_pos = f.tell()
+                    progress_pct = (file_pos / file_size * 100) if file_size > 0 else 0
+
+                    # Format features/sec based on magnitude
+                    if features_per_sec >= 1000:
+                        rate_str = f"{features_per_sec / 1000:.1f}k"
+                    else:
+                        rate_str = f"{features_per_sec:.0f}"
+
+                    # Print on same line with carriage return
+                    print(
+                        f"\r  Processed: {i:,} features | {rate_str} features/sec | {progress_pct:.1f}% through file",
+                        end="",
+                        flush=True,
+                    )
+                    last_update = current_time
 
                 props = feature.get("properties", {})
                 geom_type = feature["geometry"]["type"]
@@ -741,7 +770,17 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
                 zoom_dbs[zoom].commit()
                 batches[zoom].clear()
 
-        print(f"\nProcessed {i} features total.")
+        # Final progress line
+        elapsed = time.time() - start_time
+        features_per_sec = i / elapsed if elapsed > 0 else 0
+        if features_per_sec >= 1000:
+            rate_str = f"{features_per_sec / 1000:.1f}k"
+        else:
+            rate_str = f"{features_per_sec:.0f}"
+        print(
+            f"\r  Processed: {i:,} features | {rate_str} features/sec | 100.0% through file"
+        )
+        print(f"\nCompleted in {elapsed:.1f}s - Processed {i:,} features total.")
         print(f"Feature distribution:")
         print(f"  Skipped: {stats['skipped']}")
         for zoom in sorted(zoom_levels):
@@ -770,6 +809,9 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
             .fetchone()[0]
         )
 
+    write_start = time.time()
+    last_update = write_start
+
     for zoom in zoom_levels:
         conn = zoom_dbs[zoom]
         cursor = conn.execute(
@@ -795,10 +837,21 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
                         f.write(",".join(feature_jsons))
                         f.write("]}")
                     tile_count += 1
-                    if tile_count % 500 == 0:
-                        print(
-                            f"  Written {tile_count}/{total_tiles} tiles...", flush=True
+
+                    # Update progress every 0.5 seconds
+                    current_time = time.time()
+                    if current_time - last_update >= 0.5:
+                        elapsed = current_time - write_start
+                        tiles_per_sec = tile_count / elapsed if elapsed > 0 else 0
+                        progress_pct = (
+                            (tile_count / total_tiles * 100) if total_tiles > 0 else 0
                         )
+                        print(
+                            f"\r  Written: {tile_count:,}/{total_tiles:,} tiles | {tiles_per_sec:.0f} tiles/sec | {progress_pct:.1f}%",
+                            end="",
+                            flush=True,
+                        )
+                        last_update = current_time
                 current_tile = tile_key
                 feature_jsons = []
             feature_jsons.append(feature_json)
@@ -819,7 +872,13 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
 
         conn.close()
 
-    print(f"\n✓ Created {tile_count} tiles in {output_dir}")
+    # Final tile writing summary
+    write_elapsed = time.time() - write_start
+    tiles_per_sec = tile_count / write_elapsed if write_elapsed > 0 else 0
+    print(
+        f"\r  Written: {tile_count:,}/{total_tiles:,} tiles | {tiles_per_sec:.0f} tiles/sec | 100.0%"
+    )
+    print(f"\n✓ Created {tile_count} tiles in {output_dir} ({write_elapsed:.1f}s)")
 
     # Write tile index
     index_file = output_path / "index.json"
