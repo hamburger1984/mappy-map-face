@@ -27,14 +27,22 @@ cd preprocessing
 Splits GeoJSON into zoom-level tiles.
 
 **Input:** `data/hamburg-region.geojson`  
-**Output:** `public/tiles/{z}/{x}/{y}.json`
+**Output:** `../public/tiles/{z}/{x}/{y}.json`
+
+**Dependencies:** `pip install ijson`
 
 ```bash
-cd preprocessing
-python3 split-tiles.py ../data/hamburg-region.geojson
+# From repo root (recommended via justfile)
+just tiles
+
+# Or manually
+python preprocessing/split-tiles.py preprocessing/data/hamburg-region.geojson
 ```
 
 **Features:**
+- Streams features with `ijson` (constant memory usage, handles multi-GB files)
+- Uses per-zoom-level SQLite databases as intermediate storage
+- Caches databases with input file fingerprint — re-runs skip parsing if GeoJSON unchanged
 - Classifies features by type (water, roads, railways, buildings, landuse)
 - Assigns LOD (Level of Detail) for zoom-based visibility
 - Generates tiles for zoom levels 8, 11, 14
@@ -96,10 +104,12 @@ Each tile is a GeoJSON FeatureCollection:
 
 ## Performance Notes
 
-- **Python version:** ~2-5 minutes to generate all tiles
+- **Python version:** First run streams GeoJSON into SQLite, then writes tiles. Subsequent runs with unchanged input skip directly to tile writing.
+- **Memory usage:** Constant — features are streamed, not loaded into memory
 - **Tile count:** ~10,000-50,000 tiles depending on zoom levels
 - **Tile size:** 500 bytes - 50 KB (plain JSON)
 - **Total size:** ~100-500 MB for all tiles
+- **Cache files:** `data/tile_build_z{8,11,14}.db` (auto-generated, gitignored)
 
 ## Why No Gzip?
 

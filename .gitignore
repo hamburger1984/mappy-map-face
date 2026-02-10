@@ -43,6 +43,9 @@ __pycache__/
 # Logs
 *.log
 
+# Tile build cache
+tile_build*.db*
+
 # Temporary files
 *.tmp
 *.bak

@@ -1,5 +1,7 @@
 # Hamburg OSM Map Renderer - justfile
 
+set shell := ["pwsh", "-NoProfile", "-Command"]
+
 # List all available commands
 default:
     @just --list
@@ -9,62 +11,64 @@ all: data tiles
 
 # Download and process OSM data
 data:
-    @echo "Fetching OSM data..."
-    cd preprocessing && ./fetch-data.sh
+    @Write-Host "Fetching OSM data..."
+    & "{{justfile_directory()}}/preprocessing/fetch-data.ps1"
 
 # Generate tiles from existing GeoJSON (Python version)
 tiles:
-    @echo "Generating tiles from hamburg-region.geojson..."
-    cd preprocessing && python3 split-tiles.py ../data/hamburg-region.geojson
-    @echo "✓ Tiles generated in public/tiles/"
+    @Write-Host "Generating tiles from hamburg-region.geojson..."
+    python "{{justfile_directory()}}/preprocessing/split-tiles.py" "{{justfile_directory()}}/preprocessing/data/hamburg-region.geojson"
+    @Write-Host "Tiles generated in public/tiles/"
 
 # Generate tiles using Zig (faster, but needs compilation)
 tiles-zig:
-    @echo "Building Zig tile splitter..."
+    @Write-Host "Building Zig tile splitter..."
     zig build
-    @echo "Generating tiles from hamburg-region.geojson..."
-    ./zig-out/bin/split-tiles data/hamburg-region.geojson
-    @echo "✓ Tiles generated in public/tiles/"
+    @Write-Host "Generating tiles from hamburg-region.geojson..."
+    & "./zig-out/bin/split-tiles" data/hamburg-region.geojson
+    @Write-Host "Tiles generated in public/tiles/"
 
 # Clean generated tiles only
 clean:
-    @echo "Cleaning tiles..."
-    rm -rf public/tiles
-    @echo "✓ Tiles cleaned"
+    @Write-Host "Cleaning tiles..."
+    if (Test-Path public/tiles) { Remove-Item -Recurse -Force public/tiles }
+    @Write-Host "Tiles cleaned"
 
 # Clean tiles and downloaded data
 clean-data:
-    @echo "Cleaning tiles and data..."
-    rm -rf public/tiles data/*.geojson
-    @echo "✓ Tiles and data cleaned"
+    @Write-Host "Cleaning tiles and data..."
+    if (Test-Path public/tiles) { Remove-Item -Recurse -Force public/tiles }
+    Get-ChildItem data/*.geojson -ErrorAction SilentlyContinue | Remove-Item -Force
+    @Write-Host "Tiles and data cleaned"
 
 # Clean everything including build artifacts
 clean-all: clean-data
-    @echo "Cleaning build artifacts..."
-    rm -rf zig-out .zig-cache
-    @echo "✓ All generated files cleaned"
+    @Write-Host "Cleaning build artifacts..."
+    if (Test-Path zig-out) { Remove-Item -Recurse -Force zig-out }
+    if (Test-Path .zig-cache) { Remove-Item -Recurse -Force .zig-cache }
+    @Write-Host "All generated files cleaned"
 
 # Start local web server
 serve:
-    @echo "Starting web server on http://localhost:8888"
-    @echo "Press Ctrl+C to stop"
-    cd public && python3 -m http.server 8888
+    @Write-Host "Starting web server on http://localhost:8888"
+    @Write-Host "Press Ctrl+C to stop"
+    Set-Location public; python -m http.server 8888
 
 # Run in development mode (serve directly)
 dev:
-    @echo "Starting development server..."
+    @Write-Host "Starting development server..."
     @just serve
 
 # Show project info
 info:
-    @echo "Hamburg OSM Map Renderer"
-    @echo "======================="
-    @echo ""
-    @echo "Python:         $(python3 --version)"
-    @echo "Zig:            $(zig version 2>/dev/null || echo 'not installed')"
-    @echo "Repository:     $(git rev-parse --short HEAD 2>/dev/null || echo 'not a git repo')"
-    @echo ""
-    @echo "Data files:"
-    @ls -lh data/hamburg-region.geojson 2>/dev/null || echo "  GeoJSON not created (run: just data)"
-    @echo "Tile status:"
-    @ls -d public/tiles 2>/dev/null && echo "  Tiles generated ✓" || echo "  Tiles not generated (run: just tiles)"
+    @Write-Host "Hamburg OSM Map Renderer"
+    @Write-Host "======================="
+    @Write-Host ""
+    @Write-Host "Python:         $(python --version 2>&1)"
+    @Write-Host "Zig:            $(try { zig version 2>&1 } catch { 'not installed' })"
+    @Write-Host "Repository:     $(try { git rev-parse --short HEAD 2>&1 } catch { 'not a git repo' })"
+    @Write-Host ""
+    @Write-Host "Data files:"
+    @if (Test-Path data/hamburg-region.geojson) { Get-Item data/hamburg-region.geojson | ForEach-Object { Write-Host ("  " + $_.Name + " (" + "{0:N1} MB" -f ($_.Length / 1MB) + ")") } } else { Write-Host "  GeoJSON not created (run: just data)" }
+    @Write-Host "Tile status:"
+    @if (Test-Path public/tiles) { Write-Host "  Tiles generated" } else { Write-Host "  Tiles not generated (run: just tiles)" }

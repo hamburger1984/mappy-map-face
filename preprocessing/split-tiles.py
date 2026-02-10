@@ -12,12 +12,27 @@ Tile grid uses Web Mercator (similar to OSM tiles)
 Each tile: tiles/{zoom}/{x}/{y}.json.gz
 """
 
+import decimal
 import gzip
 import json
 import math
+import sqlite3
 import sys
+import tempfile
 from collections import defaultdict
 from pathlib import Path
+
+import ijson
+
+
+class DecimalEncoder(json.JSONEncoder):
+    """Handle decimal.Decimal values from ijson."""
+
+    def default(self, o):
+        if isinstance(o, decimal.Decimal):
+            return float(o)
+        return super().default(o)
+
 
 # Hamburg region bounds (~100km radius from city center)
 MIN_LON = 8.48
@@ -283,8 +298,8 @@ def get_feature_bounds(feature):
     lons, lats = [], []
 
     def process_coord(coord):
-        lons.append(coord[0])
-        lats.append(coord[1])
+        lons.append(float(coord[0]))
+        lats.append(float(coord[1]))
 
     if geom_type == "Point":
         process_coord(coords)
@@ -597,93 +612,214 @@ def get_tiles_for_feature(feature, zoom):
     return tiles
 
 
+def get_input_fingerprint(input_file):
+    """Fast fingerprint using file size + mtime (avoids hashing 3+ GB)."""
+    stat = Path(input_file).stat()
+    return f"{stat.st_size}:{stat.st_mtime_ns}"
+
+
+def open_zoom_db(db_dir, zoom, fingerprint=None):
+    """Open (or create) a per-zoom SQLite database. Returns (conn, is_cached)."""
+    db_path = db_dir / f"tile_build_z{zoom}.db"
+
+    if db_path.exists():
+        if fingerprint:
+            try:
+                conn = sqlite3.connect(str(db_path))
+                row = conn.execute(
+                    "SELECT value FROM metadata WHERE key='fingerprint'"
+                ).fetchone()
+                if row and row[0] == fingerprint:
+                    return conn, True
+                conn.close()
+            except sqlite3.OperationalError:
+                pass
+        db_path.unlink()
+
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=OFF")
+    conn.execute("PRAGMA page_size=8192")
+    conn.execute("""
+        CREATE TABLE tile_features (
+            x INTEGER,
+            y INTEGER,
+            importance INTEGER,
+            feature_json TEXT
+        )
+    """)
+    conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT)")
+    return conn, False
+
+
 def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
-    """Split GeoJSON into tiles"""
-    print(f"Loading {input_file}...")
-    with open(input_file, "r") as f:
-        data = json.load(f)
+    """Split GeoJSON into tiles using per-zoom SQLite databases."""
 
-    features = data["features"]
-    print(f"Loaded {len(features)} features")
+    db_dir = Path(input_file).parent
+    fingerprint = get_input_fingerprint(input_file)
 
-    # Organize features by tile and zoom
-    tiles = defaultdict(lambda: defaultdict(list))
+    # Open per-zoom databases, check which ones can be reused
+    zoom_dbs = {}
+    need_import = False
+    for zoom in zoom_levels:
+        conn, cached = open_zoom_db(db_dir, zoom, fingerprint)
+        zoom_dbs[zoom] = conn
+        if not cached:
+            need_import = True
 
-    print("\nClassifying and distributing features...")
-    stats = defaultdict(int)
-
-    for i, feature in enumerate(features):
-        if i % 10000 == 0:
-            print(f"  Processed {i}/{len(features)} features...")
-
-        props = feature.get("properties", {})
-        geom_type = feature["geometry"]["type"]
-
-        # Get rendering metadata and embed in feature
-        render_meta = get_render_metadata(props, geom_type)
-        if render_meta is None:
-            stats["skipped"] += 1
-            continue
-
-        # Embed metadata in feature for client use
-        feature["_render"] = render_meta
-
-        # Use minLOD from metadata for tile distribution
-        min_lod = render_meta["minLOD"]
-        _, importance = classify_feature_importance(props, geom_type)
-
-        # Map minLOD to appropriate tile zoom levels
-        # Z8 (far view): LOD 0-1 only
-        # Z11 (medium): LOD 0-2
-        # Z14 (close): LOD 0-3 (all)
-        target_zooms = []
-        if min_lod <= 1:
-            target_zooms.extend([8, 11, 14])  # Show in all zoom levels
-        elif min_lod == 2:
-            target_zooms.extend([11, 14])  # Show in medium and close views only
-        elif min_lod >= 3:
-            target_zooms.append(14)  # Show only in close view
-
-        # Add to appropriate zoom levels only
+    if not need_import:
+        print("Input file unchanged, reusing all cached databases.")
+    else:
+        # If any zoom needs rebuilding, rebuild all for consistency
         for zoom in zoom_levels:
-            if zoom in target_zooms:
-                feature_tiles = get_tiles_for_feature(feature, zoom)
-                for tile_coords in feature_tiles:
-                    z, x, y = tile_coords
-                    tiles[tile_coords][importance].append(feature)
-                    stats[f"z{z}"] += 1
+            zoom_dbs[zoom].close()
+            conn, _ = open_zoom_db(db_dir, zoom)
+            zoom_dbs[zoom] = conn
 
-    print(f"\nFeature distribution:")
-    print(f"  Skipped: {stats['skipped']}")
-    for zoom in sorted(zoom_levels):
-        print(f"  Z{zoom}: {stats[f'z{zoom}']} feature-tile pairs")
+        # Pass 1: Stream features into per-zoom SQLite databases
+        print(f"Streaming features from {input_file}...")
+        print("\nPass 1: Classifying and distributing features...")
+        stats = defaultdict(int)
+        i = 0
+        batches = {zoom: [] for zoom in zoom_levels}
+        BATCH_SIZE = 50000
 
-    # Write tiles
-    print("\nWriting tiles...")
+        with open(input_file, "rb") as f:
+            for feature in ijson.items(f, "features.item"):
+                if i % 10000 == 0:
+                    print(f"  Processed {i} features...", flush=True)
+                i += 1
+
+                props = feature.get("properties", {})
+                geom_type = feature["geometry"]["type"]
+
+                render_meta = get_render_metadata(props, geom_type)
+                if render_meta is None:
+                    stats["skipped"] += 1
+                    continue
+
+                feature["_render"] = render_meta
+
+                min_lod = render_meta["minLOD"]
+                _, importance = classify_feature_importance(props, geom_type)
+
+                target_zooms = []
+                if min_lod <= 1:
+                    target_zooms.extend([8, 11, 14])
+                elif min_lod == 2:
+                    target_zooms.extend([11, 14])
+                elif min_lod >= 3:
+                    target_zooms.append(14)
+
+                feature_json = json.dumps(
+                    feature, separators=(",", ":"), cls=DecimalEncoder
+                )
+
+                for zoom in zoom_levels:
+                    if zoom in target_zooms:
+                        feature_tiles = get_tiles_for_feature(feature, zoom)
+                        for tile_coords in feature_tiles:
+                            _, x, y = tile_coords
+                            batches[zoom].append((x, y, importance, feature_json))
+                            stats[f"z{zoom}"] += 1
+
+                # Flush each zoom's batch independently
+                for zoom in zoom_levels:
+                    if len(batches[zoom]) >= BATCH_SIZE:
+                        zoom_dbs[zoom].executemany(
+                            "INSERT INTO tile_features VALUES (?,?,?,?)", batches[zoom]
+                        )
+                        zoom_dbs[zoom].commit()
+                        batches[zoom].clear()
+
+        # Flush remaining batches
+        for zoom in zoom_levels:
+            if batches[zoom]:
+                zoom_dbs[zoom].executemany(
+                    "INSERT INTO tile_features VALUES (?,?,?,?)", batches[zoom]
+                )
+                zoom_dbs[zoom].commit()
+                batches[zoom].clear()
+
+        print(f"\nProcessed {i} features total.")
+        print(f"Feature distribution:")
+        print(f"  Skipped: {stats['skipped']}")
+        for zoom in sorted(zoom_levels):
+            print(f"  Z{zoom}: {stats[f'z{zoom}']} feature-tile pairs")
+
+        # Create indexes and store fingerprint
+        print("\nCreating database indexes...")
+        for zoom in zoom_levels:
+            conn = zoom_dbs[zoom]
+            conn.execute("CREATE INDEX idx_tile ON tile_features (x, y)")
+            conn.execute(
+                "INSERT INTO metadata VALUES ('fingerprint', ?)", (fingerprint,)
+            )
+            conn.commit()
+
+    # Pass 2: Write tiles from each zoom database
+    print("\nPass 2: Writing tiles...")
     output_path = Path(output_dir)
-    total_tiles = len(tiles)
+    total_tiles = 0
+    tile_count = 0
 
-    for i, (tile_coords, importance_groups) in enumerate(tiles.items()):
-        if i % 100 == 0:
-            print(f"  Writing tile {i}/{total_tiles}...")
+    for zoom in zoom_levels:
+        total_tiles += (
+            zoom_dbs[zoom]
+            .execute("SELECT COUNT(DISTINCT x || '/' || y) FROM tile_features")
+            .fetchone()[0]
+        )
 
-        z, x, y = tile_coords
-        tile_dir = output_path / str(z) / str(x)
-        tile_dir.mkdir(parents=True, exist_ok=True)
+    for zoom in zoom_levels:
+        conn = zoom_dbs[zoom]
+        cursor = conn.execute(
+            "SELECT x, y, feature_json FROM tile_features ORDER BY x, y, importance DESC"
+        )
 
-        # Sort features by importance (higher first)
-        sorted_features = []
-        for importance in sorted(importance_groups.keys(), reverse=True):
-            sorted_features.extend(importance_groups[importance])
+        created_dirs = set()
+        current_tile = None
+        feature_jsons = []
 
-        tile_geojson = {"type": "FeatureCollection", "features": sorted_features}
+        for x, y, feature_json in cursor:
+            tile_key = (x, y)
+            if tile_key != current_tile:
+                if current_tile is not None:
+                    cx, cy = current_tile
+                    tile_dir = output_path / str(zoom) / str(cx)
+                    if cx not in created_dirs:
+                        tile_dir.mkdir(parents=True, exist_ok=True)
+                        created_dirs.add(cx)
+                    tile_file = tile_dir / f"{cy}.json"
+                    with open(tile_file, "w", encoding="utf-8") as f:
+                        f.write('{"type":"FeatureCollection","features":[')
+                        f.write(",".join(feature_jsons))
+                        f.write("]}")
+                    tile_count += 1
+                    if tile_count % 500 == 0:
+                        print(
+                            f"  Written {tile_count}/{total_tiles} tiles...", flush=True
+                        )
+                current_tile = tile_key
+                feature_jsons = []
+            feature_jsons.append(feature_json)
 
-        # Write uncompressed JSON (faster than gzip decompression for small tiles)
-        tile_file = tile_dir / f"{y}.json"
-        with open(tile_file, "w", encoding="utf-8") as f:
-            json.dump(tile_geojson, f, separators=(",", ":"))
+        # Write last tile for this zoom
+        if current_tile is not None:
+            cx, cy = current_tile
+            tile_dir = output_path / str(zoom) / str(cx)
+            if cx not in created_dirs:
+                tile_dir.mkdir(parents=True, exist_ok=True)
+                created_dirs.add(cx)
+            tile_file = tile_dir / f"{cy}.json"
+            with open(tile_file, "w", encoding="utf-8") as f:
+                f.write('{"type":"FeatureCollection","features":[')
+                f.write(",".join(feature_jsons))
+                f.write("]}")
+            tile_count += 1
 
-    print(f"\n✓ Created {total_tiles} tiles in {output_dir}")
+        conn.close()
+
+    print(f"\n✓ Created {tile_count} tiles in {output_dir}")
 
     # Write tile index
     index_file = output_path / "index.json"
@@ -698,7 +834,7 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
         "tile_count": total_tiles,
         "center": {"lon": (MIN_LON + MAX_LON) / 2, "lat": (MIN_LAT + MAX_LAT) / 2},
     }
-    with open(index_file, "w") as f:
+    with open(index_file, "w", encoding="utf-8") as f:
         json.dump(index_data, f, indent=2)
 
     print(f"✓ Created tile index: {index_file}")

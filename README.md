@@ -65,15 +65,13 @@ osm-renderer/
 │       ├── 8/              # Z8: Major features (motorways, railways)
 │       ├── 11/             # Z11: + Secondary roads, parks
 │       └── 14/             # Z14: + All details (buildings, etc.)
-└── data/
-    └── hamburg-region.geojson  # Source GeoJSON (~3.3 GB)
 ```
 
 ## Quick Start
 
 ### Prerequisites
 
-- Python 3.7+ (for tile generation)
+- Python 3.7+ (for tile generation, with `ijson` package: `pip install ijson`)
 - osmium-tool (for processing OSM data)
   - macOS: `brew install osmium-tool`
   - Ubuntu/Debian: `apt-get install osmium-tool`
@@ -112,8 +110,8 @@ Manual setup:
 # Download and convert OSM data
 cd preprocessing && ./fetch-data.sh
 
-# Generate tiles
-cd preprocessing && python3 split-tiles.py ../data/hamburg-region.geojson
+# Generate tiles (from repo root)
+python preprocessing/split-tiles.py preprocessing/data/hamburg-region.geojson
 
 # Start server
 cd public && python3 -m http.server 8888
@@ -191,7 +189,7 @@ Key optimizations:
 - **Tile-based Loading**: Only load data for visible area
 - **LOD Culling**: Skip rendering features inappropriate for current zoom
 - **Pre-classification**: Feature styling computed during tile generation
-- **Gzip Compression**: Tiles compressed to ~30-50% of original size
+- **Plain JSON Tiles**: No compression overhead for fast browser parsing
 - **Batch Rendering**: Features grouped by layer and rendered in optimized batches
 - **Coordinate Transform Caching**: Reuse screen coordinate calculations
 
