@@ -50,6 +50,19 @@ ALL_RAIL_TYPES = frozenset(
 # Geometry type checks
 POLYGON_TYPES = frozenset(["Polygon", "MultiPolygon"])
 
+# Highway/road type classifications
+MAJOR_HIGHWAYS = frozenset(["motorway", "trunk"])
+PRIMARY_SECONDARY_HIGHWAYS = frozenset(["primary", "secondary"])
+TERTIARY_RESIDENTIAL_HIGHWAYS = frozenset(["tertiary", "residential", "unclassified"])
+
+# Landuse type classifications
+PARK_LANDUSE = frozenset(["grass", "meadow"])
+FARM_LANDUSE = frozenset(["farmland", "orchard", "vineyard"])
+COMMERCIAL_LANDUSE = frozenset(["commercial", "retail"])
+
+# Waterway type classifications
+MAJOR_WATERWAYS = frozenset(["river", "canal"])
+
 # POI category definitions (mirrors map_renderer.js POI_CATEGORIES)
 POI_CATEGORIES = {
     "food_drink": {
@@ -359,7 +372,7 @@ def get_render_metadata(props, geom_type):
     is_polygon = geom_type in POLYGON_TYPES
 
     # Parks and green spaces (only polygons)
-    if (leisure == "park" or landuse in ["grass", "meadow"]) and is_polygon:
+    if (leisure == "park" or landuse in PARK_LANDUSE) and is_polygon:
         return {
             "layer": "natural_background",
             "color": {"r": 200, "g": 230, "b": 180, "a": 255},
@@ -368,7 +381,7 @@ def get_render_metadata(props, geom_type):
         }
 
     # Agricultural land (only polygons)
-    if landuse in ["farmland", "orchard", "vineyard"] and is_polygon:
+    if landuse in FARM_LANDUSE and is_polygon:
         return {
             "layer": "natural_background",
             "color": {"r": 238, "g": 240, "b": 213, "a": 255},
@@ -401,7 +414,7 @@ def get_render_metadata(props, geom_type):
 
     # Rivers and streams as lines
     if waterway and waterway != "riverbank":
-        importance = 1 if waterway in ["river", "canal"] else 2
+        importance = 1 if waterway in MAJOR_WATERWAYS else 2
         return {
             "layer": "waterways",
             "color": {"r": 170, "g": 211, "b": 223, "a": 255},
@@ -410,7 +423,7 @@ def get_render_metadata(props, geom_type):
         }
 
     # Commercial/industrial areas (only polygons)
-    if landuse in ["commercial", "retail"] and is_polygon:
+    if landuse in COMMERCIAL_LANDUSE and is_polygon:
         return {
             "layer": "landuse_areas",
             "color": {"r": 243, "g": 233, "b": 234, "a": 255},
@@ -443,7 +456,7 @@ def get_render_metadata(props, geom_type):
             effective_highway = construction
 
     # Major highways
-    if effective_highway in ["motorway", "trunk"]:
+    if effective_highway in MAJOR_HIGHWAYS:
         return {
             "layer": "major_roads",
             "color": {"r": 233, "g": 115, "b": 103, "a": 255},
@@ -454,7 +467,7 @@ def get_render_metadata(props, geom_type):
         }
 
     # Primary and secondary roads
-    if effective_highway in ["primary", "secondary"]:
+    if effective_highway in PRIMARY_SECONDARY_HIGHWAYS:
         priority = 2 if effective_highway == "primary" else 3
         return {
             "layer": "major_roads",
@@ -466,7 +479,7 @@ def get_render_metadata(props, geom_type):
         }
 
     # Tertiary and residential roads
-    if effective_highway in ["tertiary", "residential", "unclassified"]:
+    if effective_highway in TERTIARY_RESIDENTIAL_HIGHWAYS:
         priority = 4 if effective_highway == "tertiary" else 5
         return {
             "layer": "roads",
@@ -574,7 +587,7 @@ def classify_feature_importance(props, geom_type):
         return (0, 90)  # Z0-Z5, very important
 
     # Major highways (always visible)
-    if effective_highway in ["motorway", "trunk"]:
+    if effective_highway in MAJOR_HIGHWAYS:
         return (0, 80)  # Z0-Z5, very important
 
     # Railways (always visible)
@@ -583,19 +596,19 @@ def classify_feature_importance(props, geom_type):
             return (0, 70)  # Z0-Z5, important
 
     # Major rivers
-    if waterway in ["river", "canal"]:
+    if waterway in MAJOR_WATERWAYS:
         return (6, 60)  # Z6-Z10
 
     # Primary/secondary roads
-    if effective_highway in ["primary", "secondary"]:
+    if effective_highway in PRIMARY_SECONDARY_HIGHWAYS:
         return (6, 50)  # Z6-Z10
 
     # Parks and green spaces
-    if leisure == "park" or landuse in ["grass", "meadow", "farmland"]:
+    if leisure == "park" or landuse in PARK_LANDUSE or landuse in FARM_LANDUSE:
         return (6, 40)  # Z6-Z10
 
     # Tertiary and residential roads
-    if effective_highway in ["tertiary", "residential", "unclassified"]:
+    if effective_highway in TERTIARY_RESIDENTIAL_HIGHWAYS:
         return (11, 30)  # Z11-Z14
 
     # Buildings
