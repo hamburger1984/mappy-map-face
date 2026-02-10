@@ -1,0 +1,5 @@
+# Python dependencies for Hamburg OSM Map Renderer
+# Install with: pip install -r requirements.txt
+
+# ijson - Iterative JSON parser for large files
+ijson>=3.2.0

@@ -28,10 +28,12 @@ public/map_renderer.wasm
 .AppleDouble
 .LSOverride
 
-# Python server
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
+venv/
+.venv/
 
 # IDEs
 .vscode/
