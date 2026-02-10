@@ -1751,11 +1751,58 @@ class MapRenderer {
       };
     }
 
-    // Buildings
+    // Buildings - color by type
     if (props.building) {
+      let buildingColor;
+      const buildingType = props.building;
+
+      // Commercial/retail buildings - reddish
+      if (
+        buildingType === "commercial" ||
+        buildingType === "retail" ||
+        buildingType === "supermarket"
+      ) {
+        buildingColor = { r: 238, g: 210, b: 210, a: 255 }; // Light red/pink
+      }
+      // Industrial buildings - purple-gray
+      else if (buildingType === "industrial" || buildingType === "warehouse") {
+        buildingColor = { r: 215, g: 205, b: 220, a: 255 }; // Light purple
+      }
+      // Public/civic buildings - blue-gray
+      else if (
+        buildingType === "public" ||
+        buildingType === "civic" ||
+        buildingType === "government"
+      ) {
+        buildingColor = { r: 210, g: 220, b: 235, a: 255 }; // Light blue
+      }
+      // Religious buildings - darker tan
+      else if (
+        buildingType === "church" ||
+        buildingType === "cathedral" ||
+        buildingType === "mosque" ||
+        buildingType === "temple" ||
+        buildingType === "synagogue"
+      ) {
+        buildingColor = { r: 205, g: 190, b: 175, a: 255 }; // Darker tan
+      }
+      // Schools/universities - yellow-tan
+      else if (
+        buildingType === "school" ||
+        buildingType === "university" ||
+        buildingType === "college" ||
+        buildingType === "kindergarten"
+      ) {
+        buildingColor = { r: 235, g: 225, b: 200, a: 255 }; // Light yellow-tan
+      }
+      // Residential buildings - default beige
+      else {
+        buildingColor = { r: 218, g: 208, b: 200, a: 255 }; // Default beige
+      }
+
       return {
         layer: "buildings",
-        color: { r: 218, g: 208, b: 200, a: 255 },
+        color: buildingColor,
         minLOD: 2,
         fill: true,
         stroke: true,
