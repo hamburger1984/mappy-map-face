@@ -1095,20 +1095,21 @@ class MapRenderer {
             }
 
             // Create numeric hash: combine type ID and rounded coordinates
-            // Use bit shifting and XOR to combine values into a single number
+            // Use simple integer hash within safe integer range
             const typeId = geomTypeId[geom.type] || 0;
             const x1 = Math.round(firstCoord[0] * 1e6);
             const y1 = Math.round(firstCoord[1] * 1e6);
             const x2 = Math.round(lastCoord[0] * 1e6);
             const y2 = Math.round(lastCoord[1] * 1e6);
 
-            // Combine into numeric hash (JavaScript numbers are 64-bit floats, safe for 53-bit integers)
-            featureKey =
-              typeId * 1e24 +
-              (x1 & 0xffffff) * 1e18 +
-              (y1 & 0xffffff) * 1e12 +
-              (x2 & 0xffffff) * 1e6 +
-              (y2 & 0xffffff);
+            // Simple multiplicative hash that stays within 32-bit integer range
+            // Using prime number 31 to reduce collisions
+            let h = typeId;
+            h = (h * 31 + x1) | 0;
+            h = (h * 31 + y1) | 0;
+            h = (h * 31 + x2) | 0;
+            h = (h * 31 + y2) | 0;
+            featureKey = h;
           } else {
             // Fallback for features without geometry - use object reference
             featureKey = Math.random();
