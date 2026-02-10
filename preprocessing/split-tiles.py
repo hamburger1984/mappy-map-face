@@ -336,8 +336,10 @@ def get_render_metadata(props, geom_type):
     This is the build-time equivalent of map_renderer.js classifyFeature()
     """
 
-    # Parks and green spaces
-    if props.get("leisure") == "park" or props.get("landuse") in ["grass", "meadow"]:
+    # Parks and green spaces (only polygons)
+    if (
+        props.get("leisure") == "park" or props.get("landuse") in ["grass", "meadow"]
+    ) and geom_type in ["Polygon", "MultiPolygon"]:
         return {
             "layer": "natural_background",
             "color": {"r": 200, "g": 230, "b": 180, "a": 255},
@@ -345,8 +347,11 @@ def get_render_metadata(props, geom_type):
             "fill": True,
         }
 
-    # Agricultural land
-    if props.get("landuse") in ["farmland", "orchard", "vineyard"]:
+    # Agricultural land (only polygons)
+    if props.get("landuse") in ["farmland", "orchard", "vineyard"] and geom_type in [
+        "Polygon",
+        "MultiPolygon",
+    ]:
         return {
             "layer": "natural_background",
             "color": {"r": 238, "g": 240, "b": 213, "a": 255},
@@ -354,8 +359,10 @@ def get_render_metadata(props, geom_type):
             "fill": True,
         }
 
-    # Forests and woods
-    if props.get("landuse") == "forest" or props.get("natural") == "wood":
+    # Forests and woods (only polygons)
+    if (
+        props.get("landuse") == "forest" or props.get("natural") == "wood"
+    ) and geom_type in ["Polygon", "MultiPolygon"]:
         return {
             "layer": "forests",
             "color": {"r": 173, "g": 209, "b": 158, "a": 255},
@@ -363,13 +370,13 @@ def get_render_metadata(props, geom_type):
             "fill": True,
         }
 
-    # Water bodies (including coastline for sea/ocean areas)
+    # Water bodies (only polygons - including coastline for sea/ocean areas)
     if (
         props.get("natural") == "water"
         or props.get("water")
         or props.get("waterway") == "riverbank"
         or props.get("natural") == "coastline"
-    ):
+    ) and geom_type in ["Polygon", "MultiPolygon"]:
         return {
             "layer": "water_areas",
             "color": {"r": 170, "g": 211, "b": 223, "a": 255},
@@ -387,8 +394,11 @@ def get_render_metadata(props, geom_type):
             "fill": False,
         }
 
-    # Commercial/industrial areas
-    if props.get("landuse") in ["commercial", "retail"]:
+    # Commercial/industrial areas (only polygons)
+    if props.get("landuse") in ["commercial", "retail"] and geom_type in [
+        "Polygon",
+        "MultiPolygon",
+    ]:
         return {
             "layer": "landuse_areas",
             "color": {"r": 243, "g": 233, "b": 234, "a": 255},
@@ -396,7 +406,10 @@ def get_render_metadata(props, geom_type):
             "fill": True,
         }
 
-    if props.get("landuse") == "industrial":
+    if props.get("landuse") == "industrial" and geom_type in [
+        "Polygon",
+        "MultiPolygon",
+    ]:
         return {
             "layer": "landuse_areas",
             "color": {"r": 240, "g": 233, "b": 240, "a": 255},
@@ -404,8 +417,8 @@ def get_render_metadata(props, geom_type):
             "fill": True,
         }
 
-    # Buildings
-    if props.get("building"):
+    # Buildings (only polygons - filter out LineString building outlines)
+    if props.get("building") and geom_type in ["Polygon", "MultiPolygon"]:
         return {
             "layer": "areas",
             "color": {"r": 218, "g": 208, "b": 200, "a": 255},
