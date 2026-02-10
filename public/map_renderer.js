@@ -1055,16 +1055,23 @@ class MapRenderer {
     for (const tile of tileData) {
       if (tile && tile.features) {
         for (const feature of tile.features) {
-          // Generate unique key for feature (use OSM id if available, otherwise hash geometry)
+          // Fast deduplication: use first coordinate + geometry type as key
+          // This is much faster than JSON.stringify while still catching duplicates
+          const geom = feature.geometry;
           let featureKey;
-          if (feature.id) {
-            featureKey = feature.id;
-          } else if (feature.properties && feature.properties.id) {
-            featureKey = feature.properties.id;
+
+          if (geom && geom.coordinates) {
+            const firstCoord = geom.coordinates[0];
+            // Get first actual coordinate (unwrap arrays for Polygon/MultiPolygon)
+            let coord = firstCoord;
+            while (Array.isArray(coord[0])) {
+              coord = coord[0];
+            }
+            // Create key from type + first coordinate (rounded to avoid floating point issues)
+            featureKey = `${geom.type}_${Math.round(coord[0] * 1e6)}_${Math.round(coord[1] * 1e6)}`;
           } else {
-            // Generate simple hash from geometry coordinates
-            const coords = JSON.stringify(feature.geometry.coordinates);
-            featureKey = `geom_${coords.length}_${coords.substring(0, 50)}`;
+            // Fallback for features without geometry
+            featureKey = `nogeom_${Math.random()}`;
           }
 
           // Only add if we haven't seen this feature before
