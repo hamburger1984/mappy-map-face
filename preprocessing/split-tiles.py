@@ -13,14 +13,11 @@ Each tile: tiles/{zoom}/{x}/{y}.json.gz
 """
 
 import decimal
-import gzip
 import json
 import math
 import os
-import random
 import sqlite3
 import sys
-import tempfile
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -692,8 +689,8 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
         start_time = time.time()
         last_update = start_time
         last_count = 0
-        update_interval = 5.0  # seconds
-        next_check_at = 10000  # Target iteration to check and update
+        update_interval = 1.2  # seconds
+        next_check_at = 75  # Target iteration to check and update
 
         # Rolling window for rate calculation (keep last 5 samples)
         rate_history = []  # List of (elapsed_time, items_processed) tuples
@@ -745,9 +742,6 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
                     # Target: update approximately every 5 seconds
                     if features_per_sec > 0:
                         estimated_features = int(features_per_sec * update_interval)
-                        # Add ±10% random jitter to make iteration counts look more natural
-                        jitter = random.uniform(0.9, 1.1)
-                        estimated_features = int(estimated_features * jitter)
                         # Clamp between 1000 and 500000 to avoid too frequent or too rare checks
                         estimated_features = max(1000, min(500000, estimated_features))
                     else:
@@ -847,8 +841,8 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
     write_start = time.time()
     last_update = write_start
     last_tile_count = 0
-    update_interval = 5.0  # seconds
-    next_tile_check_at = 100  # Target tile count to check and update
+    update_interval = 1.2  # seconds
+    next_tile_check_at = 12  # Target tile count to check and update
 
     # Rolling window for tile write rate calculation (keep last 5 samples)
     tile_rate_history = []  # List of (elapsed_time, tiles_written) tuples
@@ -917,9 +911,6 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
                         # Target: update approximately every 5 seconds
                         if tiles_per_sec > 0:
                             estimated_tiles = int(tiles_per_sec * update_interval)
-                            # Add ±10% random jitter to make tile counts look more natural
-                            jitter = random.uniform(0.9, 1.1)
-                            estimated_tiles = int(estimated_tiles * jitter)
                             # Clamp between 10 and 10000 to avoid too frequent or too rare checks
                             estimated_tiles = max(10, min(10000, estimated_tiles))
                         else:
