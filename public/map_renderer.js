@@ -246,6 +246,7 @@ class MapRenderer {
     this.hoveredFeature = null;
     this.selectedFeature = null;
     this.hoverInfoEnabled = false; // Toggle for hover info mode
+    this.showTileEdges = false; // Toggle for tile edge visualization
 
     // POI category state and glyph cache
     this.glyphCache = {}; // categoryId -> { canvas, size }
@@ -1532,6 +1533,11 @@ class MapRenderer {
     document.getElementById("renderTime").textContent = renderTime;
     document.getElementById("stats").querySelector("div").textContent =
       "Status: Rendered";
+
+    // Draw tile edges if enabled
+    if (this.showTileEdges) {
+      this.drawTileEdges(adjustedBounds);
+    }
 
     // Save rendered frame for canvas translation optimization
     this.saveOffscreenCanvas();
@@ -2981,6 +2987,71 @@ class MapRenderer {
     this.updateHoverUI();
   }
 
+  toggleTileEdges() {
+    this.showTileEdges = !this.showTileEdges;
+    this.updateTileEdgesUI();
+    this.renderMap(); // Re-render to show/hide tile edges
+  }
+
+  updateTileEdgesUI() {
+    const btn = document.getElementById("toggleTileEdgesBtn");
+    if (!btn) return;
+
+    if (this.showTileEdges) {
+      btn.textContent = "Tile Edges: ON";
+      btn.classList.remove("inactive");
+    } else {
+      btn.textContent = "Tile Edges: OFF";
+      btn.classList.add("inactive");
+    }
+  }
+
+  drawTileEdges(bounds) {
+    const visibleTiles = this.getVisibleTiles(bounds);
+    if (!visibleTiles || visibleTiles.length === 0) return;
+
+    this.ctx.save();
+    this.ctx.strokeStyle = "magenta";
+    this.ctx.lineWidth = 2;
+    this.ctx.setLineDash([10, 5]); // Dashed line pattern
+
+    // Get coordinate transformation functions
+    const toScreenX = (lon) => {
+      const lonRange = bounds.maxLon - bounds.minLon;
+      return ((lon - bounds.minLon) / lonRange) * this.canvasWidth;
+    };
+
+    const toScreenY = (lat) => {
+      const latRange = bounds.maxLat - bounds.minLat;
+      return (
+        this.canvasHeight -
+        ((lat - bounds.minLat) / latRange) * this.canvasHeight
+      );
+    };
+
+    // Draw each tile boundary
+    for (const { z, x, y } of visibleTiles) {
+      const tileBounds = this.getTileBounds(z, x, y);
+
+      const left = toScreenX(tileBounds.minLon);
+      const right = toScreenX(tileBounds.maxLon);
+      const top = toScreenY(tileBounds.maxLat);
+      const bottom = toScreenY(tileBounds.minLat);
+
+      // Draw rectangle for tile boundary
+      this.ctx.strokeRect(left, top, right - left, bottom - top);
+
+      // Draw tile label
+      this.ctx.save();
+      this.ctx.fillStyle = "magenta";
+      this.ctx.font = "bold 12px monospace";
+      this.ctx.fillText(`Z${z} (${x},${y})`, left + 5, top + 15);
+      this.ctx.restore();
+    }
+
+    this.ctx.restore();
+  }
+
   initPOIToggles() {
     const container = document.getElementById("poiToggles");
     if (!container) return;
@@ -3107,8 +3178,15 @@ async function initApp() {
     renderer.toggleHoverInfo();
   });
 
+  document
+    .getElementById("toggleTileEdgesBtn")
+    .addEventListener("click", () => {
+      renderer.toggleTileEdges();
+    });
+
   // Set initial UI state
   renderer.updateHoverUI();
+  renderer.updateTileEdgesUI();
 
   // Auto-render on load
   renderer.renderMap();
