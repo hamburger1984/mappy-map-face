@@ -653,6 +653,8 @@ def open_zoom_db(db_dir, zoom, fingerprint=None):
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=OFF")
     conn.execute("PRAGMA page_size=8192")
+    conn.execute("PRAGMA cache_size=-64000")  # 64MB cache
+    conn.execute("PRAGMA temp_store=MEMORY")
     conn.execute("""
         CREATE TABLE tile_features (
             x INTEGER,
@@ -661,6 +663,8 @@ def open_zoom_db(db_dir, zoom, fingerprint=None):
             feature_json TEXT
         )
     """)
+    # Create index before inserting data for better write performance
+    conn.execute("CREATE INDEX idx_tile ON tile_features (x, y, importance DESC)")
     conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT)")
     return conn, False
 
@@ -838,11 +842,10 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
         for zoom in sorted(zoom_levels):
             print(f"  Z{zoom}: {stats[f'z{zoom}']} feature-tile pairs")
 
-        # Create indexes and store fingerprint
-        print("\nCreating database indexes...")
+        # Store fingerprint (index already created during table initialization)
+        print("\nFinalizing databases...")
         for zoom in zoom_levels:
             conn = zoom_dbs[zoom]
-            conn.execute("CREATE INDEX idx_tile ON tile_features (x, y)")
             conn.execute(
                 "INSERT INTO metadata VALUES ('fingerprint', ?)", (fingerprint,)
             )

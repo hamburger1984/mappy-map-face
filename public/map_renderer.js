@@ -1557,14 +1557,14 @@ class MapRenderer {
     document.getElementById("stats").querySelector("div").textContent =
       "Status: Rendered";
 
-    // Draw tile edges if enabled
-    if (this.showTileEdges) {
-      this.drawTileEdges(adjustedBounds);
-    }
-
     // Save rendered frame for canvas translation optimization
     this.saveOffscreenCanvas();
     this._lastRenderOffset = { x: this.offsetX, y: this.offsetY };
+
+    // Draw tile edges if enabled (after save so they're always on top)
+    if (this.showTileEdges) {
+      this.drawTileEdges(adjustedBounds);
+    }
 
     // Render stats available in UI
   }
