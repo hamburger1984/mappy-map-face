@@ -25,13 +25,11 @@ from pathlib import Path
 import ijson
 
 
-class DecimalEncoder(json.JSONEncoder):
-    """Handle decimal.Decimal values from ijson."""
-
-    def default(self, o):
-        if isinstance(o, decimal.Decimal):
-            return float(o)
-        return super().default(o)
+def decimal_default(o):
+    """Handle decimal.Decimal values from ijson (more efficient than JSONEncoder subclass)."""
+    if isinstance(o, decimal.Decimal):
+        return float(o)
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
 
 
 # Hamburg region bounds (~100km radius from city center)
@@ -62,6 +60,12 @@ COMMERCIAL_LANDUSE = frozenset(["commercial", "retail"])
 
 # Waterway type classifications
 MAJOR_WATERWAYS = frozenset(["river", "canal"])
+
+# LOD to zoom level mappings (avoid recreating lists per feature)
+LOD_0_ZOOMS = (8, 11, 14)  # Major features: all zoom levels
+LOD_1_ZOOMS = (11, 14)  # Secondary features: not in Z8
+LOD_2_ZOOMS = (14,)  # Detail features: only Z14
+LOD_3_ZOOMS = (14,)  # Very close detail: only Z14
 
 # POI category definitions (mirrors map_renderer.js POI_CATEGORIES)
 POI_CATEGORIES = {
@@ -799,34 +803,27 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
                 _, importance = classify_feature_importance(props, geom_type)
 
                 # Optimize tile assignments based on when features are actually rendered
-                # Z8 tiles: used at LOD 0-1 (view >7.5km)
-                # Z11 tiles: used at LOD 1-2 (view 1-10km)
-                # Z14 tiles: used at LOD 2-3 (view <3km)
-                target_zooms = []
+                # Use pre-allocated tuples instead of creating lists
                 if min_lod == 0:
-                    target_zooms = [
-                        8,
-                        11,
-                        14,
-                    ]  # Major features: show at all zoom levels
+                    target_zooms = LOD_0_ZOOMS
                 elif min_lod == 1:
-                    target_zooms = [11, 14]  # Secondary features: not needed in Z8
+                    target_zooms = LOD_1_ZOOMS
                 elif min_lod == 2:
-                    target_zooms = [14]  # Buildings/detail: only in Z14
-                elif min_lod >= 3:
-                    target_zooms = [14]  # Very close detail: only in Z14
+                    target_zooms = LOD_2_ZOOMS
+                else:  # min_lod >= 3
+                    target_zooms = LOD_3_ZOOMS
 
                 feature_json = json.dumps(
-                    feature, separators=(",", ":"), cls=DecimalEncoder
+                    feature, separators=(",", ":"), default=decimal_default
                 )
 
-                for zoom in zoom_levels:
-                    if zoom in target_zooms:
-                        feature_tiles = get_tiles_for_feature(feature, zoom)
-                        for tile_coords in feature_tiles:
-                            _, x, y = tile_coords
-                            batches[zoom].append((x, y, importance, feature_json))
-                            stats[f"z{zoom}"] += 1
+                # Only process zooms that are in target_zooms (avoid checking all zooms)
+                for zoom in target_zooms:
+                    feature_tiles = get_tiles_for_feature(feature, zoom)
+                    for tile_coords in feature_tiles:
+                        _, x, y = tile_coords
+                        batches[zoom].append((x, y, importance, feature_json))
+                        stats[f"z{zoom}"] += 1
 
                 # Flush each zoom's batch independently
                 for zoom in zoom_levels:
