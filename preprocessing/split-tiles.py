@@ -663,8 +663,6 @@ def open_zoom_db(db_dir, zoom, fingerprint=None):
             feature_json TEXT
         )
     """)
-    # Create index before inserting data for better write performance
-    conn.execute("CREATE INDEX idx_tile ON tile_features (x, y, importance DESC)")
     conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT)")
     return conn, False
 
@@ -842,10 +840,13 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
         for zoom in sorted(zoom_levels):
             print(f"  Z{zoom}: {stats[f'z{zoom}']} feature-tile pairs")
 
-        # Store fingerprint (index already created during table initialization)
-        print("\nFinalizing databases...")
+        # Create indexes for fast reads in Pass 2
+        print("\nCreating database indexes...")
         for zoom in zoom_levels:
             conn = zoom_dbs[zoom]
+            conn.execute(
+                "CREATE INDEX idx_tile ON tile_features (x, y, importance DESC)"
+            )
             conn.execute(
                 "INSERT INTO metadata VALUES ('fingerprint', ?)", (fingerprint,)
             )
