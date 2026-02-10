@@ -28,7 +28,8 @@ fi
 
 if ! command -v osmium &> /dev/null; then
     echo "Error: osmium-tool is not installed"
-    echo "Install with: brew install osmium-tool (macOS)"
+    echo "Install with: conda install -c conda-forge osmium-tool"
+    echo "           or: brew install osmium-tool (macOS)"
     echo "           or: apt-get install osmium-tool (Linux)"
     exit 1
 fi
@@ -84,9 +85,12 @@ echo ""
 REGION_GEOJSON="$DATA_DIR/hamburg-region.geojson"
 echo "Converting to GeoJSON format..."
 echo "  (This may take a few minutes for the larger area)"
-osmium export "$REGION_PBF" -o "$REGION_GEOJSON" --overwrite \
-    --config=osmium-export-config.json 2>/dev/null || \
+EXPORT_CONFIG="$SCRIPT_DIR/osmium-export-config.json"
+if [ -f "$EXPORT_CONFIG" ]; then
+    osmium export "$REGION_PBF" -o "$REGION_GEOJSON" --overwrite --config="$EXPORT_CONFIG"
+else
     osmium export "$REGION_PBF" -o "$REGION_GEOJSON" --overwrite
+fi
 echo "Converted to GeoJSON ($(du -h "$REGION_GEOJSON" | cut -f1))"
 echo ""
 
@@ -99,14 +103,21 @@ echo "This will split the GeoJSON into Web Mercator tiles"
 echo "for progressive loading. This may take several minutes..."
 echo ""
 
+PYTHON_CMD=""
 if command -v python3 &> /dev/null; then
-    python3 "$SCRIPT_DIR/split-tiles.py" "$REGION_GEOJSON"
-    TILE_COUNT=$(find "$PUBLIC_DIR/tiles" -name "*.json.gz" 2>/dev/null | wc -l | tr -d ' ')
+    PYTHON_CMD="python3"
+elif command -v python &> /dev/null; then
+    PYTHON_CMD="python"
+fi
+
+if [ -n "$PYTHON_CMD" ]; then
+    $PYTHON_CMD "$SCRIPT_DIR/split-tiles.py" "$REGION_GEOJSON"
+    TILE_COUNT=$(find "$PUBLIC_DIR/tiles" -name "*.json" 2>/dev/null | wc -l | tr -d ' ')
     TILE_SIZE=$(du -sh "$PUBLIC_DIR/tiles" 2>/dev/null | cut -f1)
     echo ""
     echo "Generated $TILE_COUNT tiles (total: $TILE_SIZE)"
 else
-    echo "Warning: python3 not found, skipping tile generation"
+    echo "Warning: python not found, skipping tile generation"
     echo "  Tiles are needed for optimal performance with the web renderer"
 fi
 echo ""
