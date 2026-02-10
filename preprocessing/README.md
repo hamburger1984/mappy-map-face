@@ -102,6 +102,83 @@ Each tile is a GeoJSON FeatureCollection:
 }
 ```
 
+## Zoom Levels and LOD (Level of Detail)
+
+The map uses a two-tier system for progressive rendering:
+
+### Zoom Levels (Tile Size)
+
+Determines the geographic area covered by each tile:
+
+| Zoom | Usage | Tile Coverage | When Used |
+|------|-------|---------------|-----------|
+| **Z8** | Wide view | ~10-20km per tile | View width > 10km |
+| **Z11** | Medium view | ~2-5km per tile | View width 1-10km |
+| **Z14** | Close view | ~500m-1km per tile | View width < 1km |
+
+**Tile selection:** When you view the map at 10km width, the renderer loads Z8 tiles. When you zoom to 5km, it switches to Z11 tiles.
+
+### LOD (Level of Detail)
+
+Determines which features are rendered based on view distance:
+
+| LOD | View Width | Features Rendered | Examples |
+|-----|------------|-------------------|----------|
+| **0** | > 20km | Major features only | Motorways, large rivers, forests |
+| **1** | 7.5-20km | + Secondary features | Primary roads, railways, parks |
+| **2** | 3-7.5km | + Buildings & details | Residential roads, buildings |
+| **3** | < 3km | All features | Paths, small POIs, all details |
+
+### Feature LOD Assignment
+
+Each feature is assigned a minimum LOD (`minLOD`) during preprocessing:
+
+| Feature Type | minLOD | Visibility |
+|--------------|--------|------------|
+| **Major roads** (motorway, trunk) | 0 | Always visible |
+| **Water bodies** (rivers, lakes) | 0 | Always visible |
+| **Forests** | 0 | Always visible |
+| **Primary/secondary roads** | 1 | Visible at 7.5km+ |
+| **Railways** | 1 | Visible at 7.5km+ |
+| **Parks, green spaces** | 1 | Visible at 7.5km+ |
+| **Buildings** | 2 | Visible at 3km+ |
+| **Residential roads** | 2 | Visible at 3km+ |
+| **Paths, footways** | 3 | Visible only when very close |
+| **Small POIs** | 3 | Visible only when very close |
+
+### Tile Content Optimization
+
+To minimize tile size and loading time, features are only included in zoom levels where they'll actually be rendered:
+
+```
+minLOD 0 (major features)     → Tiles: Z8, Z11, Z14
+minLOD 1 (secondary features) → Tiles: Z11, Z14 (skip Z8)
+minLOD 2 (buildings, detail)  → Tiles: Z14 only (skip Z8, Z11)
+minLOD 3 (very close detail)  → Tiles: Z14 only
+```
+
+**Example:** When viewing at 10km width (LOD 1), the renderer:
+1. Uses Z11 tiles (appropriate tile size for 10km)
+2. Loads only minLOD 0-1 features (major + secondary)
+3. Skips minLOD 2+ features (buildings not needed at this distance)
+
+This optimization dramatically reduces:
+- Network transfer (smaller tiles)
+- Parsing time (less JSON to parse)
+- Memory usage (fewer features in memory)
+- Render time (fewer features to classify/cull)
+
+### View Width → Zoom Level → LOD Mapping
+
+| View Width | Zoom Level | LOD | Features Loaded |
+|------------|------------|-----|-----------------|
+| 50km | Z8 | 0 | Motorways, major water, forests |
+| 15km | Z8 | 1 | + Primary roads, railways |
+| 10km | Z11 | 1 | Same as above |
+| 5km | Z11 | 2 | + Buildings, residential roads |
+| 2km | Z14 | 2 | Same as above |
+| 500m | Z14 | 3 | + Paths, small POIs |
+
 ## Performance Notes
 
 - **Python version:** First run streams GeoJSON into SQLite, then writes tiles. Subsequent runs with unchanged input skip directly to tile writing.
