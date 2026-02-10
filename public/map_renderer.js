@@ -1982,13 +1982,20 @@ class MapRenderer {
 
         // Railway width based on type (controls spacing between rails and tie length)
         let width = 8; // Standard railway (~5-6m wide including tracks and bed)
-        let minLOD = 0; // Standard rail: show at all zoom levels (including 25km)
+        let minLOD = 0; // Long distance/regional rail: show at all zoom levels
 
-        if (props.railway === "tram" || props.railway === "light_rail") {
+        if (props.railway === "tram") {
           width = 6; // Trams are narrower
-          minLOD = 1; // Trams/light rail: only show at closer zoom
+          minLOD = 2; // Trams: only show at close zoom
+        } else if (
+          props.railway === "light_rail" ||
+          props.railway === "subway"
+        ) {
+          width = 6; // Light rail/subway narrower than main rail
+          minLOD = 1; // Subway/light rail: show at medium zoom
         } else if (props.railway === "narrow_gauge") {
           width = 6; // Narrow gauge railways
+          minLOD = 0; // Still long distance, just narrower track
         }
 
         if (isTunnel) {

@@ -477,23 +477,34 @@ def get_render_metadata(props, geom_type):
             "name_priority": 6,  # Lowest priority
         }
 
-    # Railways (only major rail lines at LOD 1, minor at LOD 2)
+    # Railways (long distance/regional at LOD 0, subway/tram at LOD 2)
     if props.get("railway") and geom_type != "Point":
-        major_rail = ["rail", "light_rail", "subway"]
+        # Long distance and regional trains - show at all zoom levels
+        major_rail = ["rail"]
+        # Subways and light rail - show at medium zoom
+        medium_rail = ["light_rail", "subway"]
+        # Trams and minor rail - show at close zoom only
         minor_rail = ["tram", "monorail", "narrow_gauge", "preserved"]
 
         if props.get("railway") in major_rail or not props.get("railway"):
             return {
                 "layer": "railways",
                 "color": {"r": 153, "g": 153, "b": 153, "a": 255},
-                "minLOD": 1,  # Major rail visible at medium zoom
+                "minLOD": 0,  # Long distance/regional rail visible at all zoom levels
+                "fill": False,
+            }
+        elif props.get("railway") in medium_rail:
+            return {
+                "layer": "railways",
+                "color": {"r": 153, "g": 153, "b": 153, "a": 255},
+                "minLOD": 1,  # Subway/light rail at medium zoom
                 "fill": False,
             }
         elif props.get("railway") in minor_rail:
             return {
                 "layer": "railways",
                 "color": {"r": 153, "g": 153, "b": 153, "a": 255},
-                "minLOD": 2,  # Minor rail only at closer zoom
+                "minLOD": 2,  # Trams and minor rail only at closer zoom
                 "fill": False,
             }
 
