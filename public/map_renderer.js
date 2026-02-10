@@ -1681,8 +1681,8 @@ class MapRenderer {
         minLOD: 2,
         fill: true,
         stroke: true,
-        strokeColor: { r: 180, g: 170, b: 160, a: 255 },
-        strokeWidth: 0.5,
+        strokeColor: { r: 160, g: 140, b: 120, a: 255 },
+        strokeWidth: 1.0,
       };
     }
 
