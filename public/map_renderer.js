@@ -959,10 +959,10 @@ class MapRenderer {
   getZoomLevelForScale() {
     // Determine which tile zoom level to use based on view width
     // Wide view (>10km): use Z8 tiles
-    // Medium view (1-10km): use Z11 tiles
-    // Close view (<1km): use Z14 tiles
+    // Medium view (2-10km): use Z11 tiles
+    // Close view (<2km): use Z14 tiles
     if (this.viewWidthMeters > 10000) return 8;
-    if (this.viewWidthMeters > 1000) return 11;
+    if (this.viewWidthMeters > 2000) return 11;
     return 14;
   }
 
@@ -1143,12 +1143,24 @@ class MapRenderer {
   async loadMapData() {
     try {
       // Load tile index
-
-      // Load tile index
       const indexResponse = await fetch("tiles/index.json");
       if (indexResponse.ok) {
         this.tileIndex = await indexResponse.json();
-        // Tile index loaded
+
+        // Use bounds from index.json
+        if (this.tileIndex.bounds) {
+          this.tileBounds = this.tileIndex.bounds;
+          console.log("[TILES] Loaded bounds from index:", this.tileBounds);
+        }
+
+        // Use center from index.json for initial view
+        if (this.tileIndex.center) {
+          this.centerLat = this.tileIndex.center.lat;
+          this.centerLon = this.tileIndex.center.lon;
+          console.log(
+            `[TILES] Loaded center: ${this.centerLat}, ${this.centerLon}`,
+          );
+        }
       }
 
       // Initialize with empty data - tiles will be loaded progressively
@@ -1600,11 +1612,13 @@ class MapRenderer {
     // 0: Very zoomed out (show only major features) - >20km
     // 1: Medium zoom (show major + secondary features) - 7.5-20km
     // 2: Zoomed in (show most features) - 3-7.5km
-    // 3: Very zoomed in (show all details) - <3km
+    // 3: More zoomed in (show buildings, more roads) - 1-3km
+    // 4: Very zoomed in (show all details including POIs) - <1km
     if (this.viewWidthMeters > 20000) return 0;
     if (this.viewWidthMeters > 7500) return 1;
     if (this.viewWidthMeters > 3000) return 2;
-    return 3;
+    if (this.viewWidthMeters > 1000) return 3;
+    return 4;
   }
 
   classifyPOI(props) {
@@ -1903,7 +1917,7 @@ class MapRenderer {
       ) {
         color = { r: 255, g: 255, b: 255, a: 255 }; // OSM service white
         realWidthMeters = 3.5; // 1 lane
-        minLOD = 3;
+        minLOD = 4;
         roadPriority = 2;
       } else if (
         effectiveHighway === "footway" ||
@@ -1918,7 +1932,7 @@ class MapRenderer {
       } else if (effectiveHighway === "cycleway") {
         color = { r: 120, g: 150, b: 255, a: 255 }; // OSM cycleway blue
         realWidthMeters = 2; // Cycle paths
-        minLOD = 3;
+        minLOD = 4;
         roadPriority = 1;
       } else {
         // Unknown highway type - skip it to avoid rendering unexpected features
@@ -2045,7 +2059,7 @@ class MapRenderer {
               b: catDef.color.b,
               a: 255,
             },
-            minLOD: 3,
+            minLOD: 4,
             fill: false,
             poiCategory,
           };
@@ -2269,7 +2283,7 @@ class MapRenderer {
 
       // Construction roads: fills in pass 2
       if (constructionFlats.length > 0) {
-        const dashLen = Math.max(4, this.getZoomFactor() * 0.3);
+        const dashLen = 7;
 
         for (const cf of constructionFlats) {
           // White base
@@ -2302,9 +2316,10 @@ class MapRenderer {
   }
 
   renderStreetNames(layerFeatures, bounds) {
-    // Only render street names at higher zoom levels (LOD >= 2)
+    // Render street names based on LOD:
+    // LOD 0-1: Only major roads (motorway, primary)
+    // LOD 2+: All roads
     const lod = this.getLOD();
-    if (lod < 2) return;
 
     // Pre-compute bounds scaling
     const lonRange = bounds.maxLon - bounds.minLon;
@@ -2323,6 +2338,9 @@ class MapRenderer {
     for (const item of layerFeatures) {
       const name = item.props.name;
       if (!name || name.trim() === "") continue;
+
+      // At low LOD, only show major road names (priority 6+: motorway, primary)
+      if (lod < 2 && (item.roadPriority || 0) < 6) continue;
 
       const geom = item.feature.geometry;
       if (!geom || !geom.coordinates) continue;
@@ -2353,8 +2371,8 @@ class MapRenderer {
           length += Math.sqrt(dx * dx + dy * dy);
         }
 
-        // Only consider if line is long enough for text
-        if (length < 50) continue;
+        // Only consider if line is long enough for text (reduced threshold to catch more segments)
+        if (length < 30) continue;
 
         const road = {
           name,
@@ -2471,16 +2489,18 @@ class MapRenderer {
       // This keeps text readable while scaling slightly with importance
       const fontSize = Math.max(10, Math.min(15, 11 + road.width * 0.4));
 
-      // Skip very narrow roads (< 2 pixels wide) where text won't fit nicely
-      if (road.width < 2) continue;
+      // Skip very narrow roads (< 1.5 pixels wide) where text won't fit nicely
+      // But allow higher priority roads (5+) to always show labels
+      if (road.width < 1.5 && road.priority < 5) continue;
 
       this.ctx.font = `${fontSize}px Arial, sans-serif`;
 
       // Measure text width
       const textWidth = this.ctx.measureText(road.name).width;
 
-      // Only render if road is long enough for the text with padding
-      if (road.length < textWidth + 30) continue;
+      // Only render if road is long enough for the text with minimal padding
+      // Use more lenient check to label more streets
+      if (road.length < textWidth + 10) continue;
 
       // Draw curved text along the path
       // Check the overall direction of the road (start to end)

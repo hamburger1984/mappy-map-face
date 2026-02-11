@@ -428,12 +428,20 @@ def get_render_metadata(props, geom_type):
             "fill": False,
         }
 
-    # Commercial/industrial areas (only polygons)
+    # Landuse areas (only polygons) - show at same LOD as tertiary roads
+    if landuse == "residential" and is_polygon:
+        return {
+            "layer": "landuse_areas",
+            "color": {"r": 224, "g": 224, "b": 224, "a": 255},  # Light gray
+            "minLOD": 1,
+            "fill": True,
+        }
+
     if landuse in COMMERCIAL_LANDUSE and is_polygon:
         return {
             "layer": "landuse_areas",
             "color": {"r": 243, "g": 233, "b": 234, "a": 255},
-            "minLOD": 2,
+            "minLOD": 1,
             "fill": True,
         }
 
@@ -441,7 +449,7 @@ def get_render_metadata(props, geom_type):
         return {
             "layer": "landuse_areas",
             "color": {"r": 240, "g": 233, "b": 240, "a": 255},
-            "minLOD": 2,
+            "minLOD": 1,
             "fill": True,
         }
 
@@ -733,6 +741,14 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
         batches = {zoom: [] for zoom in zoom_levels}
         BATCH_SIZE = 50000
 
+        # Track actual bounds from features
+        actual_bounds = {
+            "minLon": float("inf"),
+            "maxLon": float("-inf"),
+            "minLat": float("inf"),
+            "maxLat": float("-inf"),
+        }
+
         # Get file size for progress tracking
         file_size = os.path.getsize(input_file)
         start_time = time.time()
@@ -806,6 +822,22 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
                     continue
 
                 feature["_render"] = render_meta
+
+                # Update bounds from this feature
+                feature_bounds = get_feature_bounds(feature)
+                if feature_bounds:
+                    actual_bounds["minLon"] = min(
+                        actual_bounds["minLon"], feature_bounds["minLon"]
+                    )
+                    actual_bounds["maxLon"] = max(
+                        actual_bounds["maxLon"], feature_bounds["maxLon"]
+                    )
+                    actual_bounds["minLat"] = min(
+                        actual_bounds["minLat"], feature_bounds["minLat"]
+                    )
+                    actual_bounds["maxLat"] = max(
+                        actual_bounds["maxLat"], feature_bounds["maxLat"]
+                    )
 
                 min_lod = render_meta["minLOD"]
                 _, importance = classify_feature_importance(props, geom_type)
@@ -998,23 +1030,17 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
     )
     print(f"\n✓ Created {tile_count} tiles in {output_dir} ({write_elapsed:.1f}s)")
 
-    # Write tile index
-    index_file = output_path / "index.json"
-    index_data = {
-        "bounds": {
+    # Return actual bounds (or fallback to hardcoded if no features processed)
+    if actual_bounds["minLon"] == float("inf"):
+        # No features were processed, use hardcoded bounds
+        actual_bounds = {
             "minLon": MIN_LON,
             "maxLon": MAX_LON,
             "minLat": MIN_LAT,
             "maxLat": MAX_LAT,
-        },
-        "zoom_levels": sorted(zoom_levels),
-        "tile_count": total_tiles,
-        "center": {"lon": (MIN_LON + MAX_LON) / 2, "lat": (MIN_LAT + MAX_LAT) / 2},
-    }
-    with open(index_file, "w", encoding="utf-8") as f:
-        json.dump(index_data, f, indent=2)
+        }
 
-    print(f"✓ Created tile index: {index_file}")
+    return actual_bounds
 
 
 def main():
@@ -1070,11 +1096,46 @@ def main():
     print("=" * 50)
     print()
 
-    # Process all files into the same tile set
+    # Process all files into the same tile set, collecting bounds
+    merged_bounds = {
+        "minLon": float("inf"),
+        "maxLon": float("-inf"),
+        "minLat": float("inf"),
+        "maxLat": float("-inf"),
+    }
+
     for input_file in input_files:
         print(f"\nProcessing: {Path(input_file).name}")
-        split_geojson_into_tiles(input_file, output_dir, zoom_levels)
+        file_bounds = split_geojson_into_tiles(input_file, output_dir, zoom_levels)
 
+        # Merge bounds
+        merged_bounds["minLon"] = min(merged_bounds["minLon"], file_bounds["minLon"])
+        merged_bounds["maxLon"] = max(merged_bounds["maxLon"], file_bounds["maxLon"])
+        merged_bounds["minLat"] = min(merged_bounds["minLat"], file_bounds["minLat"])
+        merged_bounds["maxLat"] = max(merged_bounds["maxLat"], file_bounds["maxLat"])
+
+    # Write tile index with merged bounds
+    index_file = Path(output_dir) / "index.json"
+    tile_count = sum(
+        len(list((Path(output_dir) / str(z)).rglob("*.json"))) for z in zoom_levels
+    )
+
+    index_data = {
+        "bounds": merged_bounds,
+        "zoom_levels": sorted(zoom_levels),
+        "tile_count": tile_count,
+        "center": {
+            "lon": (merged_bounds["minLon"] + merged_bounds["maxLon"]) / 2,
+            "lat": (merged_bounds["minLat"] + merged_bounds["maxLat"]) / 2,
+        },
+    }
+    with open(index_file, "w", encoding="utf-8") as f:
+        json.dump(index_data, f, indent=2)
+
+    print(f"\n✓ Created tile index: {index_file}")
+    print(
+        f"  Bounds: {merged_bounds['minLon']:.2f}, {merged_bounds['minLat']:.2f} to {merged_bounds['maxLon']:.2f}, {merged_bounds['maxLat']:.2f}"
+    )
     print("\n✓ Done!")
 
 
