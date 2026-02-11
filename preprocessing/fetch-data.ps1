@@ -65,13 +65,13 @@ function Format-FileSize($path)
 {
     $size = (Get-Item $path).Length
     if ($size -ge 1GB)
-    { return "{0:N1} GB" -f ($size / 1GB) 
+    { return "{0:N1} GB" -f ($size / 1GB)
     }
     if ($size -ge 1MB)
-    { return "{0:N1} MB" -f ($size / 1MB) 
+    { return "{0:N1} MB" -f ($size / 1MB)
     }
     if ($size -ge 1KB)
-    { return "{0:N1} KB" -f ($size / 1KB) 
+    { return "{0:N1} KB" -f ($size / 1KB)
     }
     return "$size B"
 }
@@ -84,8 +84,8 @@ New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 $States = @(
     "hamburg"
     "schleswig-holstein"
-    "niedersachsen"
     "mecklenburg-vorpommern"
+    "nordrhein-westfalen"
 )
 
 foreach ($state in $States)
@@ -105,14 +105,31 @@ foreach ($state in $States)
 }
 Write-Host ""
 
-# Merge state extracts
+# Download Denmark
+$DenmarkPbf = Join-Path $DataDir "denmark-latest.osm.pbf"
+if (Test-Path $DenmarkPbf)
+{
+    $size = Format-FileSize $DenmarkPbf
+    Write-Host "  denmark extract already exists ($size). Delete to re-download."
+}
+else
+{
+    Write-Host "  Downloading denmark extract from Geofabrik..."
+    curl.exe -L -o $DenmarkPbf "https://download.geofabrik.de/europe/denmark-latest.osm.pbf"
+    $size = Format-FileSize $DenmarkPbf
+    Write-Host "  Downloaded denmark ($size)"
+}
+Write-Host ""
+
+# Merge state/region extracts
 $Merged = Join-Path $DataDir "northern-germany.osm.pbf"
 Write-Host "Merging state extracts..."
 osmium merge `
 (Join-Path $DataDir "hamburg-latest.osm.pbf") `
 (Join-Path $DataDir "schleswig-holstein-latest.osm.pbf") `
-(Join-Path $DataDir "niedersachsen-latest.osm.pbf") `
 (Join-Path $DataDir "mecklenburg-vorpommern-latest.osm.pbf") `
+(Join-Path $DataDir "nordrhein-westfalen-latest.osm.pbf") `
+(Join-Path $DataDir "denmark-latest.osm.pbf") `
     -o $Merged --overwrite
 $size = Format-FileSize $Merged
 Write-Host "Merged ($size)"
@@ -187,7 +204,8 @@ Write-Host "================================================"
 Write-Host ""
 Write-Host "Files created:"
 Write-Host "  data/ directory:"
-Write-Host "    - State PBF extracts (4 states)"
+Write-Host "    - German state PBF extracts (4 states)"
+Write-Host "    - Denmark PBF extract"
 Write-Host "    - northern-germany.osm.pbf  (merged)"
 Write-Host "    - hamburg-region.osm.pbf    (clipped to bbox)"
 Write-Host "    - hamburg-region.geojson    (for tile generation)"

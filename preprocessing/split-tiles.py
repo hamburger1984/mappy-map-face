@@ -32,10 +32,14 @@ def decimal_default(o):
     raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
 
 
-# Hamburg region bounds (~100km radius from city center)
+# Fallback bounds if no features are processed
 MIN_LON = 8.48
 MAX_LON = 11.50
 MIN_LAT = 52.65
+
+# Initial map center (Lombardsbrücke, Hamburg)
+HAMBURG_CENTER_LAT = 53.5567
+HAMBURG_CENTER_LON = 10.0061
 
 # Railway type classifications (avoid recreating on every feature)
 MAJOR_RAIL = frozenset(["rail"])
@@ -521,6 +525,15 @@ def get_render_metadata(props, geom_type):
             "name_priority": 6,  # Lowest priority
         }
 
+    # Country borders (admin_level=2)
+    if props.get("boundary") == "administrative" and props.get("admin_level") == "2":
+        return {
+            "layer": "boundaries",
+            "color": {"r": 128, "g": 0, "b": 128, "a": 255},  # Purple
+            "minLOD": 0,
+            "fill": False,
+        }
+
     # Railways (long distance/regional at LOD 0, subway/tram at LOD 2)
     if railway and geom_type != "Point":
         if railway in MAJOR_RAIL or not railway:
@@ -673,9 +686,9 @@ def get_input_fingerprint(input_file):
     return f"{stat.st_size}:{stat.st_mtime_ns}"
 
 
-def open_zoom_db(db_dir, zoom, fingerprint=None):
+def open_zoom_db(db_dir, zoom, fingerprint=None, db_prefix="tile_build"):
     """Open (or create) a per-zoom SQLite database. Returns (conn, is_cached)."""
-    db_path = db_dir / f"tile_build_z{zoom}.db"
+    db_path = db_dir / f"{db_prefix}_z{zoom}.db"
 
     if db_path.exists():
         if fingerprint:
@@ -709,17 +722,32 @@ def open_zoom_db(db_dir, zoom, fingerprint=None):
     return conn, False
 
 
-def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
-    """Split GeoJSON into tiles using per-zoom SQLite databases."""
+def split_geojson_into_tiles(
+    geojson_file, output_dir, zoom_levels, source_pbf_file, db_prefix=None
+):
+    """Split GeoJSON into tiles using per-zoom SQLite databases.
 
-    db_dir = Path(input_file).parent
-    fingerprint = get_input_fingerprint(input_file)
+    Args:
+        geojson_file: Path to temporary GeoJSON file to process
+        output_dir: Directory to write tiles to
+        zoom_levels: List of zoom levels to generate
+        source_pbf_file: Path to source OSM PBF file (REQUIRED - used for fingerprinting and database location)
+        db_prefix: Optional prefix for database files (defaults to PBF filename)
+    """
+
+    # Use PBF file as source of truth for fingerprinting and database location
+    db_dir = Path(source_pbf_file).parent
+    fingerprint = get_input_fingerprint(source_pbf_file)
+
+    # Use PBF filename (without extension) as db_prefix if not provided
+    if db_prefix is None:
+        db_prefix = Path(source_pbf_file).stem
 
     # Open per-zoom databases, check which ones can be reused
     zoom_dbs = {}
     need_import = False
     for zoom in zoom_levels:
-        conn, cached = open_zoom_db(db_dir, zoom, fingerprint)
+        conn, cached = open_zoom_db(db_dir, zoom, fingerprint, db_prefix)
         zoom_dbs[zoom] = conn
         if not cached:
             need_import = True
@@ -730,11 +758,11 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
         # If any zoom needs rebuilding, rebuild all for consistency
         for zoom in zoom_levels:
             zoom_dbs[zoom].close()
-            conn, _ = open_zoom_db(db_dir, zoom)
+            conn, _ = open_zoom_db(db_dir, zoom, db_prefix=db_prefix)
             zoom_dbs[zoom] = conn
 
         # Pass 1: Stream features into per-zoom SQLite databases
-        print(f"Streaming features from {input_file}...")
+        print(f"Streaming features from {geojson_file}...")
         print("\nPass 1: Classifying and distributing features...")
         stats = defaultdict(int)
         i = 0
@@ -750,7 +778,7 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
         }
 
         # Get file size for progress tracking
-        file_size = os.path.getsize(input_file)
+        file_size = os.path.getsize(geojson_file)
         start_time = time.time()
         last_update = start_time
         last_count = 0
@@ -761,7 +789,7 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
         rate_history = []  # List of (elapsed_time, items_processed) tuples
         max_history = 5
 
-        with open(input_file, "rb") as f:
+        with open(geojson_file, "rb") as f:
             for feature in ijson.items(f, "features.item"):
                 i += 1
 
@@ -954,9 +982,26 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
                         tile_dir.mkdir(parents=True, exist_ok=True)
                         created_dirs.add(cx)
                     tile_file = tile_dir / f"{cy}.json"
+
+                    # Merge with existing tile if it exists
+                    existing_features = []
+                    if tile_file.exists():
+                        try:
+                            with open(tile_file, "r", encoding="utf-8") as f:
+                                existing_tile = json.load(f)
+                                existing_features = [
+                                    json.dumps(feat, separators=(",", ":"))
+                                    for feat in existing_tile.get("features", [])
+                                ]
+                        except:
+                            pass  # If read fails, just overwrite
+
+                    # Combine existing and new features
+                    all_features = existing_features + feature_jsons
+
                     with open(tile_file, "w", encoding="utf-8") as f:
                         f.write('{"type":"FeatureCollection","features":[')
-                        f.write(",".join(feature_jsons))
+                        f.write(",".join(all_features))
                         f.write("]}")
                     tile_count += 1
 
@@ -1014,9 +1059,26 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
                 tile_dir.mkdir(parents=True, exist_ok=True)
                 created_dirs.add(cx)
             tile_file = tile_dir / f"{cy}.json"
+
+            # Merge with existing tile if it exists
+            existing_features = []
+            if tile_file.exists():
+                try:
+                    with open(tile_file, "r", encoding="utf-8") as f:
+                        existing_tile = json.load(f)
+                        existing_features = [
+                            json.dumps(feat, separators=(",", ":"))
+                            for feat in existing_tile.get("features", [])
+                        ]
+                except:
+                    pass  # If read fails, just overwrite
+
+            # Combine existing and new features
+            all_features = existing_features + feature_jsons
+
             with open(tile_file, "w", encoding="utf-8") as f:
                 f.write('{"type":"FeatureCollection","features":[')
-                f.write(",".join(feature_jsons))
+                f.write(",".join(all_features))
                 f.write("]}")
             tile_count += 1
 
@@ -1044,99 +1106,20 @@ def split_geojson_into_tiles(input_file, output_dir, zoom_levels):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: ./split-tiles.py <input.geojson> [input2.geojson ...]")
-        print(
-            "       ./split-tiles.py --dir <directory>  # Process all .geojson in directory"
-        )
-        sys.exit(1)
-
-    # Parse arguments
-    input_files = []
-    args = sys.argv[1:]
-
-    if args[0] == "--dir":
-        if len(args) < 2:
-            print("Error: --dir requires directory path")
-            sys.exit(1)
-        directory = Path(args[1])
-        if not directory.is_dir():
-            print(f"Error: {directory} is not a directory")
-            sys.exit(1)
-        # Find all .geojson files
-        input_files = [str(f) for f in sorted(directory.glob("*.geojson"))]
-        if not input_files:
-            print(f"Error: No .geojson files found in {directory}")
-            sys.exit(1)
-    else:
-        input_files = args
-
-    # Validate all files exist
-    for input_file in input_files:
-        if not Path(input_file).exists():
-            print(f"Error: File not found: {input_file}")
-            sys.exit(1)
-
-    output_dir = "public/tiles"
-    zoom_levels = [8, 11, 14]
-
-    print("Hamburg OSM Tile Splitter")
-    print("=" * 50)
-    print(f"Input files: {len(input_files)}")
-    for f in input_files:
-        file_size = Path(f).stat().st_size / (1024 * 1024)
-        print(f"  - {Path(f).name} ({file_size:.1f} MB)")
-    print(f"Output: {output_dir}")
-    print(f"Zoom levels: {zoom_levels}")
-    print(f"Progressive loading:")
-    print(f"  Z0-Z5 → Use Z8 tiles: Motorways, Bundesstraßen, railways, forests, water")
-    print(f"  Z6-Z10 → Use Z11 tiles: + Secondary roads, parks, rivers")
-    print(f"  Z11-Z14 → Use Z14 tiles: + Residential roads, buildings")
-    print(f"  Z15+ → Use Z14 tiles: All details")
-    print("=" * 50)
+    print("=" * 70)
+    print("ERROR: split-tiles.py no longer supports direct execution")
+    print("=" * 70)
     print()
-
-    # Process all files into the same tile set, collecting bounds
-    merged_bounds = {
-        "minLon": float("inf"),
-        "maxLon": float("-inf"),
-        "minLat": float("inf"),
-        "maxLat": float("-inf"),
-    }
-
-    for input_file in input_files:
-        print(f"\nProcessing: {Path(input_file).name}")
-        file_bounds = split_geojson_into_tiles(input_file, output_dir, zoom_levels)
-
-        # Merge bounds
-        merged_bounds["minLon"] = min(merged_bounds["minLon"], file_bounds["minLon"])
-        merged_bounds["maxLon"] = max(merged_bounds["maxLon"], file_bounds["maxLon"])
-        merged_bounds["minLat"] = min(merged_bounds["minLat"], file_bounds["minLat"])
-        merged_bounds["maxLat"] = max(merged_bounds["maxLat"], file_bounds["maxLat"])
-
-    # Write tile index with merged bounds
-    index_file = Path(output_dir) / "index.json"
-    tile_count = sum(
-        len(list((Path(output_dir) / str(z)).rglob("*.json"))) for z in zoom_levels
-    )
-
-    index_data = {
-        "bounds": merged_bounds,
-        "zoom_levels": sorted(zoom_levels),
-        "tile_count": tile_count,
-        "center": {
-            "lon": (merged_bounds["minLon"] + merged_bounds["maxLon"]) / 2,
-            "lat": (merged_bounds["minLat"] + merged_bounds["maxLat"]) / 2,
-        },
-    }
-    with open(index_file, "w", encoding="utf-8") as f:
-        json.dump(index_data, f, indent=2)
-
-    print(f"\n✓ Created tile index: {index_file}")
-    print(
-        f"  Bounds: {merged_bounds['minLon']:.2f}, {merged_bounds['minLat']:.2f} to {merged_bounds['maxLon']:.2f}, {merged_bounds['maxLat']:.2f}"
-    )
-    print("\n✓ Done!")
+    print("This script now requires OSM PBF files as input.")
+    print("Please use tiles-from-osm.py instead:")
+    print()
+    print("  python tiles-from-osm.py <file.osm.pbf>")
+    print("  python tiles-from-osm.py --dir preprocessing/data")
+    print()
+    print("Or use the justfile:")
+    print("  just tiles-from-osm")
+    print()
+    sys.exit(1)
 
 
 if __name__ == "__main__":

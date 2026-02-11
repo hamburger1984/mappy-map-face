@@ -1,11 +1,11 @@
-# Hamburg OpenStreetMap Renderer
+# OpenStreetMap Renderer
 
 A high-performance map renderer using OpenStreetMap data with Canvas2D rendering and progressive tile loading.
 
 ## Features
 
 - **Progressive Tile Loading**: Map data split into tiles (Z8, Z11, Z14) for efficient loading at different zoom levels
-- **Real OpenStreetMap Data**: Uses actual map data from Geofabrik for Hamburg region, Germany (~200km coverage)
+- **Real OpenStreetMap Data**: Uses actual map data from Geofabrik for northern Germany and southern Denmark
 - **Canvas2D Rendering**: Direct Canvas2D API for fast visualization with hardware acceleration
 - **Level-of-Detail (LOD)**: Automatic feature culling based on zoom level for optimal performance
 - **Feature-based Rendering**: Different map features (roads, buildings, water, forests, POIs) rendered with appropriate colors and styles
@@ -27,7 +27,7 @@ A high-performance map renderer using OpenStreetMap data with Canvas2D rendering
 ### Components
 
 1. **Preprocessing Pipeline** (`preprocessing/`)
-   - **fetch-data.sh**: Downloads OSM data for Hamburg region
+   - **fetch-data.sh**: Downloads OSM data for the covered regions
    - **split-tiles.py**: Processes GeoJSON → progressive tiles (Python)
    - **split_tiles.zig**: Alternative Zig implementation (WIP, faster)
    - Pre-classifies features with rendering metadata
@@ -75,13 +75,15 @@ osm-renderer/
 - osmium-tool (for processing OSM data)
   - macOS: `brew install osmium-tool`
   - Ubuntu/Debian: `apt-get install osmium-tool`
+  - Windows: `conda install -c conda-forge osmium-tool` or download from [osmcode.org](https://osmcode.org/osmium-tool/)
 - ogr2ogr (for OSM → GeoJSON conversion)
   - macOS: `brew install gdal`
   - Ubuntu/Debian: `apt-get install gdal-bin`
-- curl (for downloading data)
+  - Windows: Included with [OSGeo4W](https://trac.osgeo.org/osgeo4w/) or `conda install -c conda-forge gdal`
 - just (command runner, optional but recommended)
   - macOS: `brew install just`
-  - See: https://github.com/casey/just
+  - Windows: `scoop install just` or download from [GitHub](https://github.com/casey/just/releases)
+  - Linux: See [installation guide](https://github.com/casey/just#installation)
 
 ### Setup and Run
 
@@ -91,27 +93,38 @@ Using `just` (recommended):
 # See all available commands
 just
 
-# Download OSM data
-just data
-
-# Generate tiles from GeoJSON (Python - slower but stable)
-just tiles
-
-# OR use Zig version (faster, but needs compilation)
-just tiles-zig
+# One-command setup: download OSM data + generate tiles
+just build
 
 # Start the development server
 just serve
 ```
 
+The `just build` command:
+- Downloads OSM files if missing or >30 days old (5 regions: Hamburg, Schleswig-Holstein, Mecklenburg-Vorpommern, NRW, Denmark)
+- Skips tile rebuild if source files haven't changed (smart fingerprinting)
+- Processes files in parallel (default: 3 workers)
+- Generates tiles at zoom levels Z8, Z11, Z14
+
+Advanced usage:
+
+```bash
+# Use more/fewer parallel workers
+python preprocessing/build-tiles.py --jobs 5
+
+# See all options
+python preprocessing/build-tiles.py --help
+```
+
 Manual setup:
 
 ```bash
-# Download and convert OSM data
-cd preprocessing && ./fetch-data.sh
+# Download OSM data
+cd preprocessing
+./fetch-data.sh  # or fetch-data.ps1 on Windows
 
-# Generate tiles (from repo root)
-python preprocessing/split-tiles.py preprocessing/data/hamburg-region.geojson
+# Build tiles (from repo root)
+python preprocessing/build-tiles.py
 
 # Start server
 cd public && python3 -m http.server 8888
@@ -126,7 +139,7 @@ Once the map loads:
 - **Pan**: Click and drag
 - **Inspect**: Hover over features to see tooltips and info panel
 - **POI Toggle**: Click category buttons to show/hide POI types
-- **Reset**: Click "Reset View" to return to 10km view centered on Hamburg
+- **Reset**: Click "Reset View" to return to initial 10km view
 - **Export**: Save the current view as PNG
 
 ## How It Works
@@ -195,15 +208,18 @@ Key optimizations:
 
 Typical rendering performance:
 - ~1,000-10,000 features rendered in <200ms
-- 1200x800 canvas with real Hamburg OSM data
+- 1200x800 canvas with real OSM data
 - Smooth pan/zoom interactions
 
 ## Data Coverage
 
-Hamburg region bounds:
-- Longitude: 8.48°E to 11.5°E
-- Latitude: 52.65°N to 54.45°N
-- Coverage: ~200km across (includes Hamburg city, Elbe river, partial North Sea coastline)
+Coverage includes:
+- Hamburg, Germany
+- Schleswig-Holstein, Germany
+- Mecklenburg-Vorpommern, Germany
+- Nordrhein-Westfalen, Germany
+- Denmark
+- Initial view centered on Hamburg (Lombardsbrücke)
 
 ## Future Enhancements
 

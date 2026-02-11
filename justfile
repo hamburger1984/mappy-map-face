@@ -1,4 +1,4 @@
-# Hamburg OSM Map Renderer - justfile
+# OSM Map Renderer - justfile
 #
 # Cross-platform build automation using Just (https://just.systems)
 # Supports: Windows (PowerShell), Linux (bash), macOS (bash)
@@ -7,7 +7,7 @@
 #   just          - Show all available commands
 #   just setup    - Initialize Python virtual environment and install dependencies
 #   just all      - Download data and generate tiles
-#   just data     - Download OSM data for Hamburg region
+#   just build    - Download OSM data and generate tiles
 #   just tiles    - Generate map tiles (Python)
 #   just serve    - Start development web server
 #   just info     - Show system and project information
@@ -16,24 +16,16 @@
 default:
     @just --list
 
-# Build everything (setup, fetch data and generate tiles)
-all: setup data tiles
+# Build everything (setup and build tiles with auto-download)
+all: setup build
 
 # Setup Python virtual environment and install dependencies
 setup:
     @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'Setting up Python virtual environment...'; " + "if (-not (Test-Path venv)) { python -m venv venv }; " + "Write-Host 'Installing dependencies...'; " + "& venv/Scripts/pip install -q -r requirements.txt; " + "Write-Host 'Setup complete!'\"" } else { "echo 'Setting up Python virtual environment...' && " + "if [ ! -d venv ]; then python -m venv venv; fi && " + "echo 'Installing dependencies...' && " + "venv/bin/pip install -q -r requirements.txt && " + "echo 'Setup complete!'" } }}
 
-# Download and process OSM data
-data:
-    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'Fetching OSM data...'; " + "& '" + justfile_directory() + "/preprocessing/fetch-data.ps1'\"" } else { "echo 'Fetching OSM data...' && " + "bash '" + justfile_directory() + "/preprocessing/fetch-data.sh'" } }}
-
-# Generate tiles from existing GeoJSON (Python version)
-tiles: setup
-    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'Generating tiles from hamburg-region.geojson...'; " + "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/split-tiles.py' " + "'" + justfile_directory() + "/preprocessing/data/hamburg-region.geojson'; " + "Write-Host 'Tiles generated in public/tiles/'\"" } else { "echo 'Generating tiles from hamburg-region.geojson...' && " + "venv/bin/python '" + justfile_directory() + "/preprocessing/split-tiles.py' " + "'" + justfile_directory() + "/preprocessing/data/hamburg-region.geojson' && " + "echo 'Tiles generated in public/tiles/'" } }}
-
-# Generate tiles directly from original OSM PBF files (no merge needed)
-tiles-from-osm: setup
-    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'Generating tiles from OSM PBF files...'; " + "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/tiles-from-osm.py' --dir '" + justfile_directory() + "/preprocessing/data'; " + "Write-Host 'Tiles generated in public/tiles/'\"" } else { "echo 'Generating tiles from OSM PBF files...' && " + "venv/bin/python '" + justfile_directory() + "/preprocessing/tiles-from-osm.py' --dir '" + justfile_directory() + "/preprocessing/data' && " + "echo 'Tiles generated in public/tiles/'" } }}
+# Build tiles (downloads OSM if needed, caches DBs, generates tiles with fingerprinting)
+build: setup
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'Building tiles...'; " + "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/build-tiles.py'; " + "Write-Host 'Build complete!'\"" } else { "echo 'Building tiles...' && " + "venv/bin/python '" + justfile_directory() + "/preprocessing/build-tiles.py' && " + "echo 'Build complete!'" } }}
 
 # Clean generated tiles only
 clean:
@@ -57,4 +49,4 @@ dev:
 
 # Show project info
 info:
-    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'Hamburg OSM Map Renderer'; " + "Write-Host '======================='; " + "Write-Host ''; " + "Write-Host 'OS:             Windows'; " + "Write-Host ('Python:         ' + $(python --version 2>&1)); " + "Write-Host ('Zig:            ' + $(try { zig version 2>&1 } catch { 'not installed' })); " + "Write-Host ('Repository:     ' + $(try { git rev-parse --short HEAD 2>&1 } catch { 'not a git repo' })); " + "Write-Host ''; " + "Write-Host 'Python venv:'; " + "if (Test-Path venv) { Write-Host '  Virtual environment exists' } " + "else { Write-Host '  Not set up (run: just setup)' }; " + "Write-Host ''; " + "Write-Host 'Data files:'; " + "if (Test-Path preprocessing/data/hamburg-region.geojson) { " + "Get-Item preprocessing/data/hamburg-region.geojson | ForEach-Object { " + "Write-Host ('  ' + $_.Name + ' (' + '{0:N1} MB' -f ($_.Length / 1MB) + ')') } } " + "else { Write-Host '  GeoJSON not created (run: just data)' }; " + "Write-Host 'Tile status:'; " + "if (Test-Path public/tiles) { Write-Host '  Tiles generated' } " + "else { Write-Host '  Tiles not generated (run: just tiles)' }\"" } else { "echo 'Hamburg OSM Map Renderer' && " + "echo '=======================' && " + "echo '' && " + "echo 'OS:             " + os() + "' && " + "printf 'Python:         ' && (python --version 2>&1 || echo 'not installed') && " + "printf 'Zig:            ' && (zig version 2>&1 || echo 'not installed') && " + "printf 'Repository:     ' && (git rev-parse --short HEAD 2>&1 || echo 'not a git repo') && " + "echo '' && " + "echo 'Python venv:' && " + "if [ -d venv ]; then echo '  Virtual environment exists'; " + "else echo '  Not set up (run: just setup)'; fi && " + "echo '' && " + "echo 'Data files:' && " + "if [ -f preprocessing/data/hamburg-region.geojson ]; then " + "size=$(du -h preprocessing/data/hamburg-region.geojson | cut -f1); " + "echo \"  hamburg-region.geojson ($size)\"; " + "else echo '  GeoJSON not created (run: just data)'; fi && " + "echo 'Tile status:' && " + "if [ -d public/tiles ]; then echo '  Tiles generated'; " + "else echo '  Tiles not generated (run: just tiles)'; fi" } }}
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'OSM Map Renderer'; " + "Write-Host '================'; " + "Write-Host ''; " + "Write-Host 'OS:             Windows'; " + "Write-Host ('Python:         ' + $(python --version 2>&1)); " + "Write-Host ('Zig:            ' + $(try { zig version 2>&1 } catch { 'not installed' })); " + "Write-Host ('Repository:     ' + $(try { git rev-parse --short HEAD 2>&1 } catch { 'not a git repo' })); " + "Write-Host ''; " + "Write-Host 'Python venv:'; " + "if (Test-Path venv) { Write-Host '  Virtual environment exists' } " + "else { Write-Host '  Not set up (run: just setup)' }; " + "Write-Host ''; " + "Write-Host 'Data files:'; " + "if (Test-Path preprocessing/data/hamburg-region.geojson) { " + "Get-Item preprocessing/data/hamburg-region.geojson | ForEach-Object { " + "Write-Host ('  ' + $_.Name + ' (' + '{0:N1} MB' -f ($_.Length / 1MB) + ')') } } " + "else { Write-Host '  GeoJSON not created (run: just data)' }; " + "Write-Host 'Tile status:'; " + "if (Test-Path public/tiles) { Write-Host '  Tiles generated' } " + "else { Write-Host '  Tiles not generated (run: just tiles)' }\"" } else { "echo 'OSM Map Renderer' && " + "echo '=================' && " + "echo '' && " + "echo 'OS:             " + os() + "' && " + "printf 'Python:         ' && (python --version 2>&1 || echo 'not installed') && " + "printf 'Zig:            ' && (zig version 2>&1 || echo 'not installed') && " + "printf 'Repository:     ' && (git rev-parse --short HEAD 2>&1 || echo 'not a git repo') && " + "echo '' && " + "echo 'Python venv:' && " + "if [ -d venv ]; then echo '  Virtual environment exists'; " + "else echo '  Not set up (run: just setup)'; fi && " + "echo '' && " + "echo 'Data files:' && " + "if [ -f preprocessing/data/hamburg-region.geojson ]; then " + "size=$(du -h preprocessing/data/hamburg-region.geojson | cut -f1); " + "echo \"  hamburg-region.geojson ($size)\"; " + "else echo '  GeoJSON not created (run: just data)'; fi && " + "echo 'Tile status:' && " + "if [ -d public/tiles ]; then echo '  Tiles generated'; " + "else echo '  Tiles not generated (run: just tiles)'; fi" } }}

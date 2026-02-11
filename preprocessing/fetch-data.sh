@@ -41,12 +41,12 @@ echo ""
 mkdir -p "$PUBLIC_DIR"
 mkdir -p "$DATA_DIR"
 
-# Download state extracts from Geofabrik
+# Download state/region extracts from Geofabrik
 STATES=(
     "hamburg"
     "schleswig-holstein"
-    "niedersachsen"
     "mecklenburg-vorpommern"
+    "nordrhein-westfalen"
 )
 
 for state in "${STATES[@]}"; do
@@ -62,14 +62,27 @@ for state in "${STATES[@]}"; do
 done
 echo ""
 
-# Merge state extracts
+# Download Denmark (southern parts)
+DENMARK_PBF="$DATA_DIR/denmark-latest.osm.pbf"
+if [ -f "$DENMARK_PBF" ]; then
+    echo "  denmark extract already exists ($(du -h "$DENMARK_PBF" | cut -f1)). Delete to re-download."
+else
+    echo "  Downloading denmark extract from Geofabrik..."
+    curl -L -o "$DENMARK_PBF" \
+        "https://download.geofabrik.de/europe/denmark-latest.osm.pbf"
+    echo "  Downloaded denmark ($(du -h "$DENMARK_PBF" | cut -f1))"
+fi
+echo ""
+
+# Merge state/region extracts
 MERGED="$DATA_DIR/northern-germany.osm.pbf"
 echo "Merging state extracts..."
 osmium merge \
     "$DATA_DIR/hamburg-latest.osm.pbf" \
     "$DATA_DIR/schleswig-holstein-latest.osm.pbf" \
-    "$DATA_DIR/niedersachsen-latest.osm.pbf" \
     "$DATA_DIR/mecklenburg-vorpommern-latest.osm.pbf" \
+    "$DATA_DIR/nordrhein-westfalen-latest.osm.pbf" \
+    "$DATA_DIR/denmark-latest.osm.pbf" \
     -o "$MERGED" --overwrite
 echo "Merged ($(du -h "$MERGED" | cut -f1))"
 echo ""
@@ -128,7 +141,8 @@ echo "================================================"
 echo ""
 echo "Files created:"
 echo "  data/ directory:"
-echo "    - State PBF extracts (4 states)"
+echo "    - German state PBF extracts (4 states)"
+echo "    - Denmark PBF extract"
 echo "    - northern-germany.osm.pbf  (merged)"
 echo "    - hamburg-region.osm.pbf    (clipped to bbox)"
 echo "    - hamburg-region.geojson    (for tile generation)"

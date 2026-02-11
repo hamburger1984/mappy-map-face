@@ -1009,7 +1009,11 @@ class MapRenderer {
     this.loadingTiles.add(key);
 
     try {
-      const response = await fetch(`tiles/${z}/${x}/${y}.json`);
+      // Add cache-busting parameter based on tile index generation time
+      const cacheBuster = this.tileIndex?.generated || Date.now();
+      const response = await fetch(
+        `tiles/${z}/${x}/${y}.json?v=${cacheBuster}`,
+      );
 
       if (!response.ok) {
         // Tile doesn't exist (no data in this area)
@@ -1142,8 +1146,8 @@ class MapRenderer {
 
   async loadMapData() {
     try {
-      // Load tile index
-      const indexResponse = await fetch("tiles/index.json");
+      // Load tile index (with cache buster to always get latest)
+      const indexResponse = await fetch(`tiles/index.json?t=${Date.now()}`);
       if (indexResponse.ok) {
         this.tileIndex = await indexResponse.json();
 
@@ -1160,6 +1164,12 @@ class MapRenderer {
           console.log(
             `[TILES] Loaded center: ${this.centerLat}, ${this.centerLon}`,
           );
+        }
+
+        // Log tile generation time for cache debugging
+        if (this.tileIndex.generated) {
+          const genDate = new Date(this.tileIndex.generated);
+          console.log(`[TILES] Generated: ${genDate.toLocaleString()}`);
         }
       }
 
@@ -1386,6 +1396,7 @@ class MapRenderer {
         waterways: [],
         surface_roads: [],
         surface_railways: [],
+        boundaries: [],
         points: [],
       };
     }
@@ -1520,7 +1531,12 @@ class MapRenderer {
     this.renderLayer(layers.surface_railways, adjustedBounds, false);
     layerTimings.railways = performance.now() - layerStart;
 
-    // 9. Points (always on top)
+    // 9. Country boundaries
+    layerStart = performance.now();
+    this.renderLayer(layers.boundaries, adjustedBounds, false);
+    layerTimings.boundaries = performance.now() - layerStart;
+
+    // 10. Points (always on top)
     layerStart = performance.now();
     this.renderLayer(layers.points, adjustedBounds, false);
     layerTimings.points = performance.now() - layerStart;
