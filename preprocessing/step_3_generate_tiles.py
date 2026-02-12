@@ -1212,7 +1212,7 @@ def process_geojson_to_tiles(args):
     source_path = Path(source_file) if source_file else geojson_path
 
     try:
-        bounds = split_tiles.split_geojson_into_tiles(
+        bounds = split_geojson_into_tiles(
             str(geojson_file),
             output_dir,
             zoom_levels,
@@ -1432,7 +1432,7 @@ def main():
         for pbf_file in pbf_files:
             # Check if all zoom databases exist with matching fingerprint
             db_prefix = pbf_file.stem
-            fingerprint = split_tiles.get_input_fingerprint(str(pbf_file))
+            fingerprint = get_input_fingerprint(str(pbf_file))
 
             all_cached = True
             for zoom in args.zoom_levels:
@@ -1617,8 +1617,8 @@ def main():
             "zoom_levels": sorted(args.zoom_levels),
             "tile_count": tile_count,
             "center": {
-                "lon": split_tiles.HAMBURG_CENTER_LON,
-                "lat": split_tiles.HAMBURG_CENTER_LAT,
+                "lon": HAMBURG_CENTER_LON,
+                "lat": HAMBURG_CENTER_LAT,
             },
             "generated": int(time.time() * 1000),
         }
