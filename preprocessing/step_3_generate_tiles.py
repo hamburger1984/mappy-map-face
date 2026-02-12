@@ -1685,6 +1685,19 @@ def main():
             print(
                 "  This likely means all OSM regions failed to process or returned no bounds."
             )
+            print()
+            print("  Results breakdown:")
+            for result in all_results:
+                name = result["name"].replace(".geojson", "").replace("-latest.osm", "")
+                if result["status"] == "success":
+                    has_bounds = "bounds" in result and result["bounds"] is not None
+                    print(
+                        f"    • {name}: success, bounds={'YES' if has_bounds else 'NO'}"
+                    )
+                else:
+                    error_msg = result.get("error", "unknown error")[:60]
+                    print(f"    • {name}: FAILED - {error_msg}")
+            print()
             print(
                 "  Land polygons will NOT be filtered and may cover the entire world."
             )
@@ -1764,6 +1777,19 @@ def main():
             print()
             print("⚠ WARNING: No valid bounds in merged results!")
             print("  All processed sources returned no bounds data.")
+            print()
+            print("  Sources processed:")
+            for result in all_results:
+                name = result["name"].replace(".geojson", "").replace("-latest.osm", "")
+                if result["status"] == "success":
+                    bounds = result.get("bounds")
+                    if bounds:
+                        print(f"    • {name}: has bounds (excluded: {'land' in name})")
+                    else:
+                        print(f"    • {name}: NO BOUNDS")
+                else:
+                    print(f"    • {name}: failed")
+            print()
             print("  Using fallback center coordinates for index.")
             # Use a small area around Hamburg as fallback
             merged_bounds = {
