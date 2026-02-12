@@ -836,7 +836,12 @@ def open_zoom_db(db_dir, zoom, fingerprint=None, db_prefix="tile_build"):
 
 
 def split_geojson_into_tiles(
-    geojson_file, output_dir, zoom_levels, source_pbf_file, db_prefix=None
+    geojson_file,
+    output_dir,
+    zoom_levels,
+    source_pbf_file=None,
+    db_prefix=None,
+    provided_bounds=None,
 ):
     """Split GeoJSON into tiles using per-zoom SQLite databases.
 
@@ -844,17 +849,25 @@ def split_geojson_into_tiles(
         geojson_file: Path to temporary GeoJSON file to process
         output_dir: Directory to write tiles to
         zoom_levels: List of zoom levels to generate
-        source_pbf_file: Path to source OSM PBF file (REQUIRED - used for fingerprinting and database location)
-        db_prefix: Optional prefix for database files (defaults to PBF filename)
+        source_pbf_file: Path to source OSM PBF file (used for fingerprinting and bounds extraction).
+                        Optional if provided_bounds is given.
+        db_prefix: Optional prefix for database files (defaults to PBF filename or geojson filename)
+        provided_bounds: Optional pre-calculated bounds dict (for non-PBF sources like land polygons)
     """
 
-    # Use PBF file as source of truth for fingerprinting and database location
-    db_dir = Path(source_pbf_file).parent
-    fingerprint = get_input_fingerprint(source_pbf_file)
+    # Determine database directory and fingerprint source
+    if source_pbf_file:
+        db_dir = Path(source_pbf_file).parent
+        fingerprint = get_input_fingerprint(source_pbf_file)
+    else:
+        db_dir = Path(geojson_file).parent
+        fingerprint = get_input_fingerprint(geojson_file)
 
-    # Use PBF filename (without extension) as db_prefix if not provided
+    # Use PBF/GeoJSON filename (without extension) as db_prefix if not provided
     if db_prefix is None:
-        db_prefix = Path(source_pbf_file).stem
+        db_prefix = (
+            Path(source_pbf_file).stem if source_pbf_file else Path(geojson_file).stem
+        )
 
     # Open per-zoom databases, check which ones can be reused
     zoom_dbs = {}
@@ -879,23 +892,25 @@ def split_geojson_into_tiles(
         except:
             pass
 
-        # If bounds not in metadata (old database), get from PBF file
+        # If bounds not in metadata (old database), get from PBF file or use provided bounds
         if actual_bounds is None:
-            if source_pbf_file and Path(source_pbf_file).suffix == ".pbf":
+            if provided_bounds:
+                actual_bounds = provided_bounds
+            elif source_pbf_file and Path(source_pbf_file).suffix == ".pbf":
                 actual_bounds = get_pbf_bounds(source_pbf_file)
-                if actual_bounds:
-                    # Store PBF bounds in metadata for future use
-                    bounds_json = json.dumps(actual_bounds)
-                    zoom_dbs[zoom_levels[0]].execute(
-                        "INSERT OR REPLACE INTO metadata VALUES ('bounds', ?)",
-                        (bounds_json,),
-                    )
-                    zoom_dbs[zoom_levels[0]].commit()
 
-            if actual_bounds is None:
+            if actual_bounds:
+                # Store bounds in metadata for future use
+                bounds_json = json.dumps(actual_bounds)
+                zoom_dbs[zoom_levels[0]].execute(
+                    "INSERT OR REPLACE INTO metadata VALUES ('bounds', ?)",
+                    (bounds_json,),
+                )
+                zoom_dbs[zoom_levels[0]].commit()
+            else:
                 raise ValueError(
-                    f"Could not retrieve bounds from cached database or PBF file {source_pbf_file}. "
-                    "Database may be corrupted or PBF file is missing."
+                    f"Could not retrieve bounds from cached database, PBF file, or provided_bounds. "
+                    f"source_pbf_file={source_pbf_file}, provided_bounds={provided_bounds}"
                 )
     else:
         # If any zoom needs rebuilding, rebuild all for consistency
@@ -910,20 +925,23 @@ def split_geojson_into_tiles(
         batches = {zoom: [] for zoom in zoom_levels}
         BATCH_SIZE = 50000
 
-        # Always get bounds from PBF header (never calculate from features)
+        # Get bounds from PBF header or use provided bounds (for non-PBF sources)
         # Features may reference nodes outside the region for complete relations
-        pbf_bounds = None
-        if source_pbf_file and Path(source_pbf_file).suffix == ".pbf":
+        if provided_bounds:
+            actual_bounds = provided_bounds
+        elif source_pbf_file and Path(source_pbf_file).suffix == ".pbf":
             pbf_bounds = get_pbf_bounds(source_pbf_file)
-
-        # Use PBF bounds exclusively - never fall back to feature bounds
-        if not pbf_bounds:
+            if not pbf_bounds:
+                raise ValueError(
+                    f"Could not extract bounds from PBF file {source_pbf_file}. "
+                    "Ensure osmium-tool is installed and the PBF file is valid."
+                )
+            actual_bounds = pbf_bounds
+        else:
             raise ValueError(
-                f"Could not extract bounds from PBF file {source_pbf_file}. "
-                "Ensure osmium-tool is installed and the PBF file is valid."
+                f"Must provide either source_pbf_file (PBF) or provided_bounds. "
+                f"source_pbf_file={source_pbf_file}, provided_bounds={provided_bounds}"
             )
-
-        actual_bounds = pbf_bounds
 
         # Get file size for progress tracking
         file_size = os.path.getsize(geojson_file)
@@ -1347,7 +1365,14 @@ def feature_intersects_bounds(feature, bbox):
 
 
 def process_land_polygons(data_dir, output_dir, zoom_levels, osm_bounds=None):
-    """Process land polygon files (simplified and detailed), optionally filtered to OSM bounds."""
+    """Process land polygon files (simplified and detailed), optionally filtered to OSM bounds.
+
+    Args:
+        data_dir: Directory containing land polygon GeoJSON files
+        output_dir: Output directory for tiles
+        zoom_levels: List of zoom levels to generate
+        osm_bounds: Required bounds dict from OSM data (used since land polygons are not PBF files)
+    """
     land_files = {
         "simplified": data_dir / "simplified-land-polygons.geojson",
         "detailed": data_dir / "detailed-land-polygons.geojson",
@@ -1432,15 +1457,15 @@ def process_land_polygons(data_dir, output_dir, zoom_levels, osm_bounds=None):
 
             tagged_geojson.close()
 
-            # Process into tiles
-            # Don't pass source_pbf_file for land polygons - they're GeoJSON, not PBF
-            # This prevents fallback bounds calculation from global land data
+            # Process into tiles using OSM bounds (land polygons are GeoJSON, not PBF)
+            # The bounds are from OSM data, not calculated from land polygon features
             split_geojson_into_tiles(
                 tagged_geojson.name,
                 output_dir,
                 zoom_levels,
-                source_pbf_file=str(land_file),
+                source_pbf_file=None,
                 db_prefix=f"land-{land_type}",
+                provided_bounds=osm_bounds,
             )
 
             # Don't include bounds - land polygons are global data, not regional
