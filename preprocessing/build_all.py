@@ -42,7 +42,16 @@ def main():
         "-j", "--jobs", type=int, default=3, help="Number of parallel workers"
     )
     parser.add_argument(
-        "--skip-land-polygons", action="store_true", help="Skip land polygon processing"
+        "--skip-land-polygons",
+        action="store_true",
+        default=True,
+        help="Skip land polygon processing (default: True, handled by renderer)",
+    )
+    parser.add_argument(
+        "--include-land-polygons",
+        dest="skip_land_polygons",
+        action="store_false",
+        help="Include land polygons (legacy, not recommended)",
     )
     parser.add_argument(
         "--data-dir",

@@ -310,7 +310,14 @@ def main():
     parser.add_argument(
         "--skip-land-polygons",
         action="store_true",
-        help="Skip downloading land polygons",
+        default=True,
+        help="Skip downloading land polygons (default: True, handled by renderer)",
+    )
+    parser.add_argument(
+        "--include-land-polygons",
+        dest="skip_land_polygons",
+        action="store_false",
+        help="Download land polygons (legacy, not recommended)",
     )
     parser.add_argument(
         "--clean-partial",
