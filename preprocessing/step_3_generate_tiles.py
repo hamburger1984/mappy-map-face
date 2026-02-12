@@ -1226,8 +1226,48 @@ def split_geojson_into_tiles(
             # Combine existing and new features
             all_features = existing_features + feature_jsons
 
+            # Analyze tile content for metadata
+            has_coastline = False
+            has_land_features = False
+
+            for feature_str in all_features:
+                try:
+                    feat = json.loads(feature_str)
+                    props = feat.get("properties", {})
+
+                    # Check for coastline
+                    if props.get("natural") == "coastline":
+                        has_coastline = True
+
+                    # Check for land features
+                    if (
+                        props.get("highway")
+                        or props.get("building")
+                        or props.get("landuse")
+                        or props.get("railway")
+                        or props.get("amenity")
+                        or props.get("shop")
+                        or (
+                            props.get("natural")
+                            and props.get("natural") not in ["coastline", "water"]
+                        )
+                    ):
+                        has_land_features = True
+
+                    # Early exit
+                    if has_coastline and has_land_features:
+                        break
+                except:
+                    pass
+
+            # Write tile with metadata
             with open(tile_file, "w", encoding="utf-8") as f:
-                f.write('{"type":"FeatureCollection","features":[')
+                f.write('{"type":"FeatureCollection",')
+                f.write('"_meta":{"hasCoastline":')
+                f.write("true" if has_coastline else "false")
+                f.write(',"hasLandFeatures":')
+                f.write("true" if has_land_features else "false")
+                f.write('},"features":[')
                 f.write(",".join(all_features))
                 f.write("]}")
             tile_count += 1
@@ -1245,6 +1285,139 @@ def split_geojson_into_tiles(
 # ============================================================================
 # STEP 3: TILE GENERATION ORCHESTRATION
 # ============================================================================
+
+
+def write_tiles_from_databases(db_dir, db_prefix, zoom_levels, output_dir):
+    """Write tile JSON files from existing SQLite databases."""
+    output_path = Path(output_dir)
+
+    for zoom in zoom_levels:
+        db_path = db_dir / f"{db_prefix}_z{zoom}.db"
+        if not db_path.exists():
+            continue
+
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.execute(
+            "SELECT x, y, feature_json FROM tile_features ORDER BY x, y, importance DESC"
+        )
+
+        created_dirs = set()
+        current_tile = None
+        feature_jsons = []
+        tile_count = 0
+
+        for x, y, feature_json in cursor:
+            tile_key = (x, y)
+            if tile_key != current_tile:
+                if current_tile is not None:
+                    # Write previous tile
+                    cx, cy = current_tile
+                    tile_dir = output_path / str(zoom) / str(cx)
+                    if cx not in created_dirs:
+                        tile_dir.mkdir(parents=True, exist_ok=True)
+                        created_dirs.add(cx)
+                    tile_file = tile_dir / f"{cy}.json"
+
+                    # Analyze and write with metadata
+                    has_coastline = False
+                    has_land_features = False
+
+                    for feature_str in feature_jsons:
+                        try:
+                            feat = json.loads(feature_str)
+                            props = feat.get("properties", {})
+
+                            if props.get("natural") == "coastline":
+                                has_coastline = True
+
+                            if (
+                                props.get("highway")
+                                or props.get("building")
+                                or props.get("landuse")
+                                or props.get("railway")
+                                or props.get("amenity")
+                                or props.get("shop")
+                                or (
+                                    props.get("natural")
+                                    and props.get("natural")
+                                    not in ["coastline", "water"]
+                                )
+                            ):
+                                has_land_features = True
+
+                            if has_coastline and has_land_features:
+                                break
+                        except:
+                            pass
+
+                    with open(tile_file, "w", encoding="utf-8") as f:
+                        f.write('{"type":"FeatureCollection",')
+                        f.write('"_meta":{"hasCoastline":')
+                        f.write("true" if has_coastline else "false")
+                        f.write(',"hasLandFeatures":')
+                        f.write("true" if has_land_features else "false")
+                        f.write('},"features":[')
+                        f.write(",".join(feature_jsons))
+                        f.write("]}")
+                    tile_count += 1
+
+                current_tile = tile_key
+                feature_jsons = []
+            feature_jsons.append(feature_json)
+
+        # Write last tile
+        if current_tile is not None:
+            cx, cy = current_tile
+            tile_dir = output_path / str(zoom) / str(cx)
+            if cx not in created_dirs:
+                tile_dir.mkdir(parents=True, exist_ok=True)
+                created_dirs.add(cx)
+            tile_file = tile_dir / f"{cy}.json"
+
+            # Analyze and write with metadata
+            has_coastline = False
+            has_land_features = False
+
+            for feature_str in feature_jsons:
+                try:
+                    feat = json.loads(feature_str)
+                    props = feat.get("properties", {})
+
+                    if props.get("natural") == "coastline":
+                        has_coastline = True
+
+                    if (
+                        props.get("highway")
+                        or props.get("building")
+                        or props.get("landuse")
+                        or props.get("railway")
+                        or props.get("amenity")
+                        or props.get("shop")
+                        or (
+                            props.get("natural")
+                            and props.get("natural") not in ["coastline", "water"]
+                        )
+                    ):
+                        has_land_features = True
+
+                    if has_coastline and has_land_features:
+                        break
+                except:
+                    pass
+
+            with open(tile_file, "w", encoding="utf-8") as f:
+                f.write('{"type":"FeatureCollection",')
+                f.write('"_meta":{"hasCoastline":')
+                f.write("true" if has_coastline else "false")
+                f.write(',"hasLandFeatures":')
+                f.write("true" if has_land_features else "false")
+                f.write('},"features":[')
+                f.write(",".join(feature_jsons))
+                f.write("]}")
+            tile_count += 1
+
+        conn.close()
+        print(f"  Z{zoom}: {tile_count:,} tiles")
 
 
 def process_geojson_to_tiles(args):
@@ -1618,6 +1791,38 @@ def main():
             )
 
         all_results.extend(results)
+
+    # Process cached databases - write tiles from existing databases
+    if cached_pbf_files:
+        print(f"\nProcessing {len(cached_pbf_files)} cached database(s) into tiles:")
+        for pbf_file in cached_pbf_files:
+            region_name = (
+                pbf_file.stem.replace("-latest.osm", "").replace("-", " ").title()
+            )
+            print(f"  • {region_name}")
+        print()
+
+        # Write tiles from each cached database
+        for pbf_file in cached_pbf_files:
+            db_prefix = pbf_file.stem
+            output_path = Path(str(temp_tile_dir))
+
+            # Get bounds from PBF for this region
+            bounds = get_pbf_bounds(pbf_file)
+
+            # Write tiles from the cached databases
+            print(f"Writing tiles for {pbf_file.stem}...")
+            write_tiles_from_databases(
+                args.data_dir, db_prefix, args.zoom_levels, output_path
+            )
+
+            all_results.append(
+                {
+                    "name": f"{pbf_file.stem}.geojson",
+                    "status": "success",
+                    "bounds": bounds,
+                }
+            )
 
     # Calculate OSM bounds before processing land polygons
     # Need bounds from both processed results AND cached PBF files
