@@ -59,18 +59,6 @@ Tile grid uses Web Mercator (similar to OSM tiles)
 Each tile: tiles/{zoom}/{x}/{y}.json.gz
 """
 
-import decimal
-import json
-import math
-import os
-import sqlite3
-import sys
-import time
-from collections import defaultdict
-from pathlib import Path
-
-import ijson
-
 
 def decimal_default(o):
     """Handle decimal.Decimal values from ijson (more efficient than JSONEncoder subclass)."""
@@ -1211,18 +1199,9 @@ def split_geojson_into_tiles(
     return actual_bounds
 
 
-
-
 # ============================================================================
 # STEP 3: TILE GENERATION ORCHESTRATION
 # ============================================================================
-
-
-def decimal_default(o):
-    """Handle decimal.Decimal values from ijson (more efficient than JSONEncoder subclass)."""
-    if isinstance(o, decimal.Decimal):
-        return float(o)
-    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
 
 
 def process_geojson_to_tiles(args):
@@ -1682,4 +1661,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
