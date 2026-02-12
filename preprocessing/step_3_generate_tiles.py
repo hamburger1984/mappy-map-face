@@ -829,13 +829,11 @@ def split_geojson_into_tiles(
             }
 
             # Sample features from database to calculate bounds
-            import json as json_module
-
             cursor = zoom_dbs[zoom_levels[0]].execute(
                 "SELECT feature_json FROM tile_features LIMIT 10000"
             )
             for (feature_json,) in cursor:
-                feature = json_module.loads(feature_json)
+                feature = json.loads(feature_json)
                 feature_bounds = get_feature_bounds(feature)
                 if feature_bounds:
                     actual_bounds["minLon"] = min(
@@ -852,7 +850,7 @@ def split_geojson_into_tiles(
                     )
 
             # Store the calculated bounds for future use
-            bounds_json = json_module.dumps(actual_bounds)
+            bounds_json = json.dumps(actual_bounds)
             zoom_dbs[zoom_levels[0]].execute(
                 "INSERT OR REPLACE INTO metadata VALUES ('bounds', ?)", (bounds_json,)
             )
