@@ -249,25 +249,81 @@ def main():
 
     args = parser.parse_args()
 
-    # Find GeoJSON files
+    # Find PBF files and check which ones need GeoJSON processing
     if args.geojson_files:
+        # If specific files provided, use them directly
         geojson_files = [Path(f) for f in args.geojson_files]
+        files_to_process = geojson_files
     else:
-        # Find OSM-derived GeoJSON files (not land polygons)
-        # Try both .osm.geojson and .geojson extensions
-        geojson_files = [
-            f
-            for f in args.data_dir.glob("*-latest.*.geojson")
-            if "land-polygon" not in f.name and not f.name.startswith("tmp")
-        ]
+        # Find all OSM PBF files
+        pbf_files = list(args.data_dir.glob("*-latest.osm.pbf"))
 
-    if not geojson_files and args.skip_land_polygons:
-        print("Error: No GeoJSON files found")
-        sys.exit(1)
+        if not pbf_files and args.skip_land_polygons:
+            print("Error: No OSM PBF files found")
+            sys.exit(1)
+
+        # Check which PBF files have valid cached databases
+        files_to_process = []
+        cached_pbf_files = []
+
+        for pbf_file in pbf_files:
+            # Check if all zoom databases exist with matching fingerprint
+            db_prefix = pbf_file.stem
+            fingerprint = split_tiles.get_input_fingerprint(str(pbf_file))
+
+            all_cached = True
+            for zoom in args.zoom_levels:
+                db_path = args.data_dir / f"{db_prefix}_z{zoom}.db"
+                if not db_path.exists():
+                    all_cached = False
+                    break
+
+                # Check fingerprint
+                try:
+                    import sqlite3
+
+                    conn = sqlite3.connect(str(db_path))
+                    row = conn.execute(
+                        "SELECT value FROM metadata WHERE key='fingerprint'"
+                    ).fetchone()
+                    conn.close()
+
+                    if not row or row[0] != fingerprint:
+                        all_cached = False
+                        break
+                except:
+                    all_cached = False
+                    break
+
+            if all_cached:
+                cached_pbf_files.append(pbf_file)
+                print(f"  ✓ {pbf_file.name}: databases cached, skipping GeoJSON")
+            else:
+                # Need GeoJSON for this file
+                geojson_file = pbf_file.parent / f"{pbf_file.stem}.geojson"
+                if not geojson_file.exists():
+                    print(
+                        f"  ⚠ {pbf_file.name}: needs processing but {geojson_file.name} not found"
+                    )
+                    print(f"     Run 'just convert' first")
+                    sys.exit(1)
+                files_to_process.append(geojson_file)
+
+        if files_to_process:
+            print(
+                f"\nWill process {len(files_to_process)} GeoJSON file(s) (databases not cached)"
+            )
+
+        geojson_files = files_to_process
 
     print("=" * 70)
     print("Step 3: Generate Map Tiles")
     print("=" * 70)
+    print()
+    print(f"Configuration:")
+    print(f"  Zoom levels: {', '.join(map(str, args.zoom_levels))}")
+    print(f"  Parallel jobs: {args.jobs}")
+    print(f"  Output: {args.output_dir}")
     print()
 
     # Create temporary directory for building tiles
@@ -275,19 +331,16 @@ def main():
     temp_tile_dir = Path(
         tempfile.mkdtemp(prefix="tiles_build_", dir=args.output_dir.parent)
     )
-    print(f"Building tiles in temporary directory: {temp_tile_dir}")
-    print(f"Final output directory: {args.output_dir}")
-    print(f"Zoom levels: {args.zoom_levels}")
-    print()
 
     all_results = []
 
     # Process OSM GeoJSON files
     if geojson_files:
-        print(f"Processing {len(geojson_files)} GeoJSON files...")
+        print(f"OSM Regions ({len(geojson_files)}):")
         for gj in geojson_files:
             size_mb = gj.stat().st_size / (1024 * 1024)
-            print(f"  - {gj.name} ({size_mb:.1f} MB)")
+            region_name = gj.stem.replace("-latest.osm", "").replace("-", " ").title()
+            print(f"  • {region_name} ({size_mb:.0f} MB)")
         print()
 
         # Find corresponding PBF files for fingerprinting
@@ -305,8 +358,8 @@ def main():
                 tqdm(
                     pool.imap_unordered(process_geojson_to_tiles, tile_args),
                     total=len(tile_args),
-                    desc="Generating tiles",
-                    unit="file",
+                    desc="Processing regions",
+                    unit="region",
                 )
             )
 
@@ -334,9 +387,12 @@ def main():
         if osm_bounds["minLon"] == float("inf"):
             osm_bounds = None
         else:
-            print(f"\nOSM data bounds:")
-            print(f"  Lon: {osm_bounds['minLon']:.4f} to {osm_bounds['maxLon']:.4f}")
-            print(f"  Lat: {osm_bounds['minLat']:.4f} to {osm_bounds['maxLat']:.4f}")
+            print()
+            print("Map Coverage:")
+            print(
+                f"  {osm_bounds['minLat']:.2f}°N to {osm_bounds['maxLat']:.2f}°N, "
+                f"{osm_bounds['minLon']:.2f}°E to {osm_bounds['maxLon']:.2f}°E"
+            )
 
     # Process land polygons with OSM bounds filtering
     if not args.skip_land_polygons:
@@ -353,11 +409,14 @@ def main():
         "maxLat": float("-inf"),
     }
 
+    print()
+    print("Processing Summary:")
+
     success_count = 0
-    print("\nTile Generation Results:")
-    for result in sorted(all_results, key=lambda x: x["name"]):
+    failed_sources = []
+
+    for result in all_results:
         if result["status"] == "success":
-            print(f"  ✓ {result['name']}")
             bounds = result["bounds"]
             # Don't include land polygon bounds in final merge - they're filtered to OSM bounds anyway
             # and before filtering they cover the entire world
@@ -366,9 +425,21 @@ def main():
                 merged_bounds["maxLon"] = max(merged_bounds["maxLon"], bounds["maxLon"])
                 merged_bounds["minLat"] = min(merged_bounds["minLat"], bounds["minLat"])
                 merged_bounds["maxLat"] = max(merged_bounds["maxLat"], bounds["maxLat"])
+
+            # Clean up names for display
+            name = result["name"].replace(".geojson", "").replace("-latest.osm", "")
+            if "land" in name:
+                print(f"  ✓ {name}")
+            else:
+                print(f"  ✓ {name.replace('-', ' ').title()}")
             success_count += 1
         else:
-            print(f"  ✗ {result['name']}: {result.get('error', 'failed')}")
+            name = result["name"].replace(".geojson", "").replace("-latest.osm", "")
+            failed_sources.append(f"{name}: {result.get('error', 'unknown error')}")
+
+    if failed_sources:
+        for failure in failed_sources:
+            print(f"  ✗ {failure}")
 
     # Write tile index
     if success_count > 0:
@@ -392,22 +463,20 @@ def main():
         with open(index_file, "w", encoding="utf-8") as f:
             json.dump(index_data, f, indent=2)
 
-        print(f"\n✓ Created tile index: {index_file}")
-        print(f"  Total tiles: {tile_count}")
-        print(f"  Bounds: {merged_bounds['minLon']:.2f}, {merged_bounds['minLat']:.2f}")
+        print()
+        print("Finalizing tiles...")
+        print(f"  ✓ Created index with {tile_count:,} tiles")
         print(
-            f"          to {merged_bounds['maxLon']:.2f}, {merged_bounds['maxLat']:.2f}"
+            f"  ✓ Bounds: {merged_bounds['minLat']:.2f}°N to {merged_bounds['maxLat']:.2f}°N, "
+            f"{merged_bounds['minLon']:.2f}°E to {merged_bounds['maxLon']:.2f}°E"
         )
 
         # Move tiles from temp directory to final location atomically
-        print(f"\nMoving tiles to final location...")
         if args.output_dir.exists():
-            print(f"  Removing old tiles at {args.output_dir}")
             shutil.rmtree(args.output_dir)
 
-        print(f"  Moving {temp_tile_dir} -> {args.output_dir}")
         shutil.move(str(temp_tile_dir), str(args.output_dir))
-        print(f"  ✓ Tiles moved successfully")
+        print(f"  ✓ Moved to {args.output_dir}")
     else:
         # Clean up temp directory if nothing was created
         if temp_tile_dir.exists():
@@ -415,7 +484,12 @@ def main():
 
     print()
     print("=" * 70)
-    print(f"✓ Generated tiles from {success_count}/{len(all_results)} sources")
+    if success_count == len(all_results):
+        print(f"✓ Tile generation complete! Processed {success_count} source(s)")
+    else:
+        print(
+            f"⚠ Tile generation completed with errors ({success_count}/{len(all_results)} sources)"
+        )
     print("=" * 70)
 
     if success_count < len(all_results):
