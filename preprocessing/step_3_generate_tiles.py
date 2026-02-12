@@ -1344,6 +1344,14 @@ def process_land_polygons(data_dir, output_dir, zoom_levels, osm_bounds=None):
         filter_bbox = None
 
     for land_type, land_file in land_files.items():
+        # Skip detailed land polygons - they're very large (2.4GB) and slow to process
+        # Use simplified for all zoom levels for now
+        if land_type == "detailed":
+            print(
+                f"\nSkipping {land_type} land polygons (using simplified for all zooms)"
+            )
+            continue
+
         if not land_file.exists():
             continue
 
