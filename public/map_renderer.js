@@ -1562,6 +1562,7 @@ class MapRenderer {
         surface_roads: [],
         surface_railways: [],
         boundaries: [],
+        coastline: [], // Coastline visualization (magenta with arrows)
         points: [],
         place_labels: [], // City/town/village names
       };
@@ -1700,6 +1701,11 @@ class MapRenderer {
     layerStart = performance.now();
     this.renderLayer(layers.boundaries, adjustedBounds, false);
     layerTimings.boundaries = performance.now() - layerStart;
+
+    // 9b. Coastline with direction arrows (on top for debugging)
+    layerStart = performance.now();
+    this.renderCoastlineWithArrows(layers.coastline, adjustedBounds);
+    layerTimings.coastline = performance.now() - layerStart;
 
     // 10. Points (always on top)
     layerStart = performance.now();
@@ -2102,6 +2108,22 @@ class MapRenderer {
     }
 
     // === LINEAR FEATURES (lines) ===
+
+    // Coastline (for visualization and debugging)
+    if (
+      props.natural === "coastline" &&
+      type !== "Polygon" &&
+      type !== "MultiPolygon"
+    ) {
+      return {
+        layer: "coastline",
+        color: { r: 255, g: 0, b: 255, a: 255 }, // Magenta
+        minLOD: 0,
+        fill: false,
+        width: 3,
+        showDirection: true, // Draw direction arrows
+      };
+    }
 
     // Waterways (rivers, streams as lines)
     if (props.waterway && props.waterway !== "riverbank") {
@@ -2929,6 +2951,109 @@ class MapRenderer {
 
         // Move to next character position
         currentDist += drawReversed ? -charWidth : charWidth;
+      }
+    }
+  }
+
+  renderCoastlineWithArrows(layerFeatures, bounds) {
+    // Render coastlines with direction arrows to visualize topology
+    if (!layerFeatures || layerFeatures.length === 0) return;
+
+    // Pre-compute bounds scaling
+    const lonRange = bounds.maxLon - bounds.minLon;
+    const latRange = bounds.maxLat - bounds.minLat;
+    const scaleX = this.canvasWidth / lonRange;
+    const scaleY = this.canvasHeight / latRange;
+    const minLon = bounds.minLon;
+    const minLat = bounds.minLat;
+    const canvasHeight = this.canvasHeight;
+    const toScreenX = (lon) => (lon - minLon) * scaleX;
+    const toScreenY = (lat) => canvasHeight - (lat - minLat) * scaleY;
+
+    for (const item of layerFeatures) {
+      const { feature, props, type, color, width } = item;
+      const geom = feature.geometry;
+      if (!geom || !geom.coordinates) continue;
+
+      const coordArrays =
+        type === "LineString"
+          ? [geom.coordinates]
+          : type === "MultiLineString"
+            ? geom.coordinates
+            : null;
+
+      if (!coordArrays) continue;
+
+      for (const coords of coordArrays) {
+        if (coords.length < 2) continue;
+
+        // Convert to screen coordinates
+        const screenCoords = coords.map((c) => ({
+          x: toScreenX(c[0]),
+          y: toScreenY(c[1]),
+        }));
+
+        // Draw the coastline as a thick magenta line
+        this.ctx.strokeStyle = `rgba(${color.r},${color.g},${color.b},${color.a / 255})`;
+        this.ctx.lineWidth = width || 3;
+        this.ctx.lineCap = "round";
+        this.ctx.lineJoin = "round";
+        this.ctx.beginPath();
+        this.ctx.moveTo(screenCoords[0].x, screenCoords[0].y);
+        for (let i = 1; i < screenCoords.length; i++) {
+          this.ctx.lineTo(screenCoords[i].x, screenCoords[i].y);
+        }
+        this.ctx.stroke();
+
+        // Draw direction arrows along the line
+        // Arrow every ~50 pixels
+        const arrowSpacing = 50;
+        let accumulatedDistance = 0;
+
+        for (let i = 1; i < screenCoords.length; i++) {
+          const p1 = screenCoords[i - 1];
+          const p2 = screenCoords[i];
+          const dx = p2.x - p1.x;
+          const dy = p2.y - p1.y;
+          const segmentLength = Math.sqrt(dx * dx + dy * dy);
+
+          // Walk along this segment placing arrows
+          let distanceInSegment =
+            arrowSpacing - (accumulatedDistance % arrowSpacing);
+
+          while (distanceInSegment < segmentLength) {
+            const t = distanceInSegment / segmentLength;
+            const arrowX = p1.x + dx * t;
+            const arrowY = p1.y + dy * t;
+
+            // Calculate arrow direction (tangent to line)
+            const angle = Math.atan2(dy, dx);
+
+            // Draw arrow (simple triangle pointing in direction)
+            const arrowSize = 8;
+            this.ctx.save();
+            this.ctx.translate(arrowX, arrowY);
+            this.ctx.rotate(angle);
+
+            this.ctx.fillStyle = "rgba(255, 255, 255, 0.9)"; // White fill
+            this.ctx.strokeStyle = `rgba(${color.r},${color.g},${color.b},1)`;
+            this.ctx.lineWidth = 1;
+
+            this.ctx.beginPath();
+            this.ctx.moveTo(arrowSize, 0); // Tip
+            this.ctx.lineTo(-arrowSize / 2, -arrowSize / 2); // Top wing
+            this.ctx.lineTo(-arrowSize / 2, arrowSize / 2); // Bottom wing
+            this.ctx.closePath();
+            this.ctx.fill();
+            this.ctx.stroke();
+
+            this.ctx.restore();
+
+            distanceInSegment += arrowSpacing;
+          }
+
+          accumulatedDistance += segmentLength;
+        }
       }
     }
   }

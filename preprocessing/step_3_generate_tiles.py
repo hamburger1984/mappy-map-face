@@ -676,6 +676,17 @@ def get_render_metadata(props, geom_type):
             "name_priority": 6,  # Lowest priority
         }
 
+    # Coastline (for visualization and debugging)
+    if natural == "coastline" and not is_polygon:
+        return {
+            "layer": "coastline",
+            "color": {"r": 255, "g": 0, "b": 255, "a": 255},  # Magenta
+            "minLOD": 0,
+            "fill": False,
+            "width": 3,
+            "showDirection": True,  # Draw direction arrows
+        }
+
     # Country borders (admin_level=2)
     if props.get("boundary") == "administrative" and props.get("admin_level") == "2":
         return {

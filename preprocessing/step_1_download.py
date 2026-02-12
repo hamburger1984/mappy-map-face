@@ -38,11 +38,6 @@ OSM_SOURCES = {
     # "denmark": "https://download.geofabrik.de/europe/denmark-latest.osm.pbf",
 }
 
-LAND_POLYGON_SOURCES = {
-    "simplified": "https://osmdata.openstreetmap.de/download/simplified-land-polygons-complete-3857.zip",
-    "detailed": "https://osmdata.openstreetmap.de/download/land-polygons-split-3857.zip",
-}
-
 
 def check_file_age(file_path, max_age_days=30):
     """Check if file exists and is newer than max_age_days."""
@@ -365,46 +360,6 @@ def main():
             )
         else:
             print(f"  ✗ {result['name']}: {result.get('error', 'failed')}")
-
-    # Land polygons disabled (removed in favor of smart background rendering)
-    if False:
-        print(f"\nDownloading land polygons ({len(LAND_POLYGON_SOURCES)} sources)...")
-        land_args = [
-            (name, url, args.data_dir) for name, url in LAND_POLYGON_SOURCES.items()
-        ]
-
-        with Pool(min(args.jobs, len(land_args))) as pool:
-            land_results = list(
-                tqdm(
-                    pool.imap_unordered(download_and_convert_land_polygons, land_args),
-                    total=len(land_args),
-                    desc="Land polygons",
-                    unit="file",
-                )
-            )
-
-        # Print land polygon results
-        print("\nLand Polygons:")
-        for result in sorted(land_results, key=lambda x: x["name"]):
-            if result["status"] == "cached":
-                print(
-                    f"  ✓ {result['name']}: {result['size_mb']:.1f} MB ({result['age_days']} days old)"
-                )
-            elif result["status"] == "downloaded":
-                print(
-                    f"  ✓ {result['name']}: {result['size_mb']:.1f} MB (newly downloaded)"
-                )
-            elif result["status"] == "skipped":
-                print(
-                    f"  ⚠ {result['name']}: skipped ({result.get('reason', 'unknown')})"
-                )
-            else:
-                print(f"  ✗ {result['name']}: {result.get('error', 'failed')}")
-
-    print()
-    print("=" * 70)
-    print("✓ Download complete")
-    print("=" * 70)
 
 
 if __name__ == "__main__":
