@@ -1469,6 +1469,10 @@ def process_land_polygons(data_dir, output_dir, zoom_levels, osm_bounds=None):
 
             # Process into tiles using OSM bounds (land polygons are GeoJSON, not PBF)
             # The bounds are from OSM data, not calculated from land polygon features
+            print(f"  → Processing {filtered_count} features into tiles...")
+            print(
+                f"     (This may take several minutes due to complex coastline geometries)"
+            )
             split_geojson_into_tiles(
                 tagged_geojson.name,
                 output_dir,
