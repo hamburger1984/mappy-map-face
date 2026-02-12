@@ -4,16 +4,25 @@ Step 3: Generate map tiles from GeoJSON files.
 
 This script processes GeoJSON files into tile format with parallel processing
 and detailed progress reporting.
+
+Tile system:
+- Z0-Z5: Major features (motorways, railways, forests, large water)
+- Z6-Z10: Secondary features (primary roads, parks, rivers)
+- Z11-Z14: Detailed features (residential roads, buildings)
+- Z15+: All details (paths, small POIs)
 """
 
 import argparse
 import decimal
-import importlib.util
 import json
+import math
+import os
 import shutil
+import sqlite3
 import sys
 import tempfile
 import time
+from collections import defaultdict
 from multiprocessing import Pool
 from pathlib import Path
 
@@ -24,12 +33,1189 @@ except ImportError:
     print("Install with: pip install tqdm")
     sys.exit(1)
 
-# Import split_tiles module
-spec = importlib.util.spec_from_file_location(
-    "split_tiles", Path(__file__).parent / "split-tiles.py"
+try:
+    import ijson
+except ImportError:
+    print("Error: ijson is required for streaming JSON parsing")
+    print("Install with: pip install ijson")
+    sys.exit(1)
+
+
+# ============================================================================
+# TILE GENERATION CORE (from split-tiles.py)
+# ============================================================================
+
+#!/usr/bin/env python3
+"""
+Split GeoJSON into progressive tiles for efficient loading.
+
+Tile system:
+- Z0-Z5: Major features (motorways, railways, forests, large water)
+- Z6-Z10: Secondary features (primary roads, parks, rivers)
+- Z11-Z14: Detailed features (residential roads, buildings)
+- Z15+: All details (paths, small POIs)
+
+Tile grid uses Web Mercator (similar to OSM tiles)
+Each tile: tiles/{zoom}/{x}/{y}.json.gz
+"""
+
+import decimal
+import json
+import math
+import os
+import sqlite3
+import sys
+import time
+from collections import defaultdict
+from pathlib import Path
+
+import ijson
+
+
+def decimal_default(o):
+    """Handle decimal.Decimal values from ijson (more efficient than JSONEncoder subclass)."""
+    if isinstance(o, decimal.Decimal):
+        return float(o)
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+
+
+# Fallback bounds if no features are processed
+MIN_LON = 8.48
+MAX_LON = 11.50
+MIN_LAT = 52.65
+
+# Initial map center (Lombardsbrücke, Hamburg)
+HAMBURG_CENTER_LAT = 53.5567
+HAMBURG_CENTER_LON = 10.0061
+
+# Railway type classifications (avoid recreating on every feature)
+MAJOR_RAIL = frozenset(["rail"])
+MEDIUM_RAIL = frozenset(["light_rail", "subway"])
+MINOR_RAIL = frozenset(["tram", "monorail", "narrow_gauge", "preserved"])
+ALL_RAIL_TYPES = frozenset(
+    ["rail", "light_rail", "subway", "tram", "monorail", "narrow_gauge", "preserved"]
 )
-split_tiles = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(split_tiles)
+
+# Geometry type checks
+POLYGON_TYPES = frozenset(["Polygon", "MultiPolygon"])
+
+# Highway/road type classifications
+MAJOR_HIGHWAYS = frozenset(
+    ["motorway", "trunk", "primary"]
+)  # Includes Bundesstraßen (B-roads)
+SECONDARY_HIGHWAYS = frozenset(["secondary"])
+TERTIARY_RESIDENTIAL_HIGHWAYS = frozenset(["tertiary", "residential", "unclassified"])
+
+# Landuse type classifications
+PARK_LANDUSE = frozenset(["grass", "meadow"])
+FARM_LANDUSE = frozenset(["farmland", "orchard", "vineyard"])
+COMMERCIAL_LANDUSE = frozenset(["commercial", "retail"])
+
+# Waterway type classifications
+MAJOR_WATERWAYS = frozenset(["river", "canal"])
+
+# LOD to zoom level mappings (avoid recreating lists per feature)
+LOD_0_ZOOMS = (8, 11, 14)  # Major features: all zoom levels
+LOD_1_ZOOMS = (11, 14)  # Secondary features: not in Z8
+LOD_2_ZOOMS = (14,)  # Detail features: only Z14
+LOD_3_ZOOMS = (14,)  # Very close detail: only Z14
+
+# POI category definitions (mirrors map_renderer.js POI_CATEGORIES)
+POI_CATEGORIES = {
+    "food_drink": {
+        "color": {"r": 231, "g": 76, "b": 60, "a": 255},
+        "amenity": {
+            "restaurant",
+            "fast_food",
+            "cafe",
+            "ice_cream",
+            "food_court",
+            "bbq",
+        },
+        "shop": {
+            "bakery",
+            "pastry",
+            "deli",
+            "confectionery",
+            "butcher",
+            "cheese",
+            "seafood",
+            "coffee",
+            "tea",
+            "wine",
+            "beverages",
+            "alcohol",
+        },
+    },
+    "shopping": {
+        "color": {"r": 155, "g": 89, "b": 182, "a": 255},
+        "shop": {
+            "hairdresser",
+            "clothes",
+            "kiosk",
+            "supermarket",
+            "convenience",
+            "beauty",
+            "jewelry",
+            "florist",
+            "chemist",
+            "mobile_phone",
+            "optician",
+            "shoes",
+            "furniture",
+            "books",
+            "bicycle",
+            "car_repair",
+            "tailor",
+            "tattoo",
+            "massage",
+            "interior_decoration",
+            "electronics",
+            "hardware",
+            "sports",
+            "toys",
+            "gift",
+            "stationery",
+            "pet",
+            "photo",
+            "music",
+            "art",
+            "bag",
+            "fabric",
+            "garden_centre",
+            "hearing_aids",
+            "travel_agency",
+            "dry_cleaning",
+            "laundry",
+            "car",
+            "car_parts",
+            "tyres",
+            "motorcycle",
+        },
+        "amenity": {"marketplace", "vending_machine"},
+    },
+    "health": {
+        "color": {"r": 46, "g": 204, "b": 113, "a": 255},
+        "amenity": {
+            "doctors",
+            "dentist",
+            "pharmacy",
+            "hospital",
+            "clinic",
+            "veterinary",
+            "nursing_home",
+        },
+    },
+    "tourism": {
+        "color": {"r": 230, "g": 126, "b": 34, "a": 255},
+        "tourism": {
+            "artwork",
+            "hotel",
+            "museum",
+            "viewpoint",
+            "information",
+            "attraction",
+            "guest_house",
+            "hostel",
+            "gallery",
+            "camp_site",
+            "picnic_site",
+            "zoo",
+            "theme_park",
+            "motel",
+            "apartment",
+        },
+    },
+    "historic": {
+        "color": {"r": 139, "g": 69, "b": 19, "a": 255},
+        "historic": {
+            "memorial",
+            "boundary_stone",
+            "monument",
+            "castle",
+            "ruins",
+            "archaeological_site",
+            "building",
+            "church",
+            "manor",
+            "city_gate",
+            "wayside_cross",
+            "wayside_shrine",
+            "heritage",
+            "milestone",
+            "tomb",
+            "technical_monument",
+            "highwater_mark",
+        },
+    },
+    "services": {
+        "color": {"r": 52, "g": 152, "b": 219, "a": 255},
+        "amenity": {
+            "bank",
+            "post_office",
+            "library",
+            "police",
+            "fire_station",
+            "townhall",
+            "courthouse",
+            "embassy",
+            "community_centre",
+            "social_facility",
+            "place_of_worship",
+            "cinema",
+            "theatre",
+            "arts_centre",
+            "driving_school",
+            "recycling",
+            "post_box",
+            "atm",
+            "bureau_de_change",
+            "toilets",
+            "events_venue",
+            "childcare",
+        },
+    },
+    "transport": {
+        "color": {"r": 26, "g": 188, "b": 156, "a": 255},
+        "amenity": {
+            "bicycle_rental",
+            "parking",
+            "parking_entrance",
+            "fuel",
+            "charging_station",
+            "car_sharing",
+            "taxi",
+            "bus_station",
+            "ferry_terminal",
+            "car_rental",
+            "boat_rental",
+        },
+    },
+    "education": {
+        "color": {"r": 243, "g": 156, "b": 18, "a": 255},
+        "amenity": {
+            "kindergarten",
+            "school",
+            "university",
+            "college",
+            "music_school",
+            "language_school",
+            "training",
+        },
+    },
+    "nightlife": {
+        "color": {"r": 233, "g": 30, "b": 144, "a": 255},
+        "amenity": {
+            "bar",
+            "pub",
+            "nightclub",
+            "biergarten",
+            "casino",
+            "gambling",
+            "hookah_lounge",
+        },
+    },
+}
+
+POI_AMENITY_PRIORITY = [
+    "food_drink",
+    "nightlife",
+    "health",
+    "education",
+    "transport",
+    "services",
+]
+
+
+def classify_poi(props):
+    """Classify a POI into a category. Returns category ID or None."""
+    amenity = props.get("amenity")
+    shop = props.get("shop")
+    tourism = props.get("tourism")
+    historic = props.get("historic")
+
+    if amenity:
+        for cat_id in POI_AMENITY_PRIORITY:
+            cat_def = POI_CATEGORIES[cat_id]
+            if "amenity" in cat_def and amenity in cat_def["amenity"]:
+                return cat_id
+        if amenity in POI_CATEGORIES["shopping"].get("amenity", set()):
+            return "shopping"
+    if shop:
+        for cat_id, cat_def in POI_CATEGORIES.items():
+            if "shop" in cat_def and shop in cat_def["shop"]:
+                return cat_id
+        return "shopping"
+    if tourism:
+        return "tourism"
+    if historic:
+        return "historic"
+    if amenity:
+        return "services"
+    return None
+
+
+MAX_LAT = 54.45
+
+
+def lon_to_tile_x(lon, zoom):
+    """Convert longitude to tile X coordinate"""
+    n = 2.0**zoom
+    return int((lon + 180.0) / 360.0 * n)
+
+
+def lat_to_tile_y(lat, zoom):
+    """Convert latitude to tile Y coordinate"""
+    n = 2.0**zoom
+    lat_rad = math.radians(lat)
+    return int((1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * n)
+
+
+def get_feature_bounds(feature):
+    """Get bounding box of a feature"""
+    coords = feature["geometry"]["coordinates"]
+    geom_type = feature["geometry"]["type"]
+
+    lons, lats = [], []
+
+    def process_coord(coord):
+        lons.append(float(coord[0]))
+        lats.append(float(coord[1]))
+
+    if geom_type == "Point":
+        process_coord(coords)
+    elif geom_type == "LineString":
+        for coord in coords:
+            process_coord(coord)
+    elif geom_type == "Polygon":
+        for coord in coords[0]:
+            process_coord(coord)
+    elif geom_type == "MultiLineString":
+        for line in coords:
+            for coord in line:
+                process_coord(coord)
+    elif geom_type == "MultiPolygon":
+        for polygon in coords:
+            for coord in polygon[0]:
+                process_coord(coord)
+
+    if not lons:
+        return None
+
+    return {
+        "minLon": min(lons),
+        "maxLon": max(lons),
+        "minLat": min(lats),
+        "maxLat": max(lats),
+    }
+
+
+def get_render_metadata(props, geom_type):
+    """
+    Compute rendering metadata for a feature.
+    Returns dict with: color (RGBA), layer, minLOD, fill
+    This is the build-time equivalent of map_renderer.js classifyFeature()
+    """
+
+    # Cache commonly accessed properties to avoid repeated dict lookups
+    landuse = props.get("landuse")
+    natural = props.get("natural")
+    waterway = props.get("waterway")
+    building = props.get("building")
+    highway = props.get("highway")
+    railway = props.get("railway")
+    leisure = props.get("leisure")
+
+    is_polygon = geom_type in POLYGON_TYPES
+
+    # Parks and green spaces (only polygons)
+    if (leisure == "park" or landuse in PARK_LANDUSE) and is_polygon:
+        return {
+            "layer": "natural_background",
+            "color": {"r": 200, "g": 230, "b": 180, "a": 255},
+            "minLOD": 1,
+            "fill": True,
+        }
+
+    # Agricultural land (only polygons)
+    if landuse in FARM_LANDUSE and is_polygon:
+        return {
+            "layer": "natural_background",
+            "color": {"r": 238, "g": 240, "b": 213, "a": 255},
+            "minLOD": 1,
+            "fill": True,
+        }
+
+    # Forests and woods (only polygons)
+    if (landuse == "forest" or natural == "wood") and is_polygon:
+        return {
+            "layer": "forests",
+            "color": {"r": 173, "g": 209, "b": 158, "a": 255},
+            "minLOD": 0,
+            "fill": True,
+        }
+
+    # Land polygons (simplified - for zoomed out view)
+    if props.get("layer_source") == "land_polygons_simplified":
+        return {
+            "layer": "land_base",
+            "color": {"r": 242, "g": 239, "b": 233, "a": 255},  # Light tan/beige
+            "minLOD": 0,  # Always visible
+            "fill": True,
+        }
+
+    # Land polygons (detailed - for zoomed in view)
+    if props.get("layer_source") == "land_polygons_detailed":
+        return {
+            "layer": "land_base",
+            "color": {"r": 242, "g": 239, "b": 233, "a": 255},  # Same color
+            "minLOD": 2,  # Only visible when zoomed in
+            "fill": True,
+        }
+
+    # Water bodies (only polygons - including coastline for sea/ocean areas)
+    if (
+        natural == "water"
+        or props.get("water")
+        or waterway == "riverbank"
+        or natural == "coastline"
+    ) and is_polygon:
+        return {
+            "layer": "water_areas",
+            "color": {"r": 170, "g": 211, "b": 223, "a": 255},
+            "minLOD": 0,
+            "fill": True,
+        }
+
+    # Rivers and streams as lines
+    if waterway and waterway != "riverbank":
+        importance = 1 if waterway in MAJOR_WATERWAYS else 2
+        return {
+            "layer": "waterways",
+            "color": {"r": 170, "g": 211, "b": 223, "a": 255},
+            "minLOD": importance,
+            "fill": False,
+        }
+
+    # Landuse areas (only polygons) - show at same LOD as tertiary roads
+    if landuse == "residential" and is_polygon:
+        return {
+            "layer": "landuse_areas",
+            "color": {"r": 224, "g": 224, "b": 224, "a": 255},  # Light gray
+            "minLOD": 1,
+            "fill": True,
+        }
+
+    if landuse in COMMERCIAL_LANDUSE and is_polygon:
+        return {
+            "layer": "landuse_areas",
+            "color": {"r": 243, "g": 233, "b": 234, "a": 255},
+            "minLOD": 1,
+            "fill": True,
+        }
+
+    if landuse == "industrial" and is_polygon:
+        return {
+            "layer": "landuse_areas",
+            "color": {"r": 240, "g": 233, "b": 240, "a": 255},
+            "minLOD": 1,
+            "fill": True,
+        }
+
+    # Buildings (only polygons - filter out LineString building outlines)
+    if building and is_polygon:
+        return {
+            "layer": "areas",
+            "color": {"r": 218, "g": 208, "b": 200, "a": 255},
+            "minLOD": 2,
+            "fill": True,
+        }
+
+    # Remap construction roads to their target type for render metadata
+    effective_highway = highway
+    if effective_highway == "construction":
+        construction = props.get("construction")
+        if construction:
+            effective_highway = construction
+
+    # Major highways (motorway, trunk, primary/Bundesstraßen)
+    if effective_highway in MAJOR_HIGHWAYS:
+        # Motorways/trunk get red-orange, primary/Bundesstraßen get orange-yellow
+        if effective_highway in ["motorway", "trunk"]:
+            color = {"r": 233, "g": 115, "b": 103, "a": 255}  # Red-orange
+            priority = 1
+        else:  # primary
+            color = {"r": 252, "g": 214, "b": 164, "a": 255}  # Orange-yellow
+            priority = 2
+        return {
+            "layer": "major_roads",
+            "color": color,
+            "minLOD": 0,  # All major highways visible at all zoom levels
+            "fill": False,
+            "name": props.get("name", ""),
+            "name_priority": priority,
+        }
+
+    # Secondary roads
+    if effective_highway in SECONDARY_HIGHWAYS:
+        return {
+            "layer": "major_roads",
+            "color": {"r": 252, "g": 214, "b": 164, "a": 255},
+            "minLOD": 1,
+            "fill": False,
+            "name": props.get("name", ""),
+            "name_priority": 3,
+        }
+
+    # Tertiary and residential roads
+    if effective_highway in TERTIARY_RESIDENTIAL_HIGHWAYS:
+        priority = 4 if effective_highway == "tertiary" else 5
+        return {
+            "layer": "roads",
+            "color": {"r": 255, "g": 255, "b": 255, "a": 255},
+            "minLOD": 2,
+            "fill": False,
+            "name": props.get("name", ""),
+            "name_priority": priority,
+        }
+
+    # Small roads and paths
+    if effective_highway:
+        return {
+            "layer": "roads",
+            "color": {"r": 220, "g": 220, "b": 220, "a": 255},
+            "minLOD": 3,
+            "fill": False,
+            "name": props.get("name", ""),
+            "name_priority": 6,  # Lowest priority
+        }
+
+    # Country borders (admin_level=2)
+    if props.get("boundary") == "administrative" and props.get("admin_level") == "2":
+        return {
+            "layer": "boundaries",
+            "color": {"r": 128, "g": 0, "b": 128, "a": 255},  # Purple
+            "minLOD": 0,
+            "fill": False,
+        }
+
+    # Railways (long distance/regional at LOD 0, subway/tram at LOD 2)
+    if railway and geom_type != "Point":
+        if railway in MAJOR_RAIL or not railway:
+            return {
+                "layer": "railways",
+                "color": {"r": 153, "g": 153, "b": 153, "a": 255},
+                "minLOD": 0,  # Long distance/regional rail visible at all zoom levels
+                "fill": False,
+            }
+        elif railway in MEDIUM_RAIL:
+            return {
+                "layer": "railways",
+                "color": {"r": 153, "g": 153, "b": 153, "a": 255},
+                "minLOD": 1,  # Subway/light rail at medium zoom
+                "fill": False,
+            }
+        elif railway in MINOR_RAIL:
+            return {
+                "layer": "railways",
+                "color": {"r": 153, "g": 153, "b": 153, "a": 255},
+                "minLOD": 2,  # Trams and minor rail only at closer zoom
+                "fill": False,
+            }
+
+    # Points of interest (only named with amenities at high zoom)
+    if geom_type == "Point":
+        if props.get("name") and (
+            props.get("amenity")
+            or props.get("shop")
+            or props.get("tourism")
+            or props.get("historic")
+        ):
+            poi_cat = classify_poi(props)
+            if poi_cat and poi_cat in POI_CATEGORIES:
+                color = POI_CATEGORIES[poi_cat]["color"]
+            else:
+                color = {"r": 100, "g": 100, "b": 100, "a": 255}
+                poi_cat = "services"
+            return {
+                "layer": "points",
+                "color": color,
+                "minLOD": 3,
+                "fill": False,
+                "poiCategory": poi_cat,
+            }
+        # Skip all other points
+        return None
+
+    # Default: skip
+    return None
+
+
+def classify_feature_importance(props, geom_type):
+    """
+    Classify feature by importance for progressive loading.
+    Returns tuple: (min_zoom, importance_score)
+
+    min_zoom: earliest zoom level to show this feature
+    importance_score: for sorting within zoom level
+    """
+
+    # Cache commonly accessed properties
+    highway = props.get("highway")
+    railway = props.get("railway")
+    waterway = props.get("waterway")
+    natural = props.get("natural")
+    landuse = props.get("landuse")
+    building = props.get("building")
+    leisure = props.get("leisure")
+
+    # Remap construction roads to their target type for importance classification
+    effective_highway = highway
+    if effective_highway == "construction":
+        construction = props.get("construction")
+        if construction:
+            effective_highway = construction
+
+    # Major water bodies (always visible)
+    if natural == "water" or props.get("water") or waterway == "riverbank":
+        return (0, 100)  # Z0-Z5, very important
+
+    # Forests (always visible)
+    if landuse == "forest" or natural == "wood":
+        return (0, 90)  # Z0-Z5, very important
+
+    # Major highways (motorway, trunk, primary - always visible)
+    if effective_highway in MAJOR_HIGHWAYS:
+        return (0, 80)  # Z0-Z5, very important
+
+    # Railways (always visible)
+    if railway and geom_type != "Point":
+        if railway in ALL_RAIL_TYPES:
+            return (0, 70)  # Z0-Z5, important
+
+    # Major rivers
+    if waterway in MAJOR_WATERWAYS:
+        return (6, 60)  # Z6-Z10
+
+    # Secondary roads
+    if effective_highway in SECONDARY_HIGHWAYS:
+        return (6, 50)  # Z6-Z10
+
+    # Parks and green spaces
+    if leisure == "park" or landuse in PARK_LANDUSE or landuse in FARM_LANDUSE:
+        return (6, 40)  # Z6-Z10
+
+    # Tertiary and residential roads
+    if effective_highway in TERTIARY_RESIDENTIAL_HIGHWAYS:
+        return (11, 30)  # Z11-Z14
+
+    # Buildings
+    if building:
+        return (11, 20)  # Z11-Z14
+
+    # Small roads and paths
+    if effective_highway:
+        return (15, 10)  # Z15+
+
+    # Named POIs
+    if geom_type == "Point" and props.get("name"):
+        if props.get("amenity") or props.get("shop") or props.get("tourism"):
+            return (15, 5)  # Z15+
+
+    # Skip everything else
+    return (99, 0)  # Never show
+
+
+def get_tiles_for_feature(feature, zoom):
+    """Get all tiles that this feature intersects at given zoom level"""
+    bounds = get_feature_bounds(feature)
+    if not bounds:
+        return []
+
+    min_x = lon_to_tile_x(bounds["minLon"], zoom)
+    max_x = lon_to_tile_x(bounds["maxLon"], zoom)
+    min_y = lat_to_tile_y(bounds["maxLat"], zoom)  # Note: Y is inverted
+    max_y = lat_to_tile_y(bounds["minLat"], zoom)
+
+    tiles = []
+    for x in range(min_x, max_x + 1):
+        for y in range(min_y, max_y + 1):
+            tiles.append((zoom, x, y))
+
+    return tiles
+
+
+def get_input_fingerprint(input_file):
+    """Fast fingerprint using file size + mtime (avoids hashing 3+ GB)."""
+    stat = Path(input_file).stat()
+    return f"{stat.st_size}:{stat.st_mtime_ns}"
+
+
+def open_zoom_db(db_dir, zoom, fingerprint=None, db_prefix="tile_build"):
+    """Open (or create) a per-zoom SQLite database. Returns (conn, is_cached)."""
+    db_path = db_dir / f"{db_prefix}_z{zoom}.db"
+
+    if db_path.exists():
+        if fingerprint:
+            try:
+                conn = sqlite3.connect(str(db_path))
+                row = conn.execute(
+                    "SELECT value FROM metadata WHERE key='fingerprint'"
+                ).fetchone()
+                if row and row[0] == fingerprint:
+                    return conn, True
+                conn.close()
+            except sqlite3.OperationalError:
+                pass
+        db_path.unlink()
+
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=OFF")
+    conn.execute("PRAGMA page_size=8192")
+    conn.execute("PRAGMA cache_size=-64000")  # 64MB cache
+    conn.execute("PRAGMA temp_store=MEMORY")
+    conn.execute("""
+        CREATE TABLE tile_features (
+            x INTEGER,
+            y INTEGER,
+            importance INTEGER,
+            feature_json TEXT
+        )
+    """)
+    conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT)")
+    return conn, False
+
+
+def split_geojson_into_tiles(
+    geojson_file, output_dir, zoom_levels, source_pbf_file, db_prefix=None
+):
+    """Split GeoJSON into tiles using per-zoom SQLite databases.
+
+    Args:
+        geojson_file: Path to temporary GeoJSON file to process
+        output_dir: Directory to write tiles to
+        zoom_levels: List of zoom levels to generate
+        source_pbf_file: Path to source OSM PBF file (REQUIRED - used for fingerprinting and database location)
+        db_prefix: Optional prefix for database files (defaults to PBF filename)
+    """
+
+    # Use PBF file as source of truth for fingerprinting and database location
+    db_dir = Path(source_pbf_file).parent
+    fingerprint = get_input_fingerprint(source_pbf_file)
+
+    # Use PBF filename (without extension) as db_prefix if not provided
+    if db_prefix is None:
+        db_prefix = Path(source_pbf_file).stem
+
+    # Open per-zoom databases, check which ones can be reused
+    zoom_dbs = {}
+    need_import = False
+    for zoom in zoom_levels:
+        conn, cached = open_zoom_db(db_dir, zoom, fingerprint, db_prefix)
+        zoom_dbs[zoom] = conn
+        if not cached:
+            need_import = True
+
+    if not need_import:
+        # Retrieve bounds from cached database metadata
+        actual_bounds = None
+        try:
+            import json
+
+            row = (
+                zoom_dbs[zoom_levels[0]]
+                .execute("SELECT value FROM metadata WHERE key='bounds'")
+                .fetchone()
+            )
+            if row:
+                actual_bounds = json.loads(row[0])
+        except:
+            pass
+
+        # If bounds not in metadata (old database), recalculate from features
+        if actual_bounds is None:
+            actual_bounds = {
+                "minLon": float("inf"),
+                "maxLon": float("-inf"),
+                "minLat": float("inf"),
+                "maxLat": float("-inf"),
+            }
+
+            # Sample features from database to calculate bounds
+            import json as json_module
+
+            cursor = zoom_dbs[zoom_levels[0]].execute(
+                "SELECT feature_json FROM tile_features LIMIT 10000"
+            )
+            for (feature_json,) in cursor:
+                feature = json_module.loads(feature_json)
+                feature_bounds = get_feature_bounds(feature)
+                if feature_bounds:
+                    actual_bounds["minLon"] = min(
+                        actual_bounds["minLon"], feature_bounds["minLon"]
+                    )
+                    actual_bounds["maxLon"] = max(
+                        actual_bounds["maxLon"], feature_bounds["maxLon"]
+                    )
+                    actual_bounds["minLat"] = min(
+                        actual_bounds["minLat"], feature_bounds["minLat"]
+                    )
+                    actual_bounds["maxLat"] = max(
+                        actual_bounds["maxLat"], feature_bounds["maxLat"]
+                    )
+
+            # Store the calculated bounds for future use
+            bounds_json = json_module.dumps(actual_bounds)
+            zoom_dbs[zoom_levels[0]].execute(
+                "INSERT OR REPLACE INTO metadata VALUES ('bounds', ?)", (bounds_json,)
+            )
+            zoom_dbs[zoom_levels[0]].commit()
+    else:
+        # If any zoom needs rebuilding, rebuild all for consistency
+        for zoom in zoom_levels:
+            zoom_dbs[zoom].close()
+            conn, _ = open_zoom_db(db_dir, zoom, db_prefix=db_prefix)
+            zoom_dbs[zoom] = conn
+
+        # Pass 1: Stream features into per-zoom SQLite databases
+        stats = defaultdict(int)
+        i = 0
+        batches = {zoom: [] for zoom in zoom_levels}
+        BATCH_SIZE = 50000
+
+        # Track actual bounds from features
+        actual_bounds = {
+            "minLon": float("inf"),
+            "maxLon": float("-inf"),
+            "minLat": float("inf"),
+            "maxLat": float("-inf"),
+        }
+
+        # Get file size for progress tracking
+        file_size = os.path.getsize(geojson_file)
+        start_time = time.time()
+        last_update = start_time
+        last_count = 0
+        update_interval = 1.2  # seconds
+        next_check_at = 75  # Target iteration to check and update
+
+        # Rolling window for rate calculation (keep last 5 samples)
+        rate_history = []  # List of (elapsed_time, items_processed) tuples
+        max_history = 5
+
+        with open(geojson_file, "rb") as f:
+            for feature in ijson.items(f, "features.item"):
+                i += 1
+
+                # Update at target iteration (adaptive based on processing rate)
+                if i >= next_check_at:
+                    current_time = time.time()
+                    # Record this sample
+                    elapsed_since_last = current_time - last_update
+                    features_since_last = i - last_count
+
+                    # Add to rolling window
+                    rate_history.append((elapsed_since_last, features_since_last))
+                    if len(rate_history) > max_history:
+                        rate_history.pop(0)
+
+                    # Calculate rate based on all samples in window
+                    total_elapsed = sum(sample[0] for sample in rate_history)
+                    total_features = sum(sample[1] for sample in rate_history)
+                    features_per_sec = (
+                        total_features / total_elapsed if total_elapsed > 0 else 0
+                    )
+
+                    # Get file position for progress percentage
+                    file_pos = f.tell()
+                    progress_pct = (file_pos / file_size * 100) if file_size > 0 else 0
+
+                    # Format features/sec based on magnitude
+                    if features_per_sec >= 1000:
+                        rate_str = f"{features_per_sec / 1000:.1f}k"
+                    else:
+                        rate_str = f"{features_per_sec:.0f}"
+
+                    # Print on same line with carriage return
+                    print(
+                        f"\r  Processed: {i:,} features | {rate_str} features/sec | {progress_pct:.1f}% through file",
+                        end="",
+                        flush=True,
+                    )
+                    last_update = current_time
+                    last_count = i
+
+                    # Calculate next target iteration based on current rate
+                    # Target: update approximately every 5 seconds
+                    if features_per_sec > 0:
+                        estimated_features = int(features_per_sec * update_interval)
+                        # Clamp between 1000 and 500000 to avoid too frequent or too rare checks
+                        estimated_features = max(1000, min(500000, estimated_features))
+                    else:
+                        estimated_features = 10000
+                    next_check_at = i + estimated_features
+
+                props = feature.get("properties", {})
+                geom_type = feature["geometry"]["type"]
+
+                render_meta = get_render_metadata(props, geom_type)
+                if render_meta is None:
+                    stats["skipped"] += 1
+                    continue
+
+                feature["_render"] = render_meta
+
+                # Update bounds from this feature
+                feature_bounds = get_feature_bounds(feature)
+                if feature_bounds:
+                    actual_bounds["minLon"] = min(
+                        actual_bounds["minLon"], feature_bounds["minLon"]
+                    )
+                    actual_bounds["maxLon"] = max(
+                        actual_bounds["maxLon"], feature_bounds["maxLon"]
+                    )
+                    actual_bounds["minLat"] = min(
+                        actual_bounds["minLat"], feature_bounds["minLat"]
+                    )
+                    actual_bounds["maxLat"] = max(
+                        actual_bounds["maxLat"], feature_bounds["maxLat"]
+                    )
+
+                min_lod = render_meta["minLOD"]
+                _, importance = classify_feature_importance(props, geom_type)
+
+                # Optimize tile assignments based on when features are actually rendered
+                # Use pre-allocated tuples instead of creating lists
+                if min_lod == 0:
+                    target_zooms = LOD_0_ZOOMS
+                elif min_lod == 1:
+                    target_zooms = LOD_1_ZOOMS
+                elif min_lod == 2:
+                    target_zooms = LOD_2_ZOOMS
+                else:  # min_lod >= 3
+                    target_zooms = LOD_3_ZOOMS
+
+                feature_json = json.dumps(
+                    feature, separators=(",", ":"), default=decimal_default
+                )
+
+                # Only process zooms that are in target_zooms (avoid checking all zooms)
+                for zoom in target_zooms:
+                    feature_tiles = get_tiles_for_feature(feature, zoom)
+                    for tile_coords in feature_tiles:
+                        _, x, y = tile_coords
+                        batches[zoom].append((x, y, importance, feature_json))
+                        stats[f"z{zoom}"] += 1
+
+                # Flush each zoom's batch independently
+                for zoom in zoom_levels:
+                    if len(batches[zoom]) >= BATCH_SIZE:
+                        zoom_dbs[zoom].executemany(
+                            "INSERT INTO tile_features VALUES (?,?,?,?)", batches[zoom]
+                        )
+                        zoom_dbs[zoom].commit()
+                        batches[zoom].clear()
+
+        # Flush remaining batches
+        for zoom in zoom_levels:
+            if batches[zoom]:
+                zoom_dbs[zoom].executemany(
+                    "INSERT INTO tile_features VALUES (?,?,?,?)", batches[zoom]
+                )
+                zoom_dbs[zoom].commit()
+                batches[zoom].clear()
+
+        # Final progress line (clear the line first)
+        print(
+            f"\r  Processed {i:,} features in {time.time() - start_time:.0f}s"
+            + " " * 40
+        )
+
+        # Create indexes for fast reads in Pass 2
+
+        # Store bounds in metadata for cache reuse
+        import json
+
+        bounds_json = json.dumps(actual_bounds)
+
+        for zoom in zoom_levels:
+            conn = zoom_dbs[zoom]
+            conn.execute(
+                "CREATE INDEX idx_tile ON tile_features (x, y, importance DESC)"
+            )
+            conn.execute(
+                "INSERT INTO metadata VALUES ('fingerprint', ?)", (fingerprint,)
+            )
+            conn.execute("INSERT INTO metadata VALUES ('bounds', ?)", (bounds_json,))
+            conn.commit()
+
+    # Pass 2: Write tiles from each zoom database
+    output_path = Path(output_dir)
+    total_tiles = 0
+    tile_count = 0
+
+    for zoom in zoom_levels:
+        total_tiles += (
+            zoom_dbs[zoom]
+            .execute("SELECT COUNT(DISTINCT x || '/' || y) FROM tile_features")
+            .fetchone()[0]
+        )
+
+    write_start = time.time()
+    last_update = write_start
+    last_tile_count = 0
+    update_interval = 1.2  # seconds
+    next_tile_check_at = 12  # Target tile count to check and update
+
+    # Rolling window for tile write rate calculation (keep last 5 samples)
+    tile_rate_history = []  # List of (elapsed_time, tiles_written) tuples
+    max_history = 5
+
+    for zoom in zoom_levels:
+        conn = zoom_dbs[zoom]
+        cursor = conn.execute(
+            "SELECT x, y, feature_json FROM tile_features ORDER BY x, y, importance DESC"
+        )
+
+        created_dirs = set()
+        current_tile = None
+        feature_jsons = []
+
+        for x, y, feature_json in cursor:
+            tile_key = (x, y)
+            if tile_key != current_tile:
+                if current_tile is not None:
+                    cx, cy = current_tile
+                    tile_dir = output_path / str(zoom) / str(cx)
+                    if cx not in created_dirs:
+                        tile_dir.mkdir(parents=True, exist_ok=True)
+                        created_dirs.add(cx)
+                    tile_file = tile_dir / f"{cy}.json"
+
+                    # Merge with existing tile if it exists
+                    existing_features = []
+                    if tile_file.exists():
+                        try:
+                            with open(tile_file, "r", encoding="utf-8") as f:
+                                existing_tile = json.load(f)
+                                existing_features = [
+                                    json.dumps(feat, separators=(",", ":"))
+                                    for feat in existing_tile.get("features", [])
+                                ]
+                        except:
+                            pass  # If read fails, just overwrite
+
+                    # Combine existing and new features
+                    all_features = existing_features + feature_jsons
+
+                    with open(tile_file, "w", encoding="utf-8") as f:
+                        f.write('{"type":"FeatureCollection","features":[')
+                        f.write(",".join(all_features))
+                        f.write("]}")
+                    tile_count += 1
+
+                    # Update at target tile count (adaptive based on write rate)
+                    if tile_count >= next_tile_check_at:
+                        current_time = time.time()
+                        # Record this sample
+                        elapsed_since_last = current_time - last_update
+                        tiles_since_last = tile_count - last_tile_count
+
+                        # Add to rolling window
+                        tile_rate_history.append((elapsed_since_last, tiles_since_last))
+                        if len(tile_rate_history) > max_history:
+                            tile_rate_history.pop(0)
+
+                        # Calculate rate based on all samples in window
+                        total_elapsed = sum(sample[0] for sample in tile_rate_history)
+                        total_tiles_written = sum(
+                            sample[1] for sample in tile_rate_history
+                        )
+                        tiles_per_sec = (
+                            total_tiles_written / total_elapsed
+                            if total_elapsed > 0
+                            else 0
+                        )
+                        progress_pct = (
+                            (tile_count / total_tiles * 100) if total_tiles > 0 else 0
+                        )
+                        print(
+                            f"\r  Written: {tile_count:,}/{total_tiles:,} tiles | {tiles_per_sec:.0f} tiles/sec | {progress_pct:.1f}%",
+                            end="",
+                            flush=True,
+                        )
+                        last_update = current_time
+                        last_tile_count = tile_count
+
+                        # Calculate next target tile count based on current rate
+                        # Target: update approximately every 5 seconds
+                        if tiles_per_sec > 0:
+                            estimated_tiles = int(tiles_per_sec * update_interval)
+                            # Clamp between 10 and 10000 to avoid too frequent or too rare checks
+                            estimated_tiles = max(10, min(10000, estimated_tiles))
+                        else:
+                            estimated_tiles = 100
+                        next_tile_check_at = tile_count + estimated_tiles
+                current_tile = tile_key
+                feature_jsons = []
+            feature_jsons.append(feature_json)
+
+        # Write last tile for this zoom
+        if current_tile is not None:
+            cx, cy = current_tile
+            tile_dir = output_path / str(zoom) / str(cx)
+            if cx not in created_dirs:
+                tile_dir.mkdir(parents=True, exist_ok=True)
+                created_dirs.add(cx)
+            tile_file = tile_dir / f"{cy}.json"
+
+            # Merge with existing tile if it exists
+            existing_features = []
+            if tile_file.exists():
+                try:
+                    with open(tile_file, "r", encoding="utf-8") as f:
+                        existing_tile = json.load(f)
+                        existing_features = [
+                            json.dumps(feat, separators=(",", ":"))
+                            for feat in existing_tile.get("features", [])
+                        ]
+                except:
+                    pass  # If read fails, just overwrite
+
+            # Combine existing and new features
+            all_features = existing_features + feature_jsons
+
+            with open(tile_file, "w", encoding="utf-8") as f:
+                f.write('{"type":"FeatureCollection","features":[')
+                f.write(",".join(all_features))
+                f.write("]}")
+            tile_count += 1
+
+        conn.close()
+
+    # Final tile writing summary (clear the line first)
+    write_elapsed = time.time() - write_start
+    print(f"\r  Created {tile_count:,} tiles in {write_elapsed:.0f}s" + " " * 60)
+
+    # Return actual bounds (or fallback to hardcoded if no features processed)
+    if actual_bounds["minLon"] == float("inf"):
+        # No features were processed, use hardcoded bounds
+        actual_bounds = {
+            "minLon": MIN_LON,
+            "maxLon": MAX_LON,
+            "minLat": MIN_LAT,
+            "maxLat": MAX_LAT,
+        }
+
+    return actual_bounds
+
+
+
+
+# ============================================================================
+# STEP 3: TILE GENERATION ORCHESTRATION
+# ============================================================================
 
 
 def decimal_default(o):
@@ -496,3 +1682,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
