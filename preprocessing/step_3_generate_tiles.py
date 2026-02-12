@@ -1613,8 +1613,9 @@ def main():
         all_results.extend(results)
 
     # Calculate OSM bounds before processing land polygons
+    # Need bounds from both processed results AND cached PBF files
     osm_bounds = None
-    if not args.skip_land_polygons and all_results:
+    if not args.skip_land_polygons and (all_results or cached_pbf_files):
         # Merge bounds from OSM results
         osm_bounds = {
             "minLon": float("inf"),
@@ -1622,9 +1623,19 @@ def main():
             "minLat": float("inf"),
             "maxLat": float("-inf"),
         }
+        # Get bounds from processed results
         for result in all_results:
             if result["status"] == "success" and "bounds" in result:
                 bounds = result["bounds"]
+                osm_bounds["minLon"] = min(osm_bounds["minLon"], bounds["minLon"])
+                osm_bounds["maxLon"] = max(osm_bounds["maxLon"], bounds["maxLon"])
+                osm_bounds["minLat"] = min(osm_bounds["minLat"], bounds["minLat"])
+                osm_bounds["maxLat"] = max(osm_bounds["maxLat"], bounds["maxLat"])
+
+        # Get bounds from cached PBF files
+        for pbf_file in cached_pbf_files:
+            bounds = get_pbf_bounds(pbf_file)
+            if bounds:
                 osm_bounds["minLon"] = min(osm_bounds["minLon"], bounds["minLon"])
                 osm_bounds["maxLon"] = max(osm_bounds["maxLon"], bounds["maxLon"])
                 osm_bounds["minLat"] = min(osm_bounds["minLat"], bounds["minLat"])
