@@ -42,18 +42,6 @@ def main():
         "-j", "--jobs", type=int, default=3, help="Number of parallel workers"
     )
     parser.add_argument(
-        "--skip-land-polygons",
-        action="store_true",
-        default=True,
-        help="Skip land polygon processing (default: True, handled by renderer)",
-    )
-    parser.add_argument(
-        "--include-land-polygons",
-        dest="skip_land_polygons",
-        action="store_false",
-        help="Include land polygons (legacy, not recommended)",
-    )
-    parser.add_argument(
         "--data-dir",
         type=Path,
         default=Path(__file__).parent / "data",
@@ -82,8 +70,6 @@ def main():
     # Step 1: Download
     if 1 in steps:
         step_args = ["--data-dir", str(args.data_dir), "-j", str(args.jobs)]
-        if args.skip_land_polygons:
-            step_args.append("--skip-land-polygons")
 
         if not run_step("step_1_download.py", step_args):
             print("\n✗ Step 1 failed")
@@ -104,8 +90,6 @@ def main():
     # Step 3: Generate tiles
     if 3 in steps and success:
         step_args = ["--data-dir", str(args.data_dir), "-j", str(args.jobs)]
-        if args.skip_land_polygons:
-            step_args.append("--skip-land-polygons")
 
         if not run_step("step_3_generate_tiles.py", step_args):
             print("\n✗ Step 3 failed")

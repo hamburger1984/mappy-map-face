@@ -307,18 +307,7 @@ def main():
     parser.add_argument(
         "-j", "--jobs", type=int, default=3, help="Number of parallel downloads"
     )
-    parser.add_argument(
-        "--skip-land-polygons",
-        action="store_true",
-        default=True,
-        help="Skip downloading land polygons (default: True, handled by renderer)",
-    )
-    parser.add_argument(
-        "--include-land-polygons",
-        dest="skip_land_polygons",
-        action="store_false",
-        help="Download land polygons (legacy, not recommended)",
-    )
+
     parser.add_argument(
         "--clean-partial",
         action="store_true",
@@ -377,8 +366,8 @@ def main():
         else:
             print(f"  ✗ {result['name']}: {result.get('error', 'failed')}")
 
-    # Download land polygons
-    if not args.skip_land_polygons:
+    # Land polygons disabled (removed in favor of smart background rendering)
+    if False:
         print(f"\nDownloading land polygons ({len(LAND_POLYGON_SOURCES)} sources)...")
         land_args = [
             (name, url, args.data_dir) for name, url in LAND_POLYGON_SOURCES.items()
