@@ -1,202 +1,277 @@
-# Preprocessing Pipeline
+# OSM Map Renderer - Preprocessing Scripts
 
-This directory contains scripts for downloading OSM data and generating map tiles.
+This directory contains modular Python scripts for downloading OSM data and generating map tiles.
 
-## Overview
+## Architecture Overview
 
-The preprocessing pipeline converts OpenStreetMap data into optimized JSON tiles for the web map renderer.
+The preprocessing pipeline is split into three independent steps:
 
-**Pipeline steps:**
-1. **Fetch** - Download OSM data for Hamburg region
-2. **Convert** - Process OSM PBF → GeoJSON (via Overpass API/osmium)
-3. **Split** - Generate zoom-level tiles from GeoJSON
+```
+Step 1: Download      Step 2: Convert       Step 3: Generate Tiles
+┌─────────────┐      ┌──────────────┐      ┌────────────────────┐
+│ OSM PBF     │──┐   │ PBF → GeoJSON│──┐   │ GeoJSON → Tiles    │
+│ Land shapes │  │   │ (osmium)     │  │   │ (split-tiles.py)   │
+│ Water shapes│  │   │              │  │   │                    │
+└─────────────┘  │   └──────────────┘  │   │ • Classify features│
+                 │                     │   │ • Generate tiles   │
+                 └─────────────────────┘   │ • LOD system       │
+                                           │ • SQLite caching   │
+                                           └────────────────────┘
+```
+
+Each step can be run independently or all together using `build_all.py`.
 
 ## Scripts
 
-### `fetch-data.sh`
-Downloads and converts OSM data for the Hamburg region.
+### `build_all.py` - Main Entry Point
+Orchestrates all three steps in sequence.
 
-**Output:** `data/hamburg-region.geojson` (~3.3 GB)
-
+**Usage:**
 ```bash
-cd preprocessing
-./fetch-data.sh
+# Run all steps
+./build_all.py
+
+# Run specific step only
+./build_all.py --step 1  # Download only
+./build_all.py --step 2  # Convert only
+./build_all.py --step 3  # Generate tiles only
+
+# Control parallelism
+./build_all.py -j 4  # Use 4 parallel workers
+
+# Skip land polygons (for testing)
+./build_all.py --skip-land-polygons
 ```
 
-### `split-tiles.py`
-Splits GeoJSON into zoom-level tiles.
-
-**Input:** `data/hamburg-region.geojson`  
-**Output:** `../public/tiles/{z}/{x}/{y}.json`
-
-**Dependencies:** `pip install ijson`
-
-```bash
-# From repo root (recommended via justfile)
-just tiles
-
-# Or manually
-python preprocessing/split-tiles.py preprocessing/data/hamburg-region.geojson
-```
+### `step_1_download.py` - Download Data
+Downloads OSM PBF files and land polygon shapefiles.
 
 **Features:**
-- Streams features with `ijson` (constant memory usage, handles multi-GB files)
-- Uses per-zoom-level SQLite databases as intermediate storage
-- Caches databases with input file fingerprint — re-runs skip parsing if GeoJSON unchanged
-- Classifies features by type (water, roads, railways, buildings, landuse)
-- Assigns LOD (Level of Detail) for zoom-based visibility
-- Generates tiles for zoom levels 8, 11, 14
-- Output: Plain JSON (no gzip for fast browser parsing)
+- Parallel downloads with progress bars (via `tqdm`)
+- Age checking (re-downloads if >30 days old)
+- Automatic shapefile to GeoJSON conversion (requires `ogr2ogr`)
+- Partial download cleanup
 
-### `split_tiles.zig` *(Work in Progress)*
-Zig implementation of tile splitter for faster processing.
+**Data Sources:**
+- OSM PBF: Geofabrik (Hamburg, Schleswig-Holstein, Denmark, etc.)
+- Land polygons: OSM Data server (simplified and detailed)
 
-**Status:** Compiles but slow on large files (needs streaming JSON parser)
+**Usage:**
+```bash
+./step_1_download.py                    # Download all sources
+./step_1_download.py -j 4               # Use 4 parallel downloads
+./step_1_download.py --skip-land-polygons  # Skip land polygon download
+```
+
+**Requirements:**
+- `curl` or Python's `urllib` (built-in)
+- `ogr2ogr` (from GDAL) for shapefile conversion
+  - macOS: `brew install gdal`
+  - Linux: `apt-get install gdal-bin`
+  - Windows: `conda install -c conda-forge gdal`
+
+### `step_2_convert_to_geojson.py` - Convert PBF to GeoJSON
+Converts downloaded OSM PBF files to GeoJSON format using `osmium`.
+
+**Features:**
+- Parallel conversion with progress bars
+- Automatic config file detection (`osmium-export-config.json`)
+- Error handling and reporting
+
+**Usage:**
+```bash
+./step_2_convert_to_geojson.py          # Convert all PBF files in data/
+./step_2_convert_to_geojson.py file.pbf # Convert specific file
+./step_2_convert_to_geojson.py -j 4     # Use 4 parallel processes
+```
+
+**Requirements:**
+- `osmium-tool` (https://osmcode.org/osmium-tool/)
+  - macOS: `brew install osmium-tool`
+  - Linux: `apt-get install osmium-tool`
+  - Windows: Download from releases
+
+### `step_3_generate_tiles.py` - Generate Map Tiles
+Processes GeoJSON files into tile format with LOD system.
+
+**Features:**
+- Parallel tile generation with progress bars
+- SQLite-based caching (avoids reprocessing unchanged files)
+- Feature classification and rendering metadata
+- Land polygon integration with layer tagging
+- Automatic bounds calculation
+
+**Usage:**
+```bash
+./step_3_generate_tiles.py              # Process all GeoJSON files
+./step_3_generate_tiles.py file.geojson # Process specific file
+./step_3_generate_tiles.py -j 4         # Use 4 parallel workers
+./step_3_generate_tiles.py --zoom-levels 8 11 14  # Custom zoom levels
+./step_3_generate_tiles.py --skip-land-polygons   # Skip land polygons
+```
+
+**Output:**
+- Tiles: `public/tiles/{zoom}/{x}/{y}.json`
+- Index: `public/tiles/index.json`
+
+### Supporting Modules
+
+**`split-tiles.py`** - Core tile generation logic
+- Feature classification (`get_render_metadata`)
+- Tile coordinate calculation
+- SQLite database management
+- Progress reporting for feature processing
+
+**`tiles-from-osm.py`** - Legacy script (kept for compatibility)
+- Direct PBF → Tiles conversion
+- Use `build_all.py` instead for new workflows
+
+## Progress Reporting
+
+All scripts use **tqdm** for clean, informative progress bars:
+
+```
+OSM files: 100%|████████████████| 5/5 [02:15<00:00, 27.2s/file]
+Land polygons: 100%|████████████| 2/2 [01:30<00:00, 45.1s/file]
+Converting: 100%|█████████████| 5/5 [08:42<00:00, 104s/file]
+Generating tiles: 100%|████████| 7/7 [15:23<00:00, 132s/file]
+```
+
+Progress bars show:
+- Completion percentage
+- Visual progress bar
+- Item counts (current/total)
+- Time elapsed and estimated time remaining
+- Processing rate (items/second)
+
+## Parallel Processing
+
+Each step supports parallel processing via the `-j/--jobs` flag:
 
 ```bash
-zig build
-./zig-out/bin/split-tiles data/hamburg-region.geojson
+# Download 4 files simultaneously
+./step_1_download.py -j 4
+
+# Convert 3 files in parallel
+./step_2_convert_to_geojson.py -j 3
+
+# Generate tiles from 2 sources at once
+./step_3_generate_tiles.py -j 2
 ```
 
-## Quick Start
+**Recommendations:**
+- **Downloads**: Limited by network bandwidth (3-4 workers typical)
+- **Conversion**: CPU-bound (use number of CPU cores)
+- **Tile generation**: Memory-intensive (limit to 2-3 workers for large datasets)
 
-Using just:
+## Using the Justfile
+
+The `justfile` provides convenient shortcuts:
 
 ```bash
-# Download OSM data
-just data
+# Run all steps
+just build
 
-# Generate tiles (Python)
-just tiles
+# Individual steps
+just download   # Step 1 only
+just convert    # Step 2 only
+just tiles      # Step 3 only
 
-# Or generate tiles (Zig - faster but WIP)
-just tiles-zig
-
-# Do both
-just all
+# Clean up
+just clean          # Remove generated tiles
+just clean-data     # Remove tiles + GeoJSON
+just clean-all      # Remove everything including venv
 ```
 
-## Tile Format
-
-Each tile is a GeoJSON FeatureCollection:
-
-```json
-{
-  "type": "FeatureCollection",
-  "features": [
-    {
-      "type": "Feature",
-      "geometry": { "type": "LineString", "coordinates": [...] },
-      "properties": {
-        "highway": "primary",
-        "name": "Hauptstraße",
-        "render": {
-          "layer": "highways",
-          "color": [253, 191, 111, 255],
-          "width": 3,
-          "minLOD": 1
-        }
-      }
-    }
-  ]
-}
-```
-
-## Zoom Levels and LOD (Level of Detail)
-
-The map uses a two-tier system for progressive rendering:
-
-### Zoom Levels (Tile Size)
-
-Determines the geographic area covered by each tile:
-
-| Zoom | Usage | Tile Coverage | When Used |
-|------|-------|---------------|-----------|
-| **Z8** | Wide view | ~10-20km per tile | View width > 10km |
-| **Z11** | Medium view | ~2-5km per tile | View width 1-10km |
-| **Z14** | Close view | ~500m-1km per tile | View width < 1km |
-
-**Tile selection:** When you view the map at 10km width, the renderer loads Z8 tiles. When you zoom to 5km, it switches to Z11 tiles.
-
-### LOD (Level of Detail)
-
-Determines which features are rendered based on view distance:
-
-| LOD | View Width | Features Rendered | Examples |
-|-----|------------|-------------------|----------|
-| **0** | > 20km | Major features only | Motorways, large rivers, forests |
-| **1** | 7.5-20km | + Secondary features | Primary roads, railways, parks |
-| **2** | 3-7.5km | + Buildings & details | Residential roads, buildings |
-| **3** | < 3km | All features | Paths, small POIs, all details |
-
-### Feature LOD Assignment
-
-Each feature is assigned a minimum LOD (`minLOD`) during preprocessing:
-
-| Feature Type | minLOD | Visibility |
-|--------------|--------|------------|
-| **Major roads** (motorway, trunk) | 0 | Always visible |
-| **Water bodies** (rivers, lakes) | 0 | Always visible |
-| **Forests** | 0 | Always visible |
-| **Primary/secondary roads** | 1 | Visible at 7.5km+ |
-| **Railways** | 1 | Visible at 7.5km+ |
-| **Parks, green spaces** | 1 | Visible at 7.5km+ |
-| **Buildings** | 2 | Visible at 3km+ |
-| **Residential roads** | 2 | Visible at 3km+ |
-| **Paths, footways** | 3 | Visible only when very close |
-| **Small POIs** | 3 | Visible only when very close |
-
-### Tile Content Optimization
-
-To minimize tile size and loading time, features are only included in zoom levels where they'll actually be rendered:
+## Data Directory Structure
 
 ```
-minLOD 0 (major features)     → Tiles: Z8, Z11, Z14
-minLOD 1 (secondary features) → Tiles: Z11, Z14 (skip Z8)
-minLOD 2 (buildings, detail)  → Tiles: Z14 only (skip Z8, Z11)
-minLOD 3 (very close detail)  → Tiles: Z14 only
+preprocessing/data/
+├── *.osm.pbf                           # OSM PBF files (downloaded)
+├── *.geojson                           # Converted GeoJSON (temporary)
+├── simplified-land-polygons.geojson    # Simplified land shapes
+├── detailed-land-polygons.geojson      # Detailed land shapes
+└── *_z*.db                             # SQLite tile cache databases
 ```
 
-**Example:** When viewing at 10km width (LOD 1), the renderer:
-1. Uses Z11 tiles (appropriate tile size for 10km)
-2. Loads only minLOD 0-1 features (major + secondary)
-3. Skips minLOD 2+ features (buildings not needed at this distance)
+**Note:** GeoJSON files are temporary and can be deleted after tile generation. PBF files are kept for re-processing.
 
-This optimization dramatically reduces:
-- Network transfer (smaller tiles)
-- Parsing time (less JSON to parse)
-- Memory usage (fewer features in memory)
-- Render time (fewer features to classify/cull)
+## Caching and Fingerprinting
 
-### View Width → Zoom Level → LOD Mapping
+The pipeline uses multiple levels of caching:
 
-| View Width | Zoom Level | LOD | Features Loaded |
-|------------|------------|-----|-----------------|
-| 50km | Z8 | 0 | Motorways, major water, forests |
-| 15km | Z8 | 1 | + Primary roads, railways |
-| 10km | Z11 | 1 | Same as above |
-| 5km | Z11 | 2 | + Buildings, residential roads |
-| 2km | Z14 | 2 | Same as above |
-| 500m | Z14 | 3 | + Paths, small POIs |
+1. **Download cache**: Files are only re-downloaded if >30 days old
+2. **SQLite database cache**: Per-zoom-level databases cache feature distribution
+3. **File fingerprinting**: Changes detected via size + mtime (no expensive hashing)
 
-## Performance Notes
+This makes incremental builds very fast when only one region's data changes.
 
-- **Python version:** First run streams GeoJSON into SQLite, then writes tiles. Subsequent runs with unchanged input skip directly to tile writing.
-- **Memory usage:** Constant — features are streamed, not loaded into memory
-- **Tile count:** ~10,000-50,000 tiles depending on zoom levels
-- **Tile size:** 500 bytes - 50 KB (plain JSON)
-- **Total size:** ~100-500 MB for all tiles
-- **Cache files:** `data/tile_build_z{8,11,14}.db` (auto-generated, gitignored)
+## Error Handling
 
-## Why No Gzip?
+Each script provides detailed error reporting:
 
-Initial tests showed gzip **slowed down** tile loading:
-- Decompression overhead > bandwidth savings for small tiles
-- Browser must decompress on main thread
-- Plain JSON is faster to parse
+```
+✓ hamburg: 45.2 MB (newly downloaded)
+✓ schleswig-holstein: 123.4 MB (5 days old)
+✗ denmark: Download failed: Connection timeout
+```
 
-**Benchmark (typical tile):**
-- Compressed: 331 bytes → ~20ms fetch + 50ms decompress = **70ms**
-- Uncompressed: 498 bytes → ~25ms fetch + 5ms parse = **30ms**
+Failed downloads/conversions are reported but don't stop the entire pipeline.
 
-Result: **2-3x faster** without compression for small tiles!
+## Dependencies
+
+**Python packages** (install via `pip install -r requirements.txt`):
+- `ijson>=3.2.0` - Streaming JSON parser
+- `tqdm>=4.66.0` - Progress bars
+
+**External tools**:
+- `osmium-tool` - PBF to GeoJSON conversion
+- `ogr2ogr` (GDAL) - Shapefile to GeoJSON conversion (optional, for land polygons)
+
+## Troubleshooting
+
+**"ogr2ogr not found"**
+- Land polygon processing will be skipped
+- Install GDAL to enable: `brew install gdal` (macOS)
+
+**"osmium not found"**
+- Step 2 will fail
+- Install osmium-tool: `brew install osmium-tool` (macOS)
+
+**"No module named 'tqdm'"**
+- Run: `pip install -r requirements.txt`
+- Or: `just setup`
+
+**Slow tile generation**
+- Reduce parallel workers: `-j 2` instead of `-j 4`
+- Large OSM files (>500MB) require significant RAM per worker
+
+**Partial downloads after interruption**
+- Partial files (*.partial) are automatically cleaned up on next run
+- Safe to interrupt and restart
+
+## Development
+
+**Adding a new data source:**
+1. Add to `OSM_SOURCES` in `step_1_download.py`
+2. Re-run `just download` or `just build`
+
+**Modifying feature classification:**
+1. Edit `get_render_metadata()` in `split-tiles.py`
+2. Re-run `just tiles` to regenerate
+
+**Changing zoom levels:**
+```bash
+./step_3_generate_tiles.py --zoom-levels 8 10 12 14
+```
+
+## References
+
+- **Progress bar techniques**: https://bernsteinbear.com/blog/python-parallel-output/
+- **tqdm documentation**: https://github.com/tqdm/tqdm
+- **Parallel processing with tqdm**: https://leimao.github.io/blog/Python-tqdm-Multiprocessing/
+- **p_tqdm wrapper**: https://github.com/swansonk14/p_tqdm
+
+---
+
+**Last updated**: 2026-02-11

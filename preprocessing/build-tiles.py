@@ -29,6 +29,10 @@ spec2 = importlib.util.spec_from_file_location(
 tiles_from_osm = importlib.util.module_from_spec(spec2)
 spec2.loader.exec_module(tiles_from_osm)
 
+SCRIPT_DIR = Path(__file__).parent
+DATA_DIR = SCRIPT_DIR / "data"
+OUTPUT_DIR = Path("public/tiles")
+
 
 # Wrapper function for multiprocessing (must be defined at module level)
 def _process_pbf_file_wrapper(args):
@@ -48,10 +52,6 @@ def _process_pbf_file_wrapper(args):
 
     return tiles_from_osm_worker.process_pbf_file(args)
 
-
-SCRIPT_DIR = Path(__file__).parent
-DATA_DIR = SCRIPT_DIR / "data"
-OUTPUT_DIR = Path("public/tiles")
 
 # OSM files to download
 OSM_SOURCES = {

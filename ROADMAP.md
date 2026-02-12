@@ -81,32 +81,20 @@ Transform the Hamburg OSM renderer into a Europe-wide map system with search, op
 
 ---
 
-### 1.2 Render Sea/Ocean Coverage (Medium Priority)
-**Why:** Currently ocean areas are white/background color. Need full water rendering.
+### 1.2 Render Sea/Ocean Coverage ✅ COMPLETED
+**Status:** Ocean rendering implemented using land polygons approach.
 
-**Challenge:** OSM coastlines are LineStrings, not closed polygons. Need to:
-1. Either use a base water layer (entire map = water, render land on top)
-2. Or clip water polygons from coastline data
+**Solution:** Inverse rendering with blue ocean background
+- Canvas background filled with water color (rgb(170, 211, 223))
+- Land polygons rendered on top as tan/beige (rgb(242, 239, 233))
+- Two land polygon datasets: simplified (zoomed out) and detailed (zoomed in)
+- Automatic LOD switching at 2km view width threshold
 
-**Approach: Base Water Layer**
-```javascript
-// In renderMap(), before rendering other features:
-// 1. Fill entire canvas with water color
-ctx.fillStyle = 'rgba(170, 211, 223, 1.0)'; // Ocean blue
-ctx.fillRect(0, 0, canvas.width, canvas.height);
+**Data Sources:**
+- Simplified land polygons: osmdata.openstreetmap.de (EPSG:3857 → EPSG:4326)
+- Detailed land polygons: osmdata.openstreetmap.de (EPSG:3857 → EPSG:4326)
 
-// 2. Render land polygons on top (from OSM land polygons or inverted coastline)
-// 3. Render all other features as normal
-```
-
-**Data Requirements:**
-- Option A: Pre-process coastline → land polygons (complex)
-- Option B: Render ocean base + existing land use polygons (simpler)
-- Option C: Use external land polygon dataset (OSMCoastline project)
-
-**Implementation Steps:**
-1. **Choose approach** (recommend: Option B for Hamburg, then C for Europe)
-2. **Update renderer** to fill ocean background
+**Implementation:** See plan at `/Users/andreas/.claude/plans/lucky-yawning-puffin.md`
 3. **Test** with Hamburg (North Sea + Baltic Sea coverage)
 4. **Add to preprocessing** if using pre-processed land polygons
 

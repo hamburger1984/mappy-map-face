@@ -408,6 +408,24 @@ def get_render_metadata(props, geom_type):
             "fill": True,
         }
 
+    # Land polygons (simplified - for zoomed out view)
+    if props.get("layer_source") == "land_polygons_simplified":
+        return {
+            "layer": "land_base",
+            "color": {"r": 242, "g": 239, "b": 233, "a": 255},  # Light tan/beige
+            "minLOD": 0,  # Always visible
+            "fill": True,
+        }
+
+    # Land polygons (detailed - for zoomed in view)
+    if props.get("layer_source") == "land_polygons_detailed":
+        return {
+            "layer": "land_base",
+            "color": {"r": 242, "g": 239, "b": 233, "a": 255},  # Same color
+            "minLOD": 2,  # Only visible when zoomed in
+            "fill": True,
+        }
+
     # Water bodies (only polygons - including coastline for sea/ocean areas)
     if (
         natural == "water"
@@ -754,6 +772,67 @@ def split_geojson_into_tiles(
 
     if not need_import:
         print("Input file unchanged, reusing all cached databases.")
+
+        # Retrieve bounds from cached database metadata
+        actual_bounds = None
+        try:
+            import json
+
+            row = (
+                zoom_dbs[zoom_levels[0]]
+                .execute("SELECT value FROM metadata WHERE key='bounds'")
+                .fetchone()
+            )
+            if row:
+                actual_bounds = json.loads(row[0])
+                print(
+                    f"  Retrieved cached bounds: {actual_bounds['minLon']:.4f} to {actual_bounds['maxLon']:.4f} lon, {actual_bounds['minLat']:.4f} to {actual_bounds['maxLat']:.4f} lat"
+                )
+        except:
+            pass
+
+        # If bounds not in metadata (old database), recalculate from features
+        if actual_bounds is None:
+            print("  Bounds not cached, recalculating from stored features...")
+            actual_bounds = {
+                "minLon": float("inf"),
+                "maxLon": float("-inf"),
+                "minLat": float("inf"),
+                "maxLat": float("-inf"),
+            }
+
+            # Sample features from database to calculate bounds
+            import json as json_module
+
+            cursor = zoom_dbs[zoom_levels[0]].execute(
+                "SELECT feature_json FROM tile_features LIMIT 10000"
+            )
+            for (feature_json,) in cursor:
+                feature = json_module.loads(feature_json)
+                feature_bounds = get_feature_bounds(feature)
+                if feature_bounds:
+                    actual_bounds["minLon"] = min(
+                        actual_bounds["minLon"], feature_bounds["minLon"]
+                    )
+                    actual_bounds["maxLon"] = max(
+                        actual_bounds["maxLon"], feature_bounds["maxLon"]
+                    )
+                    actual_bounds["minLat"] = min(
+                        actual_bounds["minLat"], feature_bounds["minLat"]
+                    )
+                    actual_bounds["maxLat"] = max(
+                        actual_bounds["maxLat"], feature_bounds["maxLat"]
+                    )
+
+            # Store the calculated bounds for future use
+            bounds_json = json_module.dumps(actual_bounds)
+            zoom_dbs[zoom_levels[0]].execute(
+                "INSERT OR REPLACE INTO metadata VALUES ('bounds', ?)", (bounds_json,)
+            )
+            zoom_dbs[zoom_levels[0]].commit()
+            print(
+                f"  Calculated bounds: {actual_bounds['minLon']:.4f} to {actual_bounds['maxLon']:.4f} lon, {actual_bounds['minLat']:.4f} to {actual_bounds['maxLat']:.4f} lat"
+            )
     else:
         # If any zoom needs rebuilding, rebuild all for consistency
         for zoom in zoom_levels:
@@ -929,6 +1008,12 @@ def split_geojson_into_tiles(
 
         # Create indexes for fast reads in Pass 2
         print("\nCreating database indexes...")
+
+        # Store bounds in metadata for cache reuse
+        import json
+
+        bounds_json = json.dumps(actual_bounds)
+
         for zoom in zoom_levels:
             conn = zoom_dbs[zoom]
             conn.execute(
@@ -937,6 +1022,7 @@ def split_geojson_into_tiles(
             conn.execute(
                 "INSERT INTO metadata VALUES ('fingerprint', ?)", (fingerprint,)
             )
+            conn.execute("INSERT INTO metadata VALUES ('bounds', ?)", (bounds_json,))
             conn.commit()
 
     # Pass 2: Write tiles from each zoom database

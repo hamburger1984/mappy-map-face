@@ -3,3 +3,6 @@
 
 # ijson - Iterative JSON parser for large files
 ijson>=3.2.0
+
+# tqdm - Progress bars for parallel processing
+tqdm>=4.66.0

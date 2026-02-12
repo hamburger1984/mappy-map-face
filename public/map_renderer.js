@@ -1387,6 +1387,7 @@ class MapRenderer {
     // Reuse layer arrays (avoid reallocating every frame)
     if (!this._layers) {
       this._layers = {
+        land_base: [], // Land polygons (render first on blue background)
         natural_background: [],
         forests: [],
         water_areas: [],
@@ -1470,9 +1471,9 @@ class MapRenderer {
     // Start rendering timing
     const renderStart = performance.now();
 
-    // Use a neutral land-colored background
-    // Water features (rivers, lakes, sea) will render as blue on top
-    this.ctx.fillStyle = "rgb(230, 227, 220)"; // Slightly darker beige for better contrast with white roads
+    // Use water/ocean color as background (inverse rendering)
+    // Land polygons will render as tan/beige on top
+    this.ctx.fillStyle = "rgb(170, 211, 223)"; // Water blue (ocean default)
     this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
 
     perfTimings.clearCanvas = performance.now() - renderStart;
@@ -1481,8 +1482,13 @@ class MapRenderer {
     // Background to foreground (bottom to top)
     const layerTimings = {};
 
-    // 1. Natural background (parks, farmland, meadows)
+    // 0. Land base layer (tan/beige polygons on blue ocean background)
     let layerStart = performance.now();
+    this.renderLayer(layers.land_base, adjustedBounds, true);
+    layerTimings.land = performance.now() - layerStart;
+
+    // 1. Natural background (parks, farmland, meadows)
+    layerStart = performance.now();
     this.renderLayer(layers.natural_background, adjustedBounds, true);
     layerTimings.natural = performance.now() - layerStart;
 
@@ -1720,6 +1726,26 @@ class MapRenderer {
         layer: "natural_background",
         color: color,
         minLOD: 1,
+        fill: true,
+      };
+    }
+
+    // Land polygons from OSM coastline data (simplified - for zoomed out view)
+    if (props.layer_source === "land_polygons_simplified") {
+      return {
+        layer: "land_base",
+        color: { r: 242, g: 239, b: 233, a: 255 }, // Light tan/beige
+        minLOD: 0, // Show at all zoom levels
+        fill: true,
+      };
+    }
+
+    // Land polygons from OSM coastline data (detailed - for zoomed in view)
+    if (props.layer_source === "land_polygons_detailed") {
+      return {
+        layer: "land_base",
+        color: { r: 242, g: 239, b: 233, a: 255 }, // Same color
+        minLOD: 2, // Only when zoomed in (<2km view)
         fill: true,
       };
     }
@@ -3097,7 +3123,7 @@ class MapRenderer {
 
   clearCanvas() {
     // Clear canvas using Canvas2D
-    this.ctx.fillStyle = "rgb(242, 239, 233)"; // Light tan/beige for land
+    this.ctx.fillStyle = "rgb(170, 211, 223)"; // Water blue (ocean default)
     this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
     document.getElementById("stats").querySelector("div").textContent =
       "Status: Cleared";

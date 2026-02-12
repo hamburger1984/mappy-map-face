@@ -23,9 +23,21 @@ all: setup build
 setup:
     @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'Setting up Python virtual environment...'; " + "if (-not (Test-Path venv)) { python -m venv venv }; " + "Write-Host 'Installing dependencies...'; " + "& venv/Scripts/pip install -q -r requirements.txt; " + "Write-Host 'Setup complete!'\"" } else { "echo 'Setting up Python virtual environment...' && " + "if [ ! -d venv ]; then python -m venv venv; fi && " + "echo 'Installing dependencies...' && " + "venv/bin/pip install -q -r requirements.txt && " + "echo 'Setup complete!'" } }}
 
-# Build tiles (downloads OSM if needed, caches DBs, generates tiles with fingerprinting)
+# Build tiles (downloads OSM if needed, converts to GeoJSON, generates tiles)
 build: setup
-    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'Building tiles...'; " + "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/build-tiles.py'; " + "Write-Host 'Build complete!'\"" } else { "echo 'Building tiles...' && " + "venv/bin/python '" + justfile_directory() + "/preprocessing/build-tiles.py' && " + "echo 'Build complete!'" } }}
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/build_all.py'\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/build_all.py'" } }}
+
+# Run only step 1: Download OSM data and land polygons
+download: setup
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/step_1_download.py'\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/step_1_download.py'" } }}
+
+# Run only step 2: Convert PBF to GeoJSON
+convert: setup
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/step_2_convert_to_geojson.py'\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/step_2_convert_to_geojson.py'" } }}
+
+# Run only step 3: Generate tiles from GeoJSON
+tiles: setup
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py'\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py'" } }}
 
 # Clean generated tiles only
 clean:
