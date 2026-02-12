@@ -22,9 +22,45 @@ except ImportError:
 
 def convert_pbf_to_geojson(args):
     """Convert a single PBF file to GeoJSON."""
-    pbf_file, config_file = args
+    pbf_file, config_file, zoom_levels = args
     pbf_path = Path(pbf_file)
     geojson_path = pbf_path.parent / f"{pbf_path.stem}.geojson"
+
+    # Check if databases are cached with matching fingerprint (skip conversion entirely)
+    # We don't need GeoJSON if databases are already built
+    db_prefix = pbf_path.stem
+    fingerprint = f"{pbf_path.stat().st_size}:{pbf_path.stat().st_mtime_ns}"
+
+    all_dbs_cached = True
+    for zoom in zoom_levels:
+        db_path = pbf_path.parent / f"{db_prefix}_z{zoom}.db"
+        if not db_path.exists():
+            all_dbs_cached = False
+            break
+
+        try:
+            import sqlite3
+
+            conn = sqlite3.connect(str(db_path))
+            row = conn.execute(
+                "SELECT value FROM metadata WHERE key='fingerprint'"
+            ).fetchone()
+            conn.close()
+
+            if not row or row[0] != fingerprint:
+                all_dbs_cached = False
+                break
+        except:
+            all_dbs_cached = False
+            break
+
+    if all_dbs_cached:
+        # Databases cached, no need for GeoJSON
+        return {
+            "name": pbf_path.name,
+            "status": "db_cached",
+            "output": str(geojson_path),
+        }
 
     # Check if GeoJSON exists and is newer than PBF (skip conversion)
     if geojson_path.exists():
@@ -101,6 +137,13 @@ def main():
     parser.add_argument(
         "-j", "--jobs", type=int, default=3, help="Number of parallel conversions"
     )
+    parser.add_argument(
+        "--zoom-levels",
+        type=int,
+        nargs="+",
+        default=[8, 11, 14],
+        help="Zoom levels (for database cache checking)",
+    )
 
     args = parser.parse_args()
 
@@ -126,7 +169,8 @@ def main():
 
     # Convert files in parallel
     conversion_args = [
-        (str(pbf), args.config if args.config.exists() else None) for pbf in pbf_files
+        (str(pbf), args.config if args.config.exists() else None, args.zoom_levels)
+        for pbf in pbf_files
     ]
 
     with Pool(min(args.jobs, len(pbf_files))) as pool:
@@ -145,6 +189,9 @@ def main():
     for result in sorted(results, key=lambda x: x["name"]):
         if result["status"] == "success":
             print(f"  ✓ {result['name']} → {result['size_mb']:.1f} MB GeoJSON")
+            success_count += 1
+        elif result["status"] == "db_cached":
+            print(f"  ✓ {result['name']} → databases cached, skipping GeoJSON")
             success_count += 1
         elif result["status"] == "cached":
             print(
