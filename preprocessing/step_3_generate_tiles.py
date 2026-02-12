@@ -90,9 +90,27 @@ SECONDARY_HIGHWAYS = frozenset(["secondary"])
 TERTIARY_RESIDENTIAL_HIGHWAYS = frozenset(["tertiary", "residential", "unclassified"])
 
 # Landuse type classifications
-PARK_LANDUSE = frozenset(["grass", "meadow"])
-FARM_LANDUSE = frozenset(["farmland", "orchard", "vineyard"])
+PARK_LANDUSE = frozenset(["grass", "meadow", "village_green", "recreation_ground"])
+FARM_LANDUSE = frozenset(
+    [
+        "farmland",
+        "orchard",
+        "vineyard",
+        "farmyard",
+        "greenhouse_horticulture",
+        "plant_nursery",
+    ]
+)
 COMMERCIAL_LANDUSE = frozenset(["commercial", "retail"])
+CEMETERY_LANDUSE = frozenset(["cemetery"])
+RAILWAY_LANDUSE = frozenset(["railway"])
+CONSTRUCTION_LANDUSE = frozenset(["construction", "brownfield", "greenfield"])
+MILITARY_LANDUSE = frozenset(["military"])
+EDUCATION_LANDUSE = frozenset(["education"])
+RELIGIOUS_LANDUSE = frozenset(["religious"])
+ALLOTMENT_LANDUSE = frozenset(["allotments"])
+WATER_LANDUSE = frozenset(["basin", "reservoir"])
+QUARRY_LANDUSE = frozenset(["quarry", "landfill"])
 
 # Waterway type classifications
 MAJOR_WATERWAYS = frozenset(["river", "canal"])
@@ -474,6 +492,7 @@ def get_render_metadata(props, geom_type):
         or props.get("water")
         or waterway == "riverbank"
         or natural == "coastline"
+        or landuse in WATER_LANDUSE
     ) and is_polygon:
         return {
             "layer": "water_areas",
@@ -490,6 +509,78 @@ def get_render_metadata(props, geom_type):
             "color": {"r": 170, "g": 211, "b": 223, "a": 255},
             "minLOD": importance,
             "fill": False,
+        }
+
+    # Cemeteries (subtle green-gray)
+    if landuse in CEMETERY_LANDUSE and is_polygon:
+        return {
+            "layer": "landuse_areas",
+            "color": {"r": 205, "g": 220, "b": 200, "a": 255},
+            "minLOD": 1,
+            "fill": True,
+        }
+
+    # Allotments/community gardens (lighter green than parks)
+    if landuse in ALLOTMENT_LANDUSE and is_polygon:
+        return {
+            "layer": "landuse_areas",
+            "color": {"r": 220, "g": 235, "b": 210, "a": 255},
+            "minLOD": 2,
+            "fill": True,
+        }
+
+    # Railway yards and infrastructure
+    if landuse in RAILWAY_LANDUSE and is_polygon:
+        return {
+            "layer": "landuse_areas",
+            "color": {"r": 210, "g": 205, "b": 210, "a": 255},  # Light purple-gray
+            "minLOD": 1,
+            "fill": True,
+        }
+
+    # Construction, brownfield, greenfield (orange-brown tint)
+    if landuse in CONSTRUCTION_LANDUSE and is_polygon:
+        return {
+            "layer": "landuse_areas",
+            "color": {"r": 235, "g": 220, "b": 200, "a": 255},
+            "minLOD": 2,
+            "fill": True,
+        }
+
+    # Military (red-brown)
+    if landuse in MILITARY_LANDUSE and is_polygon:
+        return {
+            "layer": "landuse_areas",
+            "color": {"r": 235, "g": 215, "b": 215, "a": 255},  # Light red-brown
+            "minLOD": 1,
+            "fill": True,
+        }
+
+    # Education (yellow-tan)
+    if landuse in EDUCATION_LANDUSE and is_polygon:
+        return {
+            "layer": "landuse_areas",
+            "color": {"r": 245, "g": 235, "b": 210, "a": 255},
+            "minLOD": 2,
+            "fill": True,
+        }
+
+    # Religious (light purple)
+    if landuse in RELIGIOUS_LANDUSE and is_polygon:
+        return {
+            "layer": "landuse_areas",
+            "color": {"r": 225, "g": 220, "b": 230, "a": 255},
+            "minLOD": 2,
+            "fill": True,
+        }
+
+    # Quarries and landfills (gray-brown)
+    if landuse in QUARRY_LANDUSE and is_polygon:
+        return {
+            "layer": "landuse_areas",
+            "color": {"r": 210, "g": 200, "b": 190, "a": 255},
+            "minLOD": 2,
+            "fill": True,
         }
 
     # Landuse areas (only polygons) - show at same LOD as tertiary roads

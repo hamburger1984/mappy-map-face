@@ -1894,12 +1894,14 @@ class MapRenderer {
       };
     }
 
-    // Water areas (filled polygons, including coastline)
+    // Water areas (filled polygons, including coastline + water landuse)
     if (
       props.natural === "water" ||
       props.water ||
       props.waterway === "riverbank" ||
-      props.natural === "coastline"
+      props.natural === "coastline" ||
+      props.landuse === "basin" ||
+      props.landuse === "reservoir"
     ) {
       return {
         layer: "water_areas",
@@ -1909,7 +1911,7 @@ class MapRenderer {
       };
     }
 
-    // Landuse areas
+    // Landuse areas - residential
     if (props.landuse === "residential") {
       return {
         layer: "landuse_areas",
@@ -1918,6 +1920,8 @@ class MapRenderer {
         fill: true,
       };
     }
+
+    // Landuse areas - commercial/retail
     if (props.landuse === "commercial" || props.landuse === "retail") {
       return {
         layer: "landuse_areas",
@@ -1926,6 +1930,8 @@ class MapRenderer {
         fill: true,
       };
     }
+
+    // Landuse areas - industrial
     if (props.landuse === "industrial") {
       return {
         layer: "landuse_areas",
@@ -1934,9 +1940,93 @@ class MapRenderer {
         fill: true,
       };
     }
+
+    // Landuse areas - cemetery (subtle green-gray)
+    if (props.landuse === "cemetery") {
+      return {
+        layer: "landuse_areas",
+        color: { r: 205, g: 220, b: 200, a: 255 },
+        minLOD: 1,
+        fill: true,
+      };
+    }
+
+    // Landuse areas - allotments (lighter green than parks)
+    if (props.landuse === "allotments") {
+      return {
+        layer: "landuse_areas",
+        color: { r: 220, g: 235, b: 210, a: 255 },
+        minLOD: 2,
+        fill: true,
+      };
+    }
+
+    // Landuse areas - railway yards
+    if (props.landuse === "railway") {
+      return {
+        layer: "landuse_areas",
+        color: { r: 210, g: 205, b: 210, a: 255 }, // Light purple-gray
+        minLOD: 1,
+        fill: true,
+      };
+    }
+
+    // Landuse areas - construction/brownfield/greenfield
     if (
-      props.landuse === "cemetery" ||
-      props.landuse === "allotments" ||
+      props.landuse === "construction" ||
+      props.landuse === "brownfield" ||
+      props.landuse === "greenfield"
+    ) {
+      return {
+        layer: "landuse_areas",
+        color: { r: 235, g: 220, b: 200, a: 255 }, // Orange-brown tint
+        minLOD: 2,
+        fill: true,
+      };
+    }
+
+    // Landuse areas - military
+    if (props.landuse === "military") {
+      return {
+        layer: "landuse_areas",
+        color: { r: 235, g: 215, b: 215, a: 255 }, // Light red-brown
+        minLOD: 1,
+        fill: true,
+      };
+    }
+
+    // Landuse areas - education
+    if (props.landuse === "education") {
+      return {
+        layer: "landuse_areas",
+        color: { r: 245, g: 235, b: 210, a: 255 }, // Yellow-tan
+        minLOD: 2,
+        fill: true,
+      };
+    }
+
+    // Landuse areas - religious
+    if (props.landuse === "religious") {
+      return {
+        layer: "landuse_areas",
+        color: { r: 225, g: 220, b: 230, a: 255 }, // Light purple
+        minLOD: 2,
+        fill: true,
+      };
+    }
+
+    // Landuse areas - quarry/landfill
+    if (props.landuse === "quarry" || props.landuse === "landfill") {
+      return {
+        layer: "landuse_areas",
+        color: { r: 210, g: 200, b: 190, a: 255 }, // Gray-brown
+        minLOD: 2,
+        fill: true,
+      };
+    }
+
+    // Leisure areas - recreation grounds, gardens, playgrounds, sports
+    if (
       props.landuse === "recreation_ground" ||
       props.leisure === "garden" ||
       props.leisure === "playground" ||
