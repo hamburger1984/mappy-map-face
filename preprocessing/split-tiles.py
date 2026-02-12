@@ -771,8 +771,6 @@ def split_geojson_into_tiles(
             need_import = True
 
     if not need_import:
-        print("Input file unchanged, reusing all cached databases.")
-
         # Retrieve bounds from cached database metadata
         actual_bounds = None
         try:
@@ -785,15 +783,11 @@ def split_geojson_into_tiles(
             )
             if row:
                 actual_bounds = json.loads(row[0])
-                print(
-                    f"  Retrieved cached bounds: {actual_bounds['minLon']:.4f} to {actual_bounds['maxLon']:.4f} lon, {actual_bounds['minLat']:.4f} to {actual_bounds['maxLat']:.4f} lat"
-                )
         except:
             pass
 
         # If bounds not in metadata (old database), recalculate from features
         if actual_bounds is None:
-            print("  Bounds not cached, recalculating from stored features...")
             actual_bounds = {
                 "minLon": float("inf"),
                 "maxLon": float("-inf"),
@@ -830,9 +824,6 @@ def split_geojson_into_tiles(
                 "INSERT OR REPLACE INTO metadata VALUES ('bounds', ?)", (bounds_json,)
             )
             zoom_dbs[zoom_levels[0]].commit()
-            print(
-                f"  Calculated bounds: {actual_bounds['minLon']:.4f} to {actual_bounds['maxLon']:.4f} lon, {actual_bounds['minLat']:.4f} to {actual_bounds['maxLat']:.4f} lat"
-            )
     else:
         # If any zoom needs rebuilding, rebuild all for consistency
         for zoom in zoom_levels:
@@ -841,8 +832,6 @@ def split_geojson_into_tiles(
             zoom_dbs[zoom] = conn
 
         # Pass 1: Stream features into per-zoom SQLite databases
-        print(f"Streaming features from {geojson_file}...")
-        print("\nPass 1: Classifying and distributing features...")
         stats = defaultdict(int)
         i = 0
         batches = {zoom: [] for zoom in zoom_levels}
@@ -990,24 +979,13 @@ def split_geojson_into_tiles(
                 zoom_dbs[zoom].commit()
                 batches[zoom].clear()
 
-        # Final progress line
-        elapsed = time.time() - start_time
-        features_per_sec = i / elapsed if elapsed > 0 else 0
-        if features_per_sec >= 1000:
-            rate_str = f"{features_per_sec / 1000:.1f}k"
-        else:
-            rate_str = f"{features_per_sec:.0f}"
+        # Final progress line (clear the line first)
         print(
-            f"\r  Processed: {i:,} features | {rate_str} features/sec | 100.0% through file"
+            f"\r  Processed {i:,} features in {time.time() - start_time:.0f}s"
+            + " " * 40
         )
-        print(f"\nCompleted in {elapsed:.1f}s - Processed {i:,} features total.")
-        print(f"Feature distribution:")
-        print(f"  Skipped: {stats['skipped']}")
-        for zoom in sorted(zoom_levels):
-            print(f"  Z{zoom}: {stats[f'z{zoom}']} feature-tile pairs")
 
         # Create indexes for fast reads in Pass 2
-        print("\nCreating database indexes...")
 
         # Store bounds in metadata for cache reuse
         import json
@@ -1026,7 +1004,6 @@ def split_geojson_into_tiles(
             conn.commit()
 
     # Pass 2: Write tiles from each zoom database
-    print("\nPass 2: Writing tiles...")
     output_path = Path(output_dir)
     total_tiles = 0
     tile_count = 0
@@ -1170,13 +1147,9 @@ def split_geojson_into_tiles(
 
         conn.close()
 
-    # Final tile writing summary
+    # Final tile writing summary (clear the line first)
     write_elapsed = time.time() - write_start
-    tiles_per_sec = tile_count / write_elapsed if write_elapsed > 0 else 0
-    print(
-        f"\r  Written: {tile_count:,}/{total_tiles:,} tiles | {tiles_per_sec:.0f} tiles/sec | 100.0%"
-    )
-    print(f"\n✓ Created {tile_count} tiles in {output_dir} ({write_elapsed:.1f}s)")
+    print(f"\r  Created {tile_count:,} tiles in {write_elapsed:.0f}s" + " " * 60)
 
     # Return actual bounds (or fallback to hardcoded if no features processed)
     if actual_bounds["minLon"] == float("inf"):
