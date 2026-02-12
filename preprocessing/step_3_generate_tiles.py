@@ -1217,7 +1217,13 @@ def process_geojson_to_tiles(args):
         return {"name": geojson_path.name, "status": "success", "bounds": bounds}
 
     except Exception as e:
-        return {"name": geojson_path.name, "status": "failed", "error": str(e)}
+        import traceback
+
+        return {
+            "name": geojson_path.name,
+            "status": "failed",
+            "error": str(e) + "\n" + traceback.format_exc(),
+        }
 
 
 def feature_intersects_bounds(feature, bbox):
