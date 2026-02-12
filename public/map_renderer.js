@@ -1037,6 +1037,124 @@ class MapRenderer {
     }
   }
 
+  analyzeTileContent(tileData) {
+    // Analyze tile to determine if it has coastline or land features
+    if (!tileData || !tileData.features || tileData.features.length === 0) {
+      return { hasCoastline: false, hasLandFeatures: false, isEmpty: true };
+    }
+
+    let hasCoastline = false;
+    let hasLandFeatures = false;
+
+    for (const feature of tileData.features) {
+      const props = feature.properties || {};
+
+      // Check for coastline
+      if (props.natural === "coastline") {
+        hasCoastline = true;
+      }
+
+      // Check for land-specific features
+      // Roads, buildings, landuse, etc indicate land
+      if (
+        props.highway ||
+        props.building ||
+        props.landuse ||
+        props.railway ||
+        props.amenity ||
+        props.shop ||
+        (props.natural &&
+          props.natural !== "coastline" &&
+          props.natural !== "water")
+      ) {
+        hasLandFeatures = true;
+      }
+
+      // Early exit if we found both
+      if (hasCoastline && hasLandFeatures) {
+        break;
+      }
+    }
+
+    return {
+      hasCoastline,
+      hasLandFeatures,
+      isEmpty: false,
+    };
+  }
+
+  renderTileBackgrounds(visibleTiles, bounds) {
+    // Colors
+    const OCEAN_COLOR = "rgb(170, 211, 223)"; // Water blue
+    const LAND_COLOR = "rgb(242, 239, 233)"; // Light tan/beige
+
+    // Default ocean background for entire canvas
+    this.ctx.fillStyle = OCEAN_COLOR;
+    this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
+
+    // Analyze each tile and render land background where appropriate
+    for (const tile of visibleTiles) {
+      const tileKey = this.getTileKey(tile.z, tile.x, tile.y);
+      const tileData = this.tileCache.get(tileKey);
+
+      if (!tileData) continue;
+
+      const analysis = this.analyzeTileContent(tileData);
+
+      // Case C: No coastline + has land features = inland area
+      // Draw land background for this tile
+      if (!analysis.hasCoastline && analysis.hasLandFeatures) {
+        const tileBounds = this.getTileBounds(tile.x, tile.y, tile.z);
+        this.fillTileBounds(tileBounds, LAND_COLOR, bounds);
+      }
+
+      // Case D: No coastline + no features = ocean
+      // Already ocean (default background), do nothing
+
+      // Case B: Has coastline = coastal boundary
+      // Skip for now - just render features normally
+    }
+  }
+
+  getTileBounds(x, y, z) {
+    // Calculate geographic bounds of a tile
+    const n = Math.pow(2, z);
+    const minLon = (x / n) * 360 - 180;
+    const maxLon = ((x + 1) / n) * 360 - 180;
+
+    const minLat = this.tile2lat(y + 1, z);
+    const maxLat = this.tile2lat(y, z);
+
+    return { minLon, maxLon, minLat, maxLat };
+  }
+
+  tile2lat(y, z) {
+    const n = Math.pow(2, z);
+    const latRad = Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n)));
+    return (latRad * 180) / Math.PI;
+  }
+
+  fillTileBounds(tileBounds, color, viewBounds) {
+    // Convert tile geographic bounds to screen coordinates and fill
+    const minX = this.lonToScreenX(tileBounds.minLon, viewBounds);
+    const maxX = this.lonToScreenX(tileBounds.maxLon, viewBounds);
+    const minY = this.latToScreenY(tileBounds.maxLat, viewBounds); // Note: Y is inverted
+    const maxY = this.latToScreenY(tileBounds.minLat, viewBounds);
+
+    this.ctx.fillStyle = color;
+    this.ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
+  }
+
+  lonToScreenX(lon, bounds) {
+    const lonRange = bounds.maxLon - bounds.minLon;
+    return ((lon - bounds.minLon) / lonRange) * this.canvasWidth;
+  }
+
+  latToScreenY(lat, bounds) {
+    const latRange = bounds.maxLat - bounds.minLat;
+    return ((bounds.maxLat - lat) / latRange) * this.canvasHeight;
+  }
+
   async loadVisibleTiles(bounds) {
     const tiles = this.getVisibleTiles(bounds);
 
@@ -1471,10 +1589,9 @@ class MapRenderer {
     // Start rendering timing
     const renderStart = performance.now();
 
-    // Use water/ocean color as background (inverse rendering)
-    // Land polygons will render as tan/beige on top
-    this.ctx.fillStyle = "rgb(170, 211, 223)"; // Water blue (ocean default)
-    this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
+    // Smart tile background rendering based on content
+    // Analyze each tile and render appropriate background
+    this.renderTileBackgrounds(visibleTiles, adjustedBounds);
 
     perfTimings.clearCanvas = performance.now() - renderStart;
 
