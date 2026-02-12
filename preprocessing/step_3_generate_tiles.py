@@ -1678,6 +1678,17 @@ def main():
 
         # Check if we found any valid bounds
         if osm_bounds["minLon"] == float("inf"):
+            print()
+            print("=" * 70)
+            print("⚠ WARNING: No valid OSM bounds found!")
+            print("  Processed results contain no bounds data.")
+            print(
+                "  This likely means all OSM regions failed to process or returned no bounds."
+            )
+            print(
+                "  Land polygons will NOT be filtered and may cover the entire world."
+            )
+            print("=" * 70)
             osm_bounds = None
         else:
             print()
@@ -1747,6 +1758,20 @@ def main():
             len(list((temp_tile_dir / str(z)).rglob("*.json")))
             for z in args.zoom_levels
         )
+
+        # Check if we have valid merged bounds
+        if merged_bounds["minLon"] == float("inf"):
+            print()
+            print("⚠ WARNING: No valid bounds in merged results!")
+            print("  All processed sources returned no bounds data.")
+            print("  Using fallback center coordinates for index.")
+            # Use a small area around Hamburg as fallback
+            merged_bounds = {
+                "minLon": HAMBURG_CENTER_LON - 0.1,
+                "maxLon": HAMBURG_CENTER_LON + 0.1,
+                "minLat": HAMBURG_CENTER_LAT - 0.1,
+                "maxLat": HAMBURG_CENTER_LAT + 0.1,
+            }
 
         index_file = temp_tile_dir / "index.json"
         index_data = {
