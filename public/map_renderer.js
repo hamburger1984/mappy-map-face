@@ -1100,40 +1100,66 @@ class MapRenderer {
     const OCEAN_COLOR = "rgb(170, 211, 223)"; // Water blue
     const LAND_COLOR = "rgb(242, 239, 233)"; // Light tan/beige
 
-    // Default ocean background for entire canvas
-    this.ctx.fillStyle = OCEAN_COLOR;
-    this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
+    // Analyze tiles first to determine if we need ocean or land default background
+    let hasAnyOceanTiles = false;
+    let hasAnyLandTiles = false;
 
-    // Analyze each tile and render land background where appropriate
+    const tileAnalyses = new Map();
     for (const tile of visibleTiles) {
       const tileKey = this.getTileKey(tile.z, tile.x, tile.y);
       const tileData = this.tileCache.get(tileKey);
-
       if (!tileData) continue;
 
       const analysis = this.analyzeTileContent(tileData);
+      tileAnalyses.set(tileKey, analysis);
 
-      // Case B: Has coastline
-      // Determine background based on whether land features are present
-      if (analysis.hasCoastline) {
-        const tileBounds = this.getTileBounds(tile.x, tile.y, tile.z);
-        if (analysis.hasLandFeatures) {
-          // Coastline + land features = coastal land area
+      if (analysis.hasCoastline || analysis.isEmpty) {
+        hasAnyOceanTiles = true;
+      }
+      if (analysis.hasLandFeatures || analysis.hasCoastline) {
+        hasAnyLandTiles = true;
+      }
+    }
+
+    // Set default background based on majority tile type
+    // If all tiles are inland (land features, no coastline), use land background
+    // Otherwise use ocean background (for coastal areas or pure ocean)
+    const defaultBackground = hasAnyOceanTiles ? OCEAN_COLOR : LAND_COLOR;
+    this.ctx.fillStyle = defaultBackground;
+    this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
+
+    // Now render specific tile backgrounds as needed
+    for (const tile of visibleTiles) {
+      const tileKey = this.getTileKey(tile.z, tile.x, tile.y);
+      const analysis = tileAnalyses.get(tileKey);
+      if (!analysis) continue;
+
+      const tileBounds = this.getTileBounds(tile.x, tile.y, tile.z);
+
+      // Case A: Pure inland tile (has land features, no coastline)
+      // If default is ocean, paint this tile as land
+      if (analysis.hasLandFeatures && !analysis.hasCoastline) {
+        if (defaultBackground === OCEAN_COLOR) {
           this.fillTileBounds(tileBounds, LAND_COLOR, bounds);
-        } else {
-          // Coastline + no land features = coastal ocean area
-          // Keep ocean background (already set as default)
         }
+        // else: already land background, nothing to do
       }
-      // Case C: No coastline + has land features = inland area
-      // Draw land background for this tile
-      else if (analysis.hasLandFeatures) {
-        const tileBounds = this.getTileBounds(tile.x, tile.y, tile.z);
-        this.fillTileBounds(tileBounds, LAND_COLOR, bounds);
+      // Case B: Coastal tile (has coastline)
+      // Paint as ocean background
+      else if (analysis.hasCoastline) {
+        if (defaultBackground === LAND_COLOR) {
+          this.fillTileBounds(tileBounds, OCEAN_COLOR, bounds);
+        }
+        // else: already ocean background, nothing to do
       }
-
-      // Case D: No coastline + no features = ocean
-      // Already ocean (default background), do nothing
+      // Case C: Pure ocean tile (no features at all)
+      // If default is land, paint this tile as ocean
+      else if (analysis.isEmpty) {
+        if (defaultBackground === LAND_COLOR) {
+          this.fillTileBounds(tileBounds, OCEAN_COLOR, bounds);
+        }
+        // else: already ocean background, nothing to do
+      }
     }
   }
 
@@ -1526,7 +1552,6 @@ class MapRenderer {
     // Reuse layer arrays (avoid reallocating every frame)
     if (!this._layers) {
       this._layers = {
-        land_base: [], // Land polygons (render first on blue background)
         natural_background: [],
         forests: [],
         water_areas: [],
@@ -1538,6 +1563,7 @@ class MapRenderer {
         surface_railways: [],
         boundaries: [],
         points: [],
+        place_labels: [], // City/town/village names
       };
     }
     const layers = this._layers;
@@ -1620,13 +1646,8 @@ class MapRenderer {
     // Background to foreground (bottom to top)
     const layerTimings = {};
 
-    // 0. Land base layer (tan/beige polygons on blue ocean background)
-    let layerStart = performance.now();
-    this.renderLayer(layers.land_base, adjustedBounds, true);
-    layerTimings.land = performance.now() - layerStart;
-
     // 1. Natural background (parks, farmland, meadows)
-    layerStart = performance.now();
+    let layerStart = performance.now();
     this.renderLayer(layers.natural_background, adjustedBounds, true);
     layerTimings.natural = performance.now() - layerStart;
 
@@ -1684,6 +1705,11 @@ class MapRenderer {
     layerStart = performance.now();
     this.renderLayer(layers.points, adjustedBounds, false);
     layerTimings.points = performance.now() - layerStart;
+
+    // 10b. Place labels (city/town/village names on top of everything except highlights)
+    layerStart = performance.now();
+    this.renderPlaceLabels(layers.place_labels, adjustedBounds);
+    layerTimings.placeLabels = performance.now() - layerStart;
 
     // 11. Highlight hovered or selected feature on top of everything
     layerStart = performance.now();
@@ -1864,26 +1890,6 @@ class MapRenderer {
         layer: "natural_background",
         color: color,
         minLOD: 1,
-        fill: true,
-      };
-    }
-
-    // Land polygons from OSM coastline data (simplified - for zoomed out view)
-    if (props.layer_source === "land_polygons_simplified") {
-      return {
-        layer: "land_base",
-        color: { r: 242, g: 239, b: 233, a: 255 }, // Light tan/beige
-        minLOD: 0, // Show at all zoom levels
-        fill: true,
-      };
-    }
-
-    // Land polygons from OSM coastline data (detailed - for zoomed in view)
-    if (props.layer_source === "land_polygons_detailed") {
-      return {
-        layer: "land_base",
-        color: { r: 242, g: 239, b: 233, a: 255 }, // Same color
-        minLOD: 2, // Only when zoomed in (<2km view)
         fill: true,
       };
     }
@@ -2221,6 +2227,73 @@ class MapRenderer {
       // Skip all highway-related points (street lamps, traffic signals, etc.)
       if (props.highway) {
         return { layer: null, minLOD: 999, fill: false };
+      }
+
+      // Place names (cities, towns, villages, suburbs, etc.)
+      if (props.place && props.name) {
+        const placeType = props.place;
+        const population = props.population ? parseInt(props.population) : 0;
+
+        // Classify place importance (matches preprocessing logic)
+        let minLOD, placePriority, fontSize;
+
+        if (placeType === "city") {
+          minLOD = 0; // Always visible
+          placePriority = 1;
+          fontSize = 18;
+        } else if (placeType === "town") {
+          if (population >= 50000) {
+            minLOD = 0;
+            placePriority = 2;
+          } else {
+            minLOD = 1;
+            placePriority = 3;
+          }
+          fontSize = 16;
+        } else if (placeType === "village") {
+          if (population >= 5000) {
+            minLOD = 1;
+            placePriority = 4;
+          } else {
+            minLOD = 2;
+            placePriority = 5;
+          }
+          fontSize = 14;
+        } else if (
+          placeType === "suburb" ||
+          placeType === "borough" ||
+          placeType === "quarter"
+        ) {
+          minLOD = 2;
+          placePriority = 6;
+          fontSize = 13;
+        } else if (placeType === "hamlet" || placeType === "neighbourhood") {
+          minLOD = 3;
+          placePriority = 7;
+          fontSize = 12;
+        } else if (
+          placeType === "locality" ||
+          placeType === "isolated_dwelling"
+        ) {
+          minLOD = 4;
+          placePriority = 8;
+          fontSize = 11;
+        } else {
+          minLOD = 3;
+          placePriority = 9;
+          fontSize = 12;
+        }
+
+        return {
+          layer: "place_labels",
+          color: { r: 0, g: 0, b: 0, a: 255 },
+          minLOD,
+          fill: false,
+          placeType,
+          placePriority,
+          fontSize,
+          population,
+        };
       }
 
       // Categorize named POIs
@@ -2768,6 +2841,130 @@ class MapRenderer {
         currentDist += drawReversed ? -charWidth : charWidth;
       }
     }
+  }
+
+  renderPlaceLabels(layerFeatures, bounds) {
+    // Render place names (cities, towns, villages) with smart density control
+    if (!layerFeatures || layerFeatures.length === 0) return;
+
+    const lod = this.getLOD();
+
+    // Pre-compute bounds scaling
+    const lonRange = bounds.maxLon - bounds.minLon;
+    const latRange = bounds.maxLat - bounds.minLat;
+    const scaleX = this.canvasWidth / lonRange;
+    const scaleY = this.canvasHeight / latRange;
+    const minLon = bounds.minLon;
+    const minLat = bounds.minLat;
+    const canvasHeight = this.canvasHeight;
+    const toScreenX = (lon) => (lon - minLon) * scaleX;
+    const toScreenY = (lat) => canvasHeight - (lat - minLat) * scaleY;
+
+    // Collect all places with their screen positions
+    const places = [];
+    for (const item of layerFeatures) {
+      const { feature, props } = item;
+      const geom = feature.geometry;
+      if (!geom || !geom.coordinates) continue;
+
+      const [lon, lat] = geom.coordinates;
+      const sx = toScreenX(lon);
+      const sy = toScreenY(lat);
+
+      // Skip if off-screen (with margin)
+      const margin = 50;
+      if (
+        sx < -margin ||
+        sx > this.canvasWidth + margin ||
+        sy < -margin ||
+        sy > this.canvasHeight + margin
+      ) {
+        continue;
+      }
+
+      places.push({
+        name: props.name,
+        x: sx,
+        y: sy,
+        priority: item.placePriority || 9,
+        fontSize: item.fontSize || 12,
+        placeType: item.placeType || "unknown",
+        population: item.population || 0,
+      });
+    }
+
+    if (places.length === 0) return;
+
+    // Sort by priority (lower = more important = render first)
+    places.sort((a, b) => a.priority - b.priority);
+
+    // Density control: limit number of labels based on zoom level
+    // This prevents overcrowding at lower zoom levels
+    let maxLabels;
+    if (lod === 0) {
+      maxLabels = 15; // Very zoomed out: only major cities
+    } else if (lod === 1) {
+      maxLabels = 30; // Medium zoom: cities + large towns
+    } else if (lod === 2) {
+      maxLabels = 60; // Zoomed in: add villages
+    } else if (lod === 3) {
+      maxLabels = 100; // More zoomed: add suburbs/boroughs
+    } else {
+      maxLabels = 200; // Very zoomed: show most places
+    }
+
+    // Additional density control: minimum spacing between labels
+    // Prevents labels from overlapping
+    const minSpacing = 30; // pixels
+    const renderedPositions = [];
+
+    let labelCount = 0;
+    this.ctx.textAlign = "center";
+    this.ctx.textBaseline = "middle";
+
+    for (const place of places) {
+      if (labelCount >= maxLabels) break;
+
+      // Check spacing with already rendered labels
+      let tooClose = false;
+      for (const pos of renderedPositions) {
+        const dx = place.x - pos.x;
+        const dy = place.y - pos.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < minSpacing) {
+          tooClose = true;
+          break;
+        }
+      }
+
+      if (tooClose) continue;
+
+      // Render the label
+      this.ctx.font = `bold ${place.fontSize}px Arial, sans-serif`;
+
+      // White outline for readability
+      this.ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+      this.ctx.lineWidth = 3;
+      this.ctx.strokeText(place.name, place.x, place.y);
+
+      // Black text
+      this.ctx.fillStyle = "rgba(0, 0, 0, 0.9)";
+      this.ctx.fillText(place.name, place.x, place.y);
+
+      // Optional: render place type or population for debugging
+      // if (place.population > 0) {
+      //   this.ctx.font = `10px Arial`;
+      //   this.ctx.fillStyle = "rgba(100, 100, 100, 0.7)";
+      //   this.ctx.fillText(`(${(place.population / 1000).toFixed(0)}k)`, place.x, place.y + place.fontSize);
+      // }
+
+      renderedPositions.push({ x: place.x, y: place.y });
+      labelCount++;
+    }
+
+    console.log(
+      `[PLACES] Rendered ${labelCount}/${places.length} labels (LOD ${lod}, max ${maxLabels})`,
+    );
   }
 
   renderLayer(layerFeatures, bounds, useFill) {

@@ -468,24 +468,6 @@ def get_render_metadata(props, geom_type):
             "fill": True,
         }
 
-    # Land polygons (simplified - for zoomed out view)
-    if props.get("layer_source") == "land_polygons_simplified":
-        return {
-            "layer": "land_base",
-            "color": {"r": 242, "g": 239, "b": 233, "a": 255},  # Light tan/beige
-            "minLOD": 0,  # Always visible
-            "fill": True,
-        }
-
-    # Land polygons (detailed - for zoomed in view)
-    if props.get("layer_source") == "land_polygons_detailed":
-        return {
-            "layer": "land_base",
-            "color": {"r": 242, "g": 239, "b": 233, "a": 255},  # Same color
-            "minLOD": 2,  # Only visible when zoomed in
-            "fill": True,
-        }
-
     # Water bodies (only polygons - including coastline for sea/ocean areas)
     if (
         natural == "water"
@@ -636,6 +618,75 @@ def get_render_metadata(props, geom_type):
                 "fill": False,
             }
 
+    # Place names (cities, towns, villages, suburbs, etc.) - rendered as labels
+    if geom_type == "Point" and props.get("place") and props.get("name"):
+        place_type = props.get("place")
+        population = props.get("population")
+
+        # Parse population if available (helps with prioritization)
+        pop_value = 0
+        if population:
+            try:
+                pop_value = int(population)
+            except (ValueError, TypeError):
+                pass
+
+        # Classify place importance based on type and population
+        # minLOD: 0 = always visible (>20km view), 1 = medium zoom (7.5-20km),
+        #         2 = zoomed in (3-7.5km), 3 = more zoomed (1-3km), 4 = very zoomed (<1km)
+        if place_type == "city":
+            minLOD = 0  # Cities always visible
+            priority = 1  # Highest priority
+            font_size = 18
+        elif place_type == "town":
+            # Large towns (>50k) visible at all zooms, smaller towns at medium zoom
+            if pop_value >= 50000:
+                minLOD = 0
+                priority = 2
+            else:
+                minLOD = 1
+                priority = 3
+            font_size = 16
+        elif place_type == "village":
+            # Large villages (>5k) at medium zoom, smaller at zoomed in
+            if pop_value >= 5000:
+                minLOD = 1
+                priority = 4
+            else:
+                minLOD = 2
+                priority = 5
+            font_size = 14
+        elif (
+            place_type == "suburb" or place_type == "borough" or place_type == "quarter"
+        ):
+            minLOD = 2  # Suburbs/boroughs visible when zoomed in
+            priority = 6
+            font_size = 13
+        elif place_type == "hamlet" or place_type == "neighbourhood":
+            minLOD = 3  # Hamlets/neighborhoods at close zoom
+            priority = 7
+            font_size = 12
+        elif place_type == "locality" or place_type == "isolated_dwelling":
+            minLOD = 4  # Localities/isolated at very close zoom
+            priority = 8
+            font_size = 11
+        else:
+            # Unknown place type - show at close zoom
+            minLOD = 3
+            priority = 9
+            font_size = 12
+
+        return {
+            "layer": "place_labels",
+            "color": {"r": 0, "g": 0, "b": 0, "a": 255},  # Black text
+            "minLOD": minLOD,
+            "fill": False,
+            "placeType": place_type,
+            "placePriority": priority,
+            "fontSize": font_size,
+            "population": pop_value,
+        }
+
     # Points of interest (only named with amenities at high zoom)
     if geom_type == "Point":
         if props.get("name") and (
@@ -729,6 +780,20 @@ def classify_feature_importance(props, geom_type):
     # Small roads and paths
     if effective_highway:
         return (15, 10)  # Z15+
+
+    # Place names (cities, towns, villages) - high importance
+    if geom_type == "Point" and props.get("place") and props.get("name"):
+        place_type = props.get("place")
+        if place_type == "city":
+            return (0, 95)  # Z0-Z5, very important (just below water/forests)
+        elif place_type == "town":
+            return (0, 85)  # Z0-Z5, very important
+        elif place_type == "village":
+            return (6, 55)  # Z6-Z10, important
+        elif place_type in ["suburb", "borough", "quarter"]:
+            return (11, 25)  # Z11-Z14
+        else:
+            return (15, 8)  # Z15+ for hamlets, localities
 
     # Named POIs
     if geom_type == "Point" and props.get("name"):
@@ -841,7 +906,6 @@ def split_geojson_into_tiles(
     zoom_levels,
     source_pbf_file=None,
     db_prefix=None,
-    provided_bounds=None,
 ):
     """Split GeoJSON into tiles using per-zoom SQLite databases.
 
@@ -849,10 +913,8 @@ def split_geojson_into_tiles(
         geojson_file: Path to temporary GeoJSON file to process
         output_dir: Directory to write tiles to
         zoom_levels: List of zoom levels to generate
-        source_pbf_file: Path to source OSM PBF file (used for fingerprinting and bounds extraction).
-                        Optional if provided_bounds is given.
+        source_pbf_file: Path to source OSM PBF file (used for fingerprinting and bounds extraction)
         db_prefix: Optional prefix for database files (defaults to PBF filename or geojson filename)
-        provided_bounds: Optional pre-calculated bounds dict (for non-PBF sources like land polygons)
     """
 
     # Determine database directory and fingerprint source
@@ -892,11 +954,9 @@ def split_geojson_into_tiles(
         except:
             pass
 
-        # If bounds not in metadata (old database), get from PBF file or use provided bounds
+        # If bounds not in metadata (old database), get from PBF file
         if actual_bounds is None:
-            if provided_bounds:
-                actual_bounds = provided_bounds
-            elif source_pbf_file and Path(source_pbf_file).suffix == ".pbf":
+            if source_pbf_file and Path(source_pbf_file).suffix == ".pbf":
                 actual_bounds = get_pbf_bounds(source_pbf_file)
 
             if actual_bounds:
@@ -909,8 +969,8 @@ def split_geojson_into_tiles(
                 zoom_dbs[zoom_levels[0]].commit()
             else:
                 raise ValueError(
-                    f"Could not retrieve bounds from cached database, PBF file, or provided_bounds. "
-                    f"source_pbf_file={source_pbf_file}, provided_bounds={provided_bounds}"
+                    f"Could not retrieve bounds from cached database or PBF file. "
+                    f"source_pbf_file={source_pbf_file}"
                 )
     else:
         # If any zoom needs rebuilding, rebuild all for consistency
@@ -925,11 +985,9 @@ def split_geojson_into_tiles(
         batches = {zoom: [] for zoom in zoom_levels}
         BATCH_SIZE = 50000
 
-        # Get bounds from PBF header or use provided bounds (for non-PBF sources)
+        # Get bounds from PBF header
         # Features may reference nodes outside the region for complete relations
-        if provided_bounds:
-            actual_bounds = provided_bounds
-        elif source_pbf_file and Path(source_pbf_file).suffix == ".pbf":
+        if source_pbf_file and Path(source_pbf_file).suffix == ".pbf":
             pbf_bounds = get_pbf_bounds(source_pbf_file)
             if not pbf_bounds:
                 raise ValueError(
@@ -939,8 +997,7 @@ def split_geojson_into_tiles(
             actual_bounds = pbf_bounds
         else:
             raise ValueError(
-                f"Must provide either source_pbf_file (PBF) or provided_bounds. "
-                f"source_pbf_file={source_pbf_file}, provided_bounds={provided_bounds}"
+                f"Must provide source_pbf_file. source_pbf_file={source_pbf_file}"
             )
 
         # Get file size for progress tracking
@@ -1232,9 +1289,10 @@ def split_geojson_into_tiles(
                     seen.add(feat_str)
                     all_features.append(feat_str)
 
-            # Analyze tile content for metadata
+            # Analyze tile content for metadata and generate land polygon if needed
             has_coastline = False
             has_land_features = False
+            coastline_features = []
 
             for feature_str in all_features:
                 try:
@@ -1244,6 +1302,7 @@ def split_geojson_into_tiles(
                     # Check for coastline
                     if props.get("natural") == "coastline":
                         has_coastline = True
+                        coastline_features.append(feat)
 
                     # Check for land features
                     if (
@@ -1259,10 +1318,6 @@ def split_geojson_into_tiles(
                         )
                     ):
                         has_land_features = True
-
-                    # Early exit
-                    if has_coastline and has_land_features:
-                        break
                 except:
                     pass
 
@@ -1345,9 +1400,10 @@ def write_tiles_from_databases(db_dir, db_prefix, zoom_levels, output_dir):
                             seen.add(feat_str)
                             merged_features.append(feat_str)
 
-                    # Analyze and write with metadata
+                    # Analyze tile content and generate land polygon if needed
                     has_coastline = False
                     has_land_features = False
+                    coastline_features = []
 
                     for feature_str in merged_features:
                         try:
@@ -1356,6 +1412,7 @@ def write_tiles_from_databases(db_dir, db_prefix, zoom_levels, output_dir):
 
                             if props.get("natural") == "coastline":
                                 has_coastline = True
+                                coastline_features.append(feat)
 
                             if (
                                 props.get("highway")
@@ -1372,8 +1429,7 @@ def write_tiles_from_databases(db_dir, db_prefix, zoom_levels, output_dir):
                             ):
                                 has_land_features = True
 
-                            if has_coastline and has_land_features:
-                                break
+                            # Continue scanning to collect all coastline features
                         except:
                             pass
 
@@ -1425,6 +1481,7 @@ def write_tiles_from_databases(db_dir, db_prefix, zoom_levels, output_dir):
             # Analyze and write with metadata
             has_coastline = False
             has_land_features = False
+            coastline_features = []
 
             for feature_str in merged_features:
                 try:
@@ -1433,6 +1490,7 @@ def write_tiles_from_databases(db_dir, db_prefix, zoom_levels, output_dir):
 
                     if props.get("natural") == "coastline":
                         has_coastline = True
+                        coastline_features.append(feat)
 
                     if (
                         props.get("highway")
@@ -1448,8 +1506,7 @@ def write_tiles_from_databases(db_dir, db_prefix, zoom_levels, output_dir):
                     ):
                         has_land_features = True
 
-                    if has_coastline and has_land_features:
-                        break
+                    # Continue scanning to collect all coastline features
                 except:
                     pass
 
@@ -1524,152 +1581,6 @@ def feature_intersects_bounds(feature, bbox):
     return False
 
 
-def process_land_polygons(data_dir, output_dir, zoom_levels, osm_bounds=None):
-    """Process land polygon files (simplified and detailed), optionally filtered to OSM bounds.
-
-    Args:
-        data_dir: Directory containing land polygon GeoJSON files
-        output_dir: Output directory for tiles
-        zoom_levels: List of zoom levels to generate
-        osm_bounds: Required bounds dict from OSM data (used since land polygons are not PBF files)
-    """
-    land_files = {
-        "simplified": data_dir / "simplified-land-polygons.geojson",
-        "detailed": data_dir / "detailed-land-polygons.geojson",
-    }
-
-    results = []
-
-    # Add buffer to bounds to ensure we get land polygons slightly outside OSM data
-    # This prevents rendering artifacts at the edges
-    if osm_bounds:
-        buffer = 0.5  # degrees (~55km at equator)
-        filter_bbox = {
-            "minLon": osm_bounds["minLon"] - buffer,
-            "maxLon": osm_bounds["maxLon"] + buffer,
-            "minLat": osm_bounds["minLat"] - buffer,
-            "maxLat": osm_bounds["maxLat"] + buffer,
-        }
-        print()
-        print("Filtering land polygons to OSM bounds:")
-        print(
-            f"  OSM bounds:     {osm_bounds['minLat']:.4f}°N to {osm_bounds['maxLat']:.4f}°N, "
-            f"{osm_bounds['minLon']:.4f}°E to {osm_bounds['maxLon']:.4f}°E"
-        )
-        print(f"  Buffer added:   ±{buffer}° (~{int(buffer * 111)}km)")
-        print(
-            f"  Filter bounds:  {filter_bbox['minLat']:.4f}°N to {filter_bbox['maxLat']:.4f}°N, "
-            f"{filter_bbox['minLon']:.4f}°E to {filter_bbox['maxLon']:.4f}°E"
-        )
-    else:
-        filter_bbox = None
-
-    for land_type, land_file in land_files.items():
-        # Skip detailed land polygons - they're very large (2.4GB) and slow to process
-        # Use simplified for all zoom levels for now
-        if land_type == "detailed":
-            print(
-                f"\nSkipping {land_type} land polygons (using simplified for all zooms)"
-            )
-            continue
-
-        if not land_file.exists():
-            continue
-
-        print(f"\nProcessing {land_type} land polygons...")
-
-        # Tag features with layer_source property
-        tagged_geojson = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".geojson", delete=False, dir=data_dir
-        )
-
-        try:
-            # Use ijson for streaming to handle large files
-            import ijson
-
-            with open(land_file, "rb") as f:
-                tagged_geojson.write('{"type":"FeatureCollection","features":[')
-                first = True
-
-                # Count features for progress
-                feature_count = 0
-                for _ in ijson.items(f, "features.item"):
-                    feature_count += 1
-
-                # Reset file position
-                f.seek(0)
-
-                # Process with progress bar
-                filtered_count = 0
-                with tqdm(
-                    total=feature_count, desc=f"Filtering {land_type}", unit="feature"
-                ) as pbar:
-                    for feature in ijson.items(f, "features.item"):
-                        # Filter by bounding box if provided
-                        if filter_bbox and not feature_intersects_bounds(
-                            feature, filter_bbox
-                        ):
-                            pbar.update(1)
-                            continue
-
-                        if not first:
-                            tagged_geojson.write(",")
-                        first = False
-
-                        if "properties" not in feature:
-                            feature["properties"] = {}
-                        feature["properties"]["layer_source"] = (
-                            f"land_polygons_{land_type}"
-                        )
-
-                        json.dump(feature, tagged_geojson, default=decimal_default)
-                        filtered_count += 1
-                        pbar.update(1)
-
-                if filter_bbox:
-                    print(
-                        f"  → Kept {filtered_count}/{feature_count} features within bounds"
-                    )
-
-                tagged_geojson.write("]}")
-
-            tagged_geojson.close()
-
-            # Process into tiles using OSM bounds (land polygons are GeoJSON, not PBF)
-            # The bounds are from OSM data, not calculated from land polygon features
-            print(f"  → Processing {filtered_count} features into tiles...")
-            print(
-                f"     (This may take several minutes due to complex coastline geometries)"
-            )
-            split_geojson_into_tiles(
-                tagged_geojson.name,
-                output_dir,
-                zoom_levels,
-                source_pbf_file=None,
-                db_prefix=f"land-{land_type}",
-                provided_bounds=osm_bounds,
-            )
-
-            # Don't include bounds - land polygons are global data, not regional
-            results.append(
-                {"name": f"{land_type}-land", "status": "success", "bounds": None}
-            )
-
-        except Exception as e:
-            results.append(
-                {"name": f"{land_type}-land", "status": "failed", "error": str(e)}
-            )
-
-        finally:
-            # Cleanup temporary file
-            try:
-                Path(tagged_geojson.name).unlink()
-            except:
-                pass
-
-    return results
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="Generate map tiles from GeoJSON files",
@@ -1706,18 +1617,6 @@ def main():
         default=3,
         help="Number of parallel tile generation processes",
     )
-    parser.add_argument(
-        "--skip-land-polygons",
-        action="store_true",
-        default=True,
-        help="Skip processing land polygons (default: True due to performance)",
-    )
-    parser.add_argument(
-        "--include-land-polygons",
-        dest="skip_land_polygons",
-        action="store_false",
-        help="Include land polygons (slow, enables ocean rendering)",
-    )
 
     args = parser.parse_args()
 
@@ -1730,7 +1629,7 @@ def main():
         # Find all OSM PBF files
         pbf_files = list(args.data_dir.glob("*-latest.osm.pbf"))
 
-        if not pbf_files and args.skip_land_polygons:
+        if not pbf_files:
             print("Error: No OSM PBF files found")
             sys.exit(1)
 
@@ -1883,84 +1782,6 @@ def main():
                     "bounds": bounds,
                 }
             )
-
-    # Calculate OSM bounds before processing land polygons
-    # Need bounds from both processed results AND cached PBF files
-    osm_bounds = None
-    if not args.skip_land_polygons and (all_results or cached_pbf_files):
-        # Merge bounds from OSM results
-        osm_bounds = {
-            "minLon": float("inf"),
-            "maxLon": float("-inf"),
-            "minLat": float("inf"),
-            "maxLat": float("-inf"),
-        }
-        # Get bounds from processed results
-        for result in all_results:
-            if result["status"] == "success" and "bounds" in result:
-                bounds = result["bounds"]
-                osm_bounds["minLon"] = min(osm_bounds["minLon"], bounds["minLon"])
-                osm_bounds["maxLon"] = max(osm_bounds["maxLon"], bounds["maxLon"])
-                osm_bounds["minLat"] = min(osm_bounds["minLat"], bounds["minLat"])
-                osm_bounds["maxLat"] = max(osm_bounds["maxLat"], bounds["maxLat"])
-
-        # Get bounds from cached PBF files
-        for pbf_file in cached_pbf_files:
-            bounds = get_pbf_bounds(pbf_file)
-            if bounds:
-                osm_bounds["minLon"] = min(osm_bounds["minLon"], bounds["minLon"])
-                osm_bounds["maxLon"] = max(osm_bounds["maxLon"], bounds["maxLon"])
-                osm_bounds["minLat"] = min(osm_bounds["minLat"], bounds["minLat"])
-                osm_bounds["maxLat"] = max(osm_bounds["maxLat"], bounds["maxLat"])
-
-        # Check if we found any valid bounds
-        if osm_bounds["minLon"] == float("inf"):
-            print()
-            print("=" * 70)
-            print("⚠ WARNING: No valid OSM bounds found!")
-            print("  Processed results contain no bounds data.")
-            print(
-                "  This likely means all OSM regions failed to process or returned no bounds."
-            )
-            print()
-            print("  Results breakdown:")
-            for result in all_results:
-                name = result["name"].replace(".geojson", "").replace("-latest.osm", "")
-                if result["status"] == "success":
-                    has_bounds = "bounds" in result and result["bounds"] is not None
-                    print(
-                        f"    • {name}: success, bounds={'YES' if has_bounds else 'NO'}"
-                    )
-                else:
-                    error_msg = result.get("error", "unknown error")[:60]
-                    print(f"    • {name}: FAILED - {error_msg}")
-            print()
-            print(
-                "  Land polygons will NOT be filtered and may cover the entire world."
-            )
-            print("=" * 70)
-            osm_bounds = None
-        else:
-            print()
-            print("=" * 70)
-            print("OSM Data Bounds (from PBF headers):")
-            print(
-                f"  Latitude:  {osm_bounds['minLat']:.4f}°N to {osm_bounds['maxLat']:.4f}°N"
-            )
-            print(
-                f"  Longitude: {osm_bounds['minLon']:.4f}°E to {osm_bounds['maxLon']:.4f}°E"
-            )
-            lat_span = osm_bounds["maxLat"] - osm_bounds["minLat"]
-            lon_span = osm_bounds["maxLon"] - osm_bounds["minLon"]
-            print(f"  Coverage:  {lat_span:.2f}° × {lon_span:.2f}° (lat × lon)")
-            print("=" * 70)
-
-    # Process land polygons with OSM bounds filtering
-    if not args.skip_land_polygons:
-        land_results = process_land_polygons(
-            args.data_dir, str(temp_tile_dir), args.zoom_levels, osm_bounds
-        )
-        all_results.extend(land_results)
 
     # Merge bounds from all results
     merged_bounds = {
