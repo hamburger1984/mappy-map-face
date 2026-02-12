@@ -13,11 +13,10 @@ import argparse
 import shutil
 import subprocess
 import sys
-import tempfile
 import urllib.request
 import zipfile
 from datetime import datetime, timedelta
-from multiprocessing import Lock, Manager, Pool
+from multiprocessing import Pool
 from pathlib import Path
 
 try:
@@ -78,7 +77,7 @@ def download_with_progress(url, output_path, desc):
             pass  # If metadata is corrupted, we'll start fresh
     elif temp_file.exists():
         # Partial file exists but no metadata - can't safely resume
-        print(f"  → Found partial download without metadata, starting fresh")
+        print("  → Found partial download without metadata, starting fresh")
         temp_file.unlink()
 
     try:
@@ -94,9 +93,7 @@ def download_with_progress(url, output_path, desc):
                 # Validate if file hasn't changed
                 if resume_pos > 0:
                     if current_etag and saved_etag and current_etag != saved_etag:
-                        print(
-                            f"  → Remote file changed (ETag mismatch), starting fresh"
-                        )
+                        print("  → Remote file changed (ETag mismatch), starting fresh")
                         resume_pos = 0
                         temp_file.unlink()
                         meta_file.unlink()
@@ -106,7 +103,7 @@ def download_with_progress(url, output_path, desc):
                         and current_last_modified != saved_last_modified
                     ):
                         print(
-                            f"  → Remote file changed (Last-Modified mismatch), starting fresh"
+                            "  → Remote file changed (Last-Modified mismatch), starting fresh"
                         )
                         resume_pos = 0
                         temp_file.unlink()
@@ -131,7 +128,7 @@ def download_with_progress(url, output_path, desc):
 
             # Check if server supports ranges
             if resume_pos > 0 and response.status != 206:
-                print(f"  → Server doesn't support resume, starting from scratch")
+                print("  → Server doesn't support resume, starting from scratch")
                 resume_pos = 0
                 if temp_file.exists():
                     temp_file.unlink()
@@ -191,7 +188,7 @@ def download_with_progress(url, output_path, desc):
         return True
     except Exception as e:
         # Keep partial file and metadata for resume
-        print(f"  → Partial download saved for resume")
+        print("  → Partial download saved for resume")
         raise e
 
 

@@ -809,8 +809,6 @@ def split_geojson_into_tiles(
         # Retrieve bounds from cached database metadata
         actual_bounds = None
         try:
-            import json
-
             row = (
                 zoom_dbs[zoom_levels[0]]
                 .execute("SELECT value FROM metadata WHERE key='bounds'")
@@ -1023,8 +1021,6 @@ def split_geojson_into_tiles(
         # Create indexes for fast reads in Pass 2
 
         # Store bounds in metadata for cache reuse
-        import json
-
         bounds_json = json.dumps(actual_bounds)
 
         for zoom in zoom_levels:
