@@ -1781,10 +1781,22 @@ def main():
                     sys.exit(1)
                 files_to_process.append(geojson_file)
 
+        # Sort files by size (largest first) for efficient border tile merging
+        # Larger datasets should be processed first, smaller ones merge into them
         if files_to_process:
+            files_to_process.sort(key=lambda f: f.stat().st_size, reverse=True)
             print(
                 f"\nWill process {len(files_to_process)} GeoJSON file(s) (databases not cached)"
             )
+            print("  Processing order (largest to smallest):")
+            for gj in files_to_process:
+                size_mb = gj.stat().st_size / (1024 * 1024)
+                name = gj.stem.replace("-latest.osm", "").replace("-", " ").title()
+                print(f"    • {name} ({size_mb:.0f} MB)")
+
+        # Sort cached files by size as well
+        if cached_pbf_files:
+            cached_pbf_files.sort(key=lambda f: f.stat().st_size, reverse=True)
 
         geojson_files = files_to_process
 
