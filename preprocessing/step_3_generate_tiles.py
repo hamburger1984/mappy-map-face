@@ -1012,7 +1012,7 @@ def split_geojson_into_tiles(
 
         # Final progress line (clear the line first)
         print(
-            f"\r  Processed {i:,} features in {time.time() - start_time:.0f}s"
+            f"\r  Processed {i:,} features in {time.time() - start_time:.0f}s ({db_prefix})"
             + " " * 40
         )
 
