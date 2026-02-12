@@ -1488,7 +1488,14 @@ def main():
     parser.add_argument(
         "--skip-land-polygons",
         action="store_true",
-        help="Skip processing land polygons",
+        default=True,
+        help="Skip processing land polygons (default: True due to performance)",
+    )
+    parser.add_argument(
+        "--include-land-polygons",
+        dest="skip_land_polygons",
+        action="store_false",
+        help="Include land polygons (slow, enables ocean rendering)",
     )
 
     args = parser.parse_args()
