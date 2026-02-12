@@ -1223,8 +1223,14 @@ def split_geojson_into_tiles(
                 except:
                     pass  # If read fails, just overwrite
 
-            # Combine existing and new features
-            all_features = existing_features + feature_jsons
+            # Combine and deduplicate features
+            # Use a set to track seen features (by their JSON string)
+            seen = set()
+            all_features = []
+            for feat_str in existing_features + feature_jsons:
+                if feat_str not in seen:
+                    seen.add(feat_str)
+                    all_features.append(feat_str)
 
             # Analyze tile content for metadata
             has_coastline = False
@@ -1318,11 +1324,32 @@ def write_tiles_from_databases(db_dir, db_prefix, zoom_levels, output_dir):
                         created_dirs.add(cx)
                     tile_file = tile_dir / f"{cy}.json"
 
+                    # Merge with existing tile if it exists (for border tiles between regions)
+                    existing_features = []
+                    if tile_file.exists():
+                        try:
+                            with open(tile_file, "r", encoding="utf-8") as f:
+                                existing_tile = json.load(f)
+                                existing_features = [
+                                    json.dumps(feat, separators=(",", ":"))
+                                    for feat in existing_tile.get("features", [])
+                                ]
+                        except:
+                            pass  # If read fails, just overwrite
+
+                    # Combine and deduplicate features
+                    seen = set()
+                    merged_features = []
+                    for feat_str in existing_features + feature_jsons:
+                        if feat_str not in seen:
+                            seen.add(feat_str)
+                            merged_features.append(feat_str)
+
                     # Analyze and write with metadata
                     has_coastline = False
                     has_land_features = False
 
-                    for feature_str in feature_jsons:
+                    for feature_str in merged_features:
                         try:
                             feat = json.loads(feature_str)
                             props = feat.get("properties", {})
@@ -1357,7 +1384,7 @@ def write_tiles_from_databases(db_dir, db_prefix, zoom_levels, output_dir):
                         f.write(',"hasLandFeatures":')
                         f.write("true" if has_land_features else "false")
                         f.write('},"features":[')
-                        f.write(",".join(feature_jsons))
+                        f.write(",".join(merged_features))
                         f.write("]}")
                     tile_count += 1
 
@@ -1374,11 +1401,32 @@ def write_tiles_from_databases(db_dir, db_prefix, zoom_levels, output_dir):
                 created_dirs.add(cx)
             tile_file = tile_dir / f"{cy}.json"
 
+            # Merge with existing tile if it exists (for border tiles between regions)
+            existing_features = []
+            if tile_file.exists():
+                try:
+                    with open(tile_file, "r", encoding="utf-8") as f:
+                        existing_tile = json.load(f)
+                        existing_features = [
+                            json.dumps(feat, separators=(",", ":"))
+                            for feat in existing_tile.get("features", [])
+                        ]
+                except:
+                    pass  # If read fails, just overwrite
+
+            # Combine and deduplicate features
+            seen = set()
+            merged_features = []
+            for feat_str in existing_features + feature_jsons:
+                if feat_str not in seen:
+                    seen.add(feat_str)
+                    merged_features.append(feat_str)
+
             # Analyze and write with metadata
             has_coastline = False
             has_land_features = False
 
-            for feature_str in feature_jsons:
+            for feature_str in merged_features:
                 try:
                     feat = json.loads(feature_str)
                     props = feat.get("properties", {})
@@ -1412,7 +1460,7 @@ def write_tiles_from_databases(db_dir, db_prefix, zoom_levels, output_dir):
                 f.write(',"hasLandFeatures":')
                 f.write("true" if has_land_features else "false")
                 f.write('},"features":[')
-                f.write(",".join(feature_jsons))
+                f.write(",".join(merged_features))
                 f.write("]}")
             tile_count += 1
 
