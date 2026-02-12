@@ -67,11 +67,6 @@ def decimal_default(o):
     raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
 
 
-# Fallback bounds if no features are processed
-MIN_LON = 8.48
-MAX_LON = 11.50
-MIN_LAT = 52.65
-
 # Initial map center (Lombardsbrücke, Hamburg)
 HAMBURG_CENTER_LAT = 53.5567
 HAMBURG_CENTER_LON = 10.0061
@@ -341,9 +336,6 @@ def classify_poi(props):
     if amenity:
         return "services"
     return None
-
-
-MAX_LAT = 54.45
 
 
 def lon_to_tile_x(lon, zoom):
