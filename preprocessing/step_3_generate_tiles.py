@@ -359,6 +359,39 @@ def lat_to_tile_y(lat, zoom):
     return int((1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * n)
 
 
+def tile_to_lon(x, zoom):
+    """Convert tile X coordinate to longitude"""
+    n = 2.0**zoom
+    return x / n * 360.0 - 180.0
+
+
+def tile_to_lat(y, zoom):
+    """Convert tile Y coordinate to latitude"""
+    n = 2.0**zoom
+    lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * y / n)))
+    return math.degrees(lat_rad)
+
+
+def get_tile_bounds(x, y, zoom):
+    """Get the lat/lon bounding box of a tile"""
+    return {
+        "minLon": tile_to_lon(x, zoom),
+        "maxLon": tile_to_lon(x + 1, zoom),
+        "minLat": tile_to_lat(y + 1, zoom),  # Y is inverted
+        "maxLat": tile_to_lat(y, zoom),
+    }
+
+
+def feature_fully_contains_tile(feature_bounds, tile_bounds):
+    """Check if a feature's bounding box completely contains a tile's bounding box"""
+    return (
+        feature_bounds["minLon"] <= tile_bounds["minLon"]
+        and feature_bounds["maxLon"] >= tile_bounds["maxLon"]
+        and feature_bounds["minLat"] <= tile_bounds["minLat"]
+        and feature_bounds["maxLat"] >= tile_bounds["maxLat"]
+    )
+
+
 def get_feature_bounds(feature):
     """Get bounding box of a feature"""
     coords = feature["geometry"]["coordinates"]
@@ -739,6 +772,41 @@ def get_input_fingerprint(input_file):
     return f"{stat.st_size}:{stat.st_mtime_ns}"
 
 
+def get_pbf_bounds(pbf_file):
+    """Extract bounding box from PBF file header using osmium.
+
+    Returns dict with minLon, maxLon, minLat, maxLat or None if extraction fails.
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["osmium", "fileinfo", str(pbf_file)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        if result.returncode == 0:
+            # Look for line like: "    (7.967833,53.391826,10.331955,54.062613)"
+            for line in result.stdout.split("\n"):
+                line = line.strip()
+                if line.startswith("(") and line.endswith(")"):
+                    # Parse (minLon,minLat,maxLon,maxLat)
+                    coords = line.strip("()").split(",")
+                    if len(coords) == 4:
+                        return {
+                            "minLon": float(coords[0]),
+                            "maxLon": float(coords[2]),
+                            "minLat": float(coords[1]),
+                            "maxLat": float(coords[3]),
+                        }
+    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
+        pass
+
+    return None
+
+
 def open_zoom_db(db_dir, zoom, fingerprint=None, db_prefix="tile_build"):
     """Open (or create) a per-zoom SQLite database. Returns (conn, is_cached)."""
     db_path = db_dir / f"{db_prefix}_z{zoom}.db"
@@ -868,13 +936,26 @@ def split_geojson_into_tiles(
         batches = {zoom: [] for zoom in zoom_levels}
         BATCH_SIZE = 50000
 
-        # Track actual bounds from features
-        actual_bounds = {
-            "minLon": float("inf"),
-            "maxLon": float("-inf"),
-            "minLat": float("inf"),
-            "maxLat": float("-inf"),
-        }
+        # Try to get bounds from PBF header (more accurate than calculating from features)
+        # Features may reference nodes outside the region for complete relations
+        pbf_bounds = None
+        if source_pbf_file and Path(source_pbf_file).suffix == ".pbf":
+            pbf_bounds = get_pbf_bounds(source_pbf_file)
+
+        # Track actual bounds from features (fallback if PBF bounds not available)
+        actual_bounds = (
+            pbf_bounds
+            if pbf_bounds
+            else {
+                "minLon": float("inf"),
+                "maxLon": float("-inf"),
+                "minLat": float("inf"),
+                "maxLat": float("-inf"),
+            }
+        )
+
+        # If we have PBF bounds, we don't need to update them from features
+        update_bounds_from_features = pbf_bounds is None
 
         # Get file size for progress tracking
         file_size = os.path.getsize(geojson_file)
@@ -950,21 +1031,29 @@ def split_geojson_into_tiles(
 
                 feature["_render"] = render_meta
 
-                # Update bounds from this feature
-                feature_bounds = get_feature_bounds(feature)
-                if feature_bounds:
-                    actual_bounds["minLon"] = min(
-                        actual_bounds["minLon"], feature_bounds["minLon"]
+                # Update bounds from this feature (only if not using PBF bounds)
+                # Skip land polygons as they're global data filtered to OSM bounds
+                if update_bounds_from_features:
+                    feature_bounds = get_feature_bounds(feature)
+                    is_land_polygon = props.get("layer_source", "").startswith(
+                        "land_polygons_"
                     )
-                    actual_bounds["maxLon"] = max(
-                        actual_bounds["maxLon"], feature_bounds["maxLon"]
-                    )
-                    actual_bounds["minLat"] = min(
-                        actual_bounds["minLat"], feature_bounds["minLat"]
-                    )
-                    actual_bounds["maxLat"] = max(
-                        actual_bounds["maxLat"], feature_bounds["maxLat"]
-                    )
+                    if feature_bounds and not is_land_polygon:
+                        actual_bounds["minLon"] = min(
+                            actual_bounds["minLon"], feature_bounds["minLon"]
+                        )
+                        actual_bounds["maxLon"] = max(
+                            actual_bounds["maxLon"], feature_bounds["maxLon"]
+                        )
+                        actual_bounds["minLat"] = min(
+                            actual_bounds["minLat"], feature_bounds["minLat"]
+                        )
+                        actual_bounds["maxLat"] = max(
+                            actual_bounds["maxLat"], feature_bounds["maxLat"]
+                        )
+                else:
+                    # Still need feature_bounds for tile optimization below
+                    feature_bounds = get_feature_bounds(feature)
 
                 min_lod = render_meta["minLOD"]
                 _, importance = classify_feature_importance(props, geom_type)
@@ -980,16 +1069,80 @@ def split_geojson_into_tiles(
                 else:  # min_lod >= 3
                     target_zooms = LOD_3_ZOOMS
 
-                feature_json = json.dumps(
-                    feature, separators=(",", ":"), default=decimal_default
+                # Check if this is a simplified land polygon (for optimization)
+                # Only apply full-tile optimization to simplified polygons (zoomed-out view)
+                # Detailed polygons retain bays and coastal features, so we keep full geometry
+                is_simplified_land = (
+                    props.get("layer_source") == "land_polygons_simplified"
                 )
+
+                # For simplified land polygons, we'll check each tile individually
+                # For other features, serialize once and reuse
+                if not is_simplified_land:
+                    feature_json = json.dumps(
+                        feature, separators=(",", ":"), default=decimal_default
+                    )
 
                 # Only process zooms that are in target_zooms (avoid checking all zooms)
                 for zoom in target_zooms:
                     feature_tiles = get_tiles_for_feature(feature, zoom)
                     for tile_coords in feature_tiles:
                         _, x, y = tile_coords
-                        batches[zoom].append((x, y, importance, feature_json))
+
+                        # Optimization for simplified land polygons: if feature fully contains tile,
+                        # use a simplified marker instead of the full complex geometry
+                        if is_simplified_land and feature_bounds:
+                            tile_bounds = get_tile_bounds(x, y, zoom)
+                            if feature_fully_contains_tile(feature_bounds, tile_bounds):
+                                # Create a minimal marker for fully-covered tiles
+                                simple_feature = {
+                                    "type": "Feature",
+                                    "geometry": {
+                                        "type": "Polygon",
+                                        "coordinates": [
+                                            [
+                                                [
+                                                    tile_bounds["minLon"],
+                                                    tile_bounds["minLat"],
+                                                ],
+                                                [
+                                                    tile_bounds["maxLon"],
+                                                    tile_bounds["minLat"],
+                                                ],
+                                                [
+                                                    tile_bounds["maxLon"],
+                                                    tile_bounds["maxLat"],
+                                                ],
+                                                [
+                                                    tile_bounds["minLon"],
+                                                    tile_bounds["maxLat"],
+                                                ],
+                                                [
+                                                    tile_bounds["minLon"],
+                                                    tile_bounds["minLat"],
+                                                ],
+                                            ]
+                                        ],
+                                    },
+                                    "properties": {"full_tile_land": True},
+                                    "_render": render_meta,
+                                }
+                                tile_feature_json = json.dumps(
+                                    simple_feature,
+                                    separators=(",", ":"),
+                                    default=decimal_default,
+                                )
+                            else:
+                                # Edge tile - need the actual geometry
+                                tile_feature_json = json.dumps(
+                                    feature,
+                                    separators=(",", ":"),
+                                    default=decimal_default,
+                                )
+                        else:
+                            tile_feature_json = feature_json
+
+                        batches[zoom].append((x, y, importance, tile_feature_json))
                         stats[f"z{zoom}"] += 1
 
                 # Flush each zoom's batch independently
@@ -1341,7 +1494,9 @@ def process_land_polygons(data_dir, output_dir, zoom_levels, osm_bounds=None):
             tagged_geojson.close()
 
             # Process into tiles
-            bounds = split_geojson_into_tiles(
+            # Don't pass source_pbf_file for land polygons - they're GeoJSON, not PBF
+            # This prevents fallback bounds calculation from global land data
+            split_geojson_into_tiles(
                 tagged_geojson.name,
                 output_dir,
                 zoom_levels,
@@ -1349,8 +1504,9 @@ def process_land_polygons(data_dir, output_dir, zoom_levels, osm_bounds=None):
                 db_prefix=f"land-{land_type}",
             )
 
+            # Don't include bounds - land polygons are global data, not regional
             results.append(
-                {"name": f"{land_type}-land", "status": "success", "bounds": bounds}
+                {"name": f"{land_type}-land", "status": "success", "bounds": None}
             )
 
         except Exception as e:
@@ -1583,7 +1739,7 @@ def main():
             bounds = result["bounds"]
             # Don't include land polygon bounds in final merge - they're filtered to OSM bounds anyway
             # and before filtering they cover the entire world
-            if "land" not in result["name"]:
+            if bounds and "land" not in result["name"]:
                 merged_bounds["minLon"] = min(merged_bounds["minLon"], bounds["minLon"])
                 merged_bounds["maxLon"] = max(merged_bounds["maxLon"], bounds["maxLon"])
                 merged_bounds["minLat"] = min(merged_bounds["minLat"], bounds["minLat"])
