@@ -1099,10 +1099,12 @@ class MapRenderer {
     // Colors
     const OCEAN_COLOR = "rgb(170, 211, 223)"; // Water blue
     const LAND_COLOR = "rgb(242, 239, 233)"; // Light tan/beige
+    const COASTLINE_COLOR = "rgb(255, 250, 240)"; // Light cream/ivory (contrasts with magenta)
 
     // Analyze tiles first to determine if we need ocean or land default background
     let hasAnyOceanTiles = false;
     let hasAnyLandTiles = false;
+    let hasAnyCoastlineTiles = false;
 
     const tileAnalyses = new Map();
     for (const tile of visibleTiles) {
@@ -1113,18 +1115,28 @@ class MapRenderer {
       const analysis = this.analyzeTileContent(tileData);
       tileAnalyses.set(tileKey, analysis);
 
-      if (analysis.hasCoastline || analysis.isEmpty) {
+      if (analysis.hasCoastline) {
+        hasAnyCoastlineTiles = true;
+      }
+      if (analysis.isEmpty) {
         hasAnyOceanTiles = true;
       }
-      if (analysis.hasLandFeatures || analysis.hasCoastline) {
+      if (analysis.hasLandFeatures && !analysis.hasCoastline) {
         hasAnyLandTiles = true;
       }
     }
 
     // Set default background based on majority tile type
-    // If all tiles are inland (land features, no coastline), use land background
-    // Otherwise use ocean background (for coastal areas or pure ocean)
-    const defaultBackground = hasAnyOceanTiles ? OCEAN_COLOR : LAND_COLOR;
+    let defaultBackground;
+    if (hasAnyCoastlineTiles) {
+      // If any coastline tiles, use light cream as default (good contrast with magenta)
+      defaultBackground = COASTLINE_COLOR;
+    } else if (hasAnyOceanTiles) {
+      defaultBackground = OCEAN_COLOR;
+    } else {
+      defaultBackground = LAND_COLOR;
+    }
+
     this.ctx.fillStyle = defaultBackground;
     this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
 
@@ -1136,26 +1148,23 @@ class MapRenderer {
 
       const tileBounds = this.getTileBounds(tile.x, tile.y, tile.z);
 
-      // Case A: Pure inland tile (has land features, no coastline)
-      // If default is ocean, paint this tile as land
-      if (analysis.hasLandFeatures && !analysis.hasCoastline) {
-        if (defaultBackground === OCEAN_COLOR) {
+      // Case A: Coastal tile (has coastline) - use light cream background
+      if (analysis.hasCoastline) {
+        if (defaultBackground !== COASTLINE_COLOR) {
+          this.fillTileBounds(tileBounds, COASTLINE_COLOR, bounds);
+        }
+        // else: already coastline background, nothing to do
+      }
+      // Case B: Pure inland tile (has land features, no coastline)
+      else if (analysis.hasLandFeatures) {
+        if (defaultBackground !== LAND_COLOR) {
           this.fillTileBounds(tileBounds, LAND_COLOR, bounds);
         }
         // else: already land background, nothing to do
       }
-      // Case B: Coastal tile (has coastline)
-      // Paint as ocean background
-      else if (analysis.hasCoastline) {
-        if (defaultBackground === LAND_COLOR) {
-          this.fillTileBounds(tileBounds, OCEAN_COLOR, bounds);
-        }
-        // else: already ocean background, nothing to do
-      }
       // Case C: Pure ocean tile (no features at all)
-      // If default is land, paint this tile as ocean
       else if (analysis.isEmpty) {
-        if (defaultBackground === LAND_COLOR) {
+        if (defaultBackground !== OCEAN_COLOR) {
           this.fillTileBounds(tileBounds, OCEAN_COLOR, bounds);
         }
         // else: already ocean background, nothing to do
