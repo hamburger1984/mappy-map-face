@@ -125,6 +125,8 @@ def process_land_polygons(data_dir, output_dir, zoom_levels, osm_bounds=None):
 
         try:
             # Use ijson for streaming to handle large files
+            import json
+
             import ijson
 
             with open(land_file, "rb") as f:
