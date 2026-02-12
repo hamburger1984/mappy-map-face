@@ -1341,7 +1341,7 @@ def process_land_polygons(data_dir, output_dir, zoom_levels, osm_bounds=None):
             tagged_geojson.close()
 
             # Process into tiles
-            bounds = split_tiles.split_geojson_into_tiles(
+            bounds = split_geojson_into_tiles(
                 tagged_geojson.name,
                 output_dir,
                 zoom_levels,
