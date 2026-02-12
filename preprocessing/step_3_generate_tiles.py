@@ -1390,7 +1390,17 @@ def process_land_polygons(data_dir, output_dir, zoom_levels, osm_bounds=None):
             "minLat": osm_bounds["minLat"] - buffer,
             "maxLat": osm_bounds["maxLat"] + buffer,
         }
-        print(f"\nFiltering land polygons to bbox: {filter_bbox}")
+        print()
+        print("Filtering land polygons to OSM bounds:")
+        print(
+            f"  OSM bounds:     {osm_bounds['minLat']:.4f}°N to {osm_bounds['maxLat']:.4f}°N, "
+            f"{osm_bounds['minLon']:.4f}°E to {osm_bounds['maxLon']:.4f}°E"
+        )
+        print(f"  Buffer added:   ±{buffer}° (~{int(buffer * 111)}km)")
+        print(
+            f"  Filter bounds:  {filter_bbox['minLat']:.4f}°N to {filter_bbox['maxLat']:.4f}°N, "
+            f"{filter_bbox['minLon']:.4f}°E to {filter_bbox['maxLon']:.4f}°E"
+        )
     else:
         filter_bbox = None
 
@@ -1671,11 +1681,18 @@ def main():
             osm_bounds = None
         else:
             print()
-            print("Map Coverage:")
+            print("=" * 70)
+            print("OSM Data Bounds (from PBF headers):")
             print(
-                f"  {osm_bounds['minLat']:.2f}°N to {osm_bounds['maxLat']:.2f}°N, "
-                f"{osm_bounds['minLon']:.2f}°E to {osm_bounds['maxLon']:.2f}°E"
+                f"  Latitude:  {osm_bounds['minLat']:.4f}°N to {osm_bounds['maxLat']:.4f}°N"
             )
+            print(
+                f"  Longitude: {osm_bounds['minLon']:.4f}°E to {osm_bounds['maxLon']:.4f}°E"
+            )
+            lat_span = osm_bounds["maxLat"] - osm_bounds["minLat"]
+            lon_span = osm_bounds["maxLon"] - osm_bounds["minLon"]
+            print(f"  Coverage:  {lat_span:.2f}° × {lon_span:.2f}° (lat × lon)")
+            print("=" * 70)
 
     # Process land polygons with OSM bounds filtering
     if not args.skip_land_polygons:
