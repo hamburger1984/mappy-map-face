@@ -1639,7 +1639,10 @@ def main():
         # Find corresponding PBF files for fingerprinting
         tile_args = []
         for gj in geojson_files:
-            pbf_file = gj.parent / f"{gj.stem}.osm.pbf"
+            # GeoJSON files are named like "hamburg-latest.osm.geojson"
+            # PBF files are named like "hamburg-latest.osm.pbf"
+            # So we need to replace .geojson with .pbf, not append .osm.pbf to stem
+            pbf_file = gj.with_suffix(".pbf")
             source_file = str(pbf_file) if pbf_file.exists() else str(gj)
             tile_args.append(
                 (str(gj), str(temp_tile_dir), args.zoom_levels, source_file)
