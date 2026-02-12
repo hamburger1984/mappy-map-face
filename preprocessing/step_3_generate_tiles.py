@@ -1035,80 +1035,19 @@ def split_geojson_into_tiles(
                 else:  # min_lod >= 3
                     target_zooms = LOD_3_ZOOMS
 
-                # Check if this is a simplified land polygon (for optimization)
-                # Only apply full-tile optimization to simplified polygons (zoomed-out view)
-                # Detailed polygons retain bays and coastal features, so we keep full geometry
-                is_simplified_land = (
-                    props.get("layer_source") == "land_polygons_simplified"
+                # Serialize feature once and reuse for all tiles
+                # Skip expensive per-tile optimization for simplified land polygons
+                # as the geometry checking is too slow (O(n*m) for n features, m tiles)
+                feature_json = json.dumps(
+                    feature, separators=(",", ":"), default=decimal_default
                 )
-
-                # For simplified land polygons, we'll check each tile individually
-                # For other features, serialize once and reuse
-                if not is_simplified_land:
-                    feature_json = json.dumps(
-                        feature, separators=(",", ":"), default=decimal_default
-                    )
 
                 # Only process zooms that are in target_zooms (avoid checking all zooms)
                 for zoom in target_zooms:
                     feature_tiles = get_tiles_for_feature(feature, zoom)
                     for tile_coords in feature_tiles:
                         _, x, y = tile_coords
-
-                        # Optimization for simplified land polygons: if feature fully contains tile,
-                        # use a simplified marker instead of the full complex geometry
-                        if is_simplified_land and feature_bounds:
-                            tile_bounds = get_tile_bounds(x, y, zoom)
-                            if feature_fully_contains_tile(feature_bounds, tile_bounds):
-                                # Create a minimal marker for fully-covered tiles
-                                simple_feature = {
-                                    "type": "Feature",
-                                    "geometry": {
-                                        "type": "Polygon",
-                                        "coordinates": [
-                                            [
-                                                [
-                                                    tile_bounds["minLon"],
-                                                    tile_bounds["minLat"],
-                                                ],
-                                                [
-                                                    tile_bounds["maxLon"],
-                                                    tile_bounds["minLat"],
-                                                ],
-                                                [
-                                                    tile_bounds["maxLon"],
-                                                    tile_bounds["maxLat"],
-                                                ],
-                                                [
-                                                    tile_bounds["minLon"],
-                                                    tile_bounds["maxLat"],
-                                                ],
-                                                [
-                                                    tile_bounds["minLon"],
-                                                    tile_bounds["minLat"],
-                                                ],
-                                            ]
-                                        ],
-                                    },
-                                    "properties": {"full_tile_land": True},
-                                    "_render": render_meta,
-                                }
-                                tile_feature_json = json.dumps(
-                                    simple_feature,
-                                    separators=(",", ":"),
-                                    default=decimal_default,
-                                )
-                            else:
-                                # Edge tile - need the actual geometry
-                                tile_feature_json = json.dumps(
-                                    feature,
-                                    separators=(",", ":"),
-                                    default=decimal_default,
-                                )
-                        else:
-                            tile_feature_json = feature_json
-
-                        batches[zoom].append((x, y, importance, tile_feature_json))
+                        batches[zoom].append((x, y, importance, feature_json))
                         stats[f"z{zoom}"] += 1
 
                 # Flush each zoom's batch independently
