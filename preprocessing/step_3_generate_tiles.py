@@ -887,42 +887,24 @@ def split_geojson_into_tiles(
         except:
             pass
 
-        # If bounds not in metadata (old database), recalculate from features
+        # If bounds not in metadata (old database), get from PBF file
         if actual_bounds is None:
-            actual_bounds = {
-                "minLon": float("inf"),
-                "maxLon": float("-inf"),
-                "minLat": float("inf"),
-                "maxLat": float("-inf"),
-            }
+            if source_pbf_file and Path(source_pbf_file).suffix == ".pbf":
+                actual_bounds = get_pbf_bounds(source_pbf_file)
+                if actual_bounds:
+                    # Store PBF bounds in metadata for future use
+                    bounds_json = json.dumps(actual_bounds)
+                    zoom_dbs[zoom_levels[0]].execute(
+                        "INSERT OR REPLACE INTO metadata VALUES ('bounds', ?)",
+                        (bounds_json,),
+                    )
+                    zoom_dbs[zoom_levels[0]].commit()
 
-            # Sample features from database to calculate bounds
-            cursor = zoom_dbs[zoom_levels[0]].execute(
-                "SELECT feature_json FROM tile_features LIMIT 10000"
-            )
-            for (feature_json,) in cursor:
-                feature = json.loads(feature_json)
-                feature_bounds = get_feature_bounds(feature)
-                if feature_bounds:
-                    actual_bounds["minLon"] = min(
-                        actual_bounds["minLon"], feature_bounds["minLon"]
-                    )
-                    actual_bounds["maxLon"] = max(
-                        actual_bounds["maxLon"], feature_bounds["maxLon"]
-                    )
-                    actual_bounds["minLat"] = min(
-                        actual_bounds["minLat"], feature_bounds["minLat"]
-                    )
-                    actual_bounds["maxLat"] = max(
-                        actual_bounds["maxLat"], feature_bounds["maxLat"]
-                    )
-
-            # Store the calculated bounds for future use
-            bounds_json = json.dumps(actual_bounds)
-            zoom_dbs[zoom_levels[0]].execute(
-                "INSERT OR REPLACE INTO metadata VALUES ('bounds', ?)", (bounds_json,)
-            )
-            zoom_dbs[zoom_levels[0]].commit()
+            if actual_bounds is None:
+                raise ValueError(
+                    f"Could not retrieve bounds from cached database or PBF file {source_pbf_file}. "
+                    "Database may be corrupted or PBF file is missing."
+                )
     else:
         # If any zoom needs rebuilding, rebuild all for consistency
         for zoom in zoom_levels:
@@ -936,26 +918,20 @@ def split_geojson_into_tiles(
         batches = {zoom: [] for zoom in zoom_levels}
         BATCH_SIZE = 50000
 
-        # Try to get bounds from PBF header (more accurate than calculating from features)
+        # Always get bounds from PBF header (never calculate from features)
         # Features may reference nodes outside the region for complete relations
         pbf_bounds = None
         if source_pbf_file and Path(source_pbf_file).suffix == ".pbf":
             pbf_bounds = get_pbf_bounds(source_pbf_file)
 
-        # Track actual bounds from features (fallback if PBF bounds not available)
-        actual_bounds = (
-            pbf_bounds
-            if pbf_bounds
-            else {
-                "minLon": float("inf"),
-                "maxLon": float("-inf"),
-                "minLat": float("inf"),
-                "maxLat": float("-inf"),
-            }
-        )
+        # Use PBF bounds exclusively - never fall back to feature bounds
+        if not pbf_bounds:
+            raise ValueError(
+                f"Could not extract bounds from PBF file {source_pbf_file}. "
+                "Ensure osmium-tool is installed and the PBF file is valid."
+            )
 
-        # If we have PBF bounds, we don't need to update them from features
-        update_bounds_from_features = pbf_bounds is None
+        actual_bounds = pbf_bounds
 
         # Get file size for progress tracking
         file_size = os.path.getsize(geojson_file)
@@ -1031,29 +1007,9 @@ def split_geojson_into_tiles(
 
                 feature["_render"] = render_meta
 
-                # Update bounds from this feature (only if not using PBF bounds)
-                # Skip land polygons as they're global data filtered to OSM bounds
-                if update_bounds_from_features:
-                    feature_bounds = get_feature_bounds(feature)
-                    is_land_polygon = props.get("layer_source", "").startswith(
-                        "land_polygons_"
-                    )
-                    if feature_bounds and not is_land_polygon:
-                        actual_bounds["minLon"] = min(
-                            actual_bounds["minLon"], feature_bounds["minLon"]
-                        )
-                        actual_bounds["maxLon"] = max(
-                            actual_bounds["maxLon"], feature_bounds["maxLon"]
-                        )
-                        actual_bounds["minLat"] = min(
-                            actual_bounds["minLat"], feature_bounds["minLat"]
-                        )
-                        actual_bounds["maxLat"] = max(
-                            actual_bounds["maxLat"], feature_bounds["maxLat"]
-                        )
-                else:
-                    # Still need feature_bounds for tile optimization below
-                    feature_bounds = get_feature_bounds(feature)
+                # Get feature bounds only for tile assignment and optimization
+                # Never use these to update the overall bounding box (use PBF bounds instead)
+                feature_bounds = get_feature_bounds(feature)
 
                 min_lod = render_meta["minLOD"]
                 _, importance = classify_feature_importance(props, geom_type)
@@ -1333,16 +1289,7 @@ def split_geojson_into_tiles(
     write_elapsed = time.time() - write_start
     print(f"\r  Created {tile_count:,} tiles in {write_elapsed:.0f}s" + " " * 60)
 
-    # Return actual bounds (or fallback to hardcoded if no features processed)
-    if actual_bounds["minLon"] == float("inf"):
-        # No features were processed, use hardcoded bounds
-        actual_bounds = {
-            "minLon": MIN_LON,
-            "maxLon": MAX_LON,
-            "minLat": MIN_LAT,
-            "maxLat": MAX_LAT,
-        }
-
+    # Return actual bounds from PBF file (never calculated from features)
     return actual_bounds
 
 
