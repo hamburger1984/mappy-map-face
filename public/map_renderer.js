@@ -1038,7 +1038,19 @@ class MapRenderer {
   }
 
   analyzeTileContent(tileData) {
-    // Analyze tile to determine if it has coastline or land features
+    // Use pre-computed metadata if available (optimization)
+    if (tileData && tileData._meta) {
+      return {
+        hasCoastline: tileData._meta.hasCoastline,
+        hasLandFeatures: tileData._meta.hasLandFeatures,
+        isEmpty:
+          !tileData._meta.hasCoastline &&
+          !tileData._meta.hasLandFeatures &&
+          (!tileData.features || tileData.features.length === 0),
+      };
+    }
+
+    // Fallback: analyze tile features (for tiles without metadata)
     if (!tileData || !tileData.features || tileData.features.length === 0) {
       return { hasCoastline: false, hasLandFeatures: false, isEmpty: true };
     }
@@ -1101,18 +1113,27 @@ class MapRenderer {
 
       const analysis = this.analyzeTileContent(tileData);
 
+      // Case B: Has coastline
+      // Determine background based on whether land features are present
+      if (analysis.hasCoastline) {
+        const tileBounds = this.getTileBounds(tile.x, tile.y, tile.z);
+        if (analysis.hasLandFeatures) {
+          // Coastline + land features = coastal land area
+          this.fillTileBounds(tileBounds, LAND_COLOR, bounds);
+        } else {
+          // Coastline + no land features = coastal ocean area
+          // Keep ocean background (already set as default)
+        }
+      }
       // Case C: No coastline + has land features = inland area
       // Draw land background for this tile
-      if (!analysis.hasCoastline && analysis.hasLandFeatures) {
+      else if (analysis.hasLandFeatures) {
         const tileBounds = this.getTileBounds(tile.x, tile.y, tile.z);
         this.fillTileBounds(tileBounds, LAND_COLOR, bounds);
       }
 
       // Case D: No coastline + no features = ocean
       // Already ocean (default background), do nothing
-
-      // Case B: Has coastline = coastal boundary
-      // Skip for now - just render features normally
     }
   }
 
