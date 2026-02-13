@@ -254,6 +254,7 @@ class MapRenderer {
     // Viewport state (in real-world meters)
     this.viewWidthMeters = 10000; // Initial view: 10km across
     this.currentZoomIndex = 12; // Index into zoomLevels array
+    this.scrollAccumulator = 0; // Accumulate scroll wheel deltas for discrete zoom
     this.offsetX = 0;
     this.offsetY = 0;
     this.minViewWidthMeters = this.zoomLevels[0]; // Max zoom
@@ -598,14 +599,38 @@ class MapRenderer {
       }
     });
 
-    // Scroll wheel zoom (logarithmic)
+    // Scroll wheel zoom with accumulation for discrete levels
     this.canvas.addEventListener(
       "wheel",
       (e) => {
         e.preventDefault();
-        const delta = -e.deltaY * 0.002;
-        const logViewWidth = Math.log2(this.viewWidthMeters) - delta; // inverted: scroll up = zoom in = smaller view
-        this.setViewWidth(Math.pow(2, logViewWidth));
+
+        // Accumulate scroll deltas (deltaY is typically ~100 per scroll notch)
+        this.scrollAccumulator += e.deltaY;
+
+        // Threshold: step zoom level every ~100 units (one scroll notch)
+        const threshold = 100;
+
+        if (Math.abs(this.scrollAccumulator) >= threshold) {
+          const steps = Math.floor(
+            Math.abs(this.scrollAccumulator) / threshold,
+          );
+
+          if (this.scrollAccumulator > 0) {
+            // Scroll down = zoom out
+            for (let i = 0; i < steps; i++) {
+              this.zoomOut();
+            }
+          } else {
+            // Scroll up = zoom in
+            for (let i = 0; i < steps; i++) {
+              this.zoomIn();
+            }
+          }
+
+          // Reset accumulator (keep remainder for smooth feel)
+          this.scrollAccumulator = this.scrollAccumulator % threshold;
+        }
       },
       { passive: false },
     );
