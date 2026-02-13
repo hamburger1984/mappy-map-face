@@ -13,6 +13,7 @@ Tile system:
 """
 
 import argparse
+import copy
 import decimal
 import json
 import math
@@ -401,6 +402,120 @@ def feature_fully_contains_tile(feature_bounds, tile_bounds):
         and feature_bounds["minLat"] <= tile_bounds["minLat"]
         and feature_bounds["maxLat"] >= tile_bounds["maxLat"]
     )
+
+
+def count_coordinates(geom):
+    """Count total coordinates in a geometry.
+
+    Args:
+        geom: GeoJSON geometry dict with 'type' and 'coordinates'
+
+    Returns:
+        int: Total number of coordinate pairs in the geometry
+    """
+    coords = geom["coordinates"]
+    geom_type = geom["type"]
+
+    if geom_type == "Point":
+        return 1
+    elif geom_type == "LineString":
+        return len(coords)
+    elif geom_type == "Polygon":
+        return sum(len(ring) for ring in coords)
+    elif geom_type == "MultiLineString":
+        return sum(len(line) for line in coords)
+    elif geom_type == "MultiPolygon":
+        return sum(sum(len(ring) for ring in poly) for poly in coords)
+    return 0
+
+
+def simplify_feature_for_zoom(feature, zoom, min_lod):
+    """Simplify feature geometry appropriate for zoom level using RDP algorithm.
+
+    Uses the Ramer-Douglas-Peucker algorithm to reduce coordinate count while
+    preserving visual fidelity at the target zoom level. Epsilon values are
+    chosen based on the viewing scale at each zoom level.
+
+    Args:
+        feature: GeoJSON feature dict with geometry
+        zoom: Target zoom level (3, 5, 8, 11, 14)
+        min_lod: Minimum LOD this feature is visible at (affects simplification)
+
+    Returns:
+        Modified feature with simplified geometry (or original if simplification fails)
+    """
+    try:
+        from shapely.geometry import mapping, shape
+    except ImportError:
+        # If shapely not installed, return original feature
+        return feature
+
+    geom = feature.get("geometry")
+    if not geom:
+        return feature
+
+    geom_type = geom["type"]
+
+    # Skip Points (no coordinates to simplify)
+    if geom_type == "Point":
+        return feature
+
+    # Determine epsilon based on zoom level
+    # These values ensure ~100 representative points per tile width
+    # which is visually indistinguishable from the original
+    epsilon_map = {
+        3: 0.01,  # ~1000m - Continental view
+        5: 0.005,  # ~500m - Regional view
+        8: 0.001,  # ~100m - City-wide view
+        11: 0.0002,  # ~20m - Neighborhood view
+        14: 0.00005,  # ~5m - Street-level view
+    }
+    epsilon = epsilon_map.get(zoom, 0.0001)
+
+    # Additional scaling based on feature LOD
+    # Features visible at lower zooms get more aggressive simplification
+    if min_lod == 0:  # Always visible (major features)
+        epsilon *= 1.5  # More aggressive
+    elif min_lod >= 11:  # Only visible when zoomed in
+        epsilon *= 0.5  # Less aggressive, preserve detail
+
+    # Skip if geometry is already simple (< 5 vertices)
+    coord_count = count_coordinates(geom)
+    if coord_count < 5:
+        return feature
+
+    # Skip buildings - usually simple rectangles, simplification may distort
+    props = feature.get("properties", {})
+    if props.get("building"):
+        return feature
+
+    # Convert to Shapely, simplify, convert back
+    try:
+        shapely_geom = shape(geom)
+
+        # Apply RDP simplification with topology preservation
+        simplified = shapely_geom.simplify(epsilon, preserve_topology=True)
+
+        # Only use simplified version if it actually reduced complexity
+        # (at least 10% reduction in coordinate count)
+        simplified_geojson = mapping(simplified)
+        simplified_coords = count_coordinates(simplified_geojson)
+
+        if simplified_coords < coord_count * 0.9:  # At least 10% reduction
+            feature["geometry"] = simplified_geojson
+            # Optionally track simplification stats
+            # feature["_simplified"] = {
+            #     "original": coord_count,
+            #     "simplified": simplified_coords,
+            #     "reduction": round((1 - simplified_coords / coord_count) * 100, 1)
+            # }
+
+    except Exception:
+        # If simplification fails for any reason, keep original geometry
+        # This handles edge cases like invalid geometries, self-intersections, etc.
+        pass
+
+    return feature
 
 
 def get_feature_bounds(feature):
@@ -1201,16 +1316,22 @@ def split_geojson_into_tiles(
                 else:  # min_lod >= 4
                     target_zooms = LOD_4_ZOOMS
 
-                # Serialize feature once and reuse for all tiles
-                # Skip expensive per-tile optimization for simplified land polygons
-                # as the geometry checking is too slow (O(n*m) for n features, m tiles)
-                feature_json = json.dumps(
-                    feature, separators=(",", ":"), default=decimal_default
-                )
-
-                # Only process zooms that are in target_zooms (avoid checking all zooms)
+                # Simplify geometry per zoom level and serialize
+                # Each zoom level gets appropriately simplified geometry
                 for zoom in target_zooms:
-                    feature_tiles = get_tiles_for_feature(feature, zoom)
+                    # Create a copy of the feature and simplify for this zoom level
+                    zoom_feature = copy.deepcopy(feature)
+                    zoom_feature = simplify_feature_for_zoom(
+                        zoom_feature, zoom, min_lod
+                    )
+
+                    # Serialize simplified feature for this zoom
+                    feature_json = json.dumps(
+                        zoom_feature, separators=(",", ":"), default=decimal_default
+                    )
+
+                    # Get tiles using simplified geometry
+                    feature_tiles = get_tiles_for_feature(zoom_feature, zoom)
                     for tile_coords in feature_tiles:
                         _, x, y = tile_coords
                         batches[zoom].append((x, y, importance, feature_json))
