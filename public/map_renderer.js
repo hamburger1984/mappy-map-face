@@ -2291,10 +2291,33 @@ class MapRenderer {
       const calculatedWidth = realWidthMeters / metersPerPixel;
       let width = Math.max(1, Math.min(10, calculatedWidth)); // Clamp between 1-10px
 
-      // Use actual width from OSM if available (in meters)
+      // Use actual width from OSM if available (may have units like "100 cm", "3.5 m")
       if (props.width) {
-        const widthMeters = parseFloat(props.width);
+        let widthMeters = parseFloat(props.width);
         if (!isNaN(widthMeters)) {
+          // Check for unit suffixes and convert to meters
+          const widthStr = props.width.toString().trim().toLowerCase();
+          if (widthStr.includes("cm") || widthStr.includes("centimeter")) {
+            widthMeters = widthMeters / 100; // Convert cm to m
+          } else if (
+            widthStr.includes("mm") ||
+            widthStr.includes("millimeter")
+          ) {
+            widthMeters = widthMeters / 1000; // Convert mm to m
+          } else if (
+            widthStr.includes("km") ||
+            widthStr.includes("kilometer")
+          ) {
+            widthMeters = widthMeters * 1000; // Convert km to m
+          } else if (
+            widthStr.includes("ft") ||
+            widthStr.includes("feet") ||
+            widthStr.includes("'")
+          ) {
+            widthMeters = widthMeters * 0.3048; // Convert feet to m
+          }
+          // else assume meters (or already parsed as meters)
+
           // Scale width based on actual OSM width
           const osmCalculatedWidth = widthMeters / metersPerPixel;
           width = Math.max(1, Math.min(10, osmCalculatedWidth));
