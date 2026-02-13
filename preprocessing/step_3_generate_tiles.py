@@ -460,34 +460,51 @@ def simplify_feature_for_zoom(feature, zoom, min_lod):
     if geom_type == "Point":
         return feature
 
-    # Determine epsilon based on zoom level
-    # These values ensure ~100 representative points per tile width
-    # which is visually indistinguishable from the original
+    # Base epsilon values for zoom levels (more conservative than before)
     epsilon_map = {
-        3: 0.01,  # ~1000m - Continental view
-        5: 0.005,  # ~500m - Regional view
-        8: 0.001,  # ~100m - City-wide view
+        3: 0.003,  # ~300m - Continental view (was 0.01)
+        5: 0.002,  # ~200m - Regional view (was 0.005)
+        8: 0.0008,  # ~80m - City-wide view (was 0.001)
         11: 0.0002,  # ~20m - Neighborhood view
         14: 0.00005,  # ~5m - Street-level view
     }
     epsilon = epsilon_map.get(zoom, 0.0001)
 
-    # Additional scaling based on feature LOD
-    # Features visible at lower zooms get more aggressive simplification
-    if min_lod == 0:  # Always visible (major features)
-        epsilon *= 1.5  # More aggressive
-    elif min_lod >= 11:  # Only visible when zoomed in
-        epsilon *= 0.5  # Less aggressive, preserve detail
+    # Get feature properties for type-specific adjustments
+    props = feature.get("properties", {})
+
+    # Skip buildings - usually simple rectangles, simplification may distort
+    if props.get("building"):
+        return feature
 
     # Skip if geometry is already simple (< 5 vertices)
     coord_count = count_coordinates(geom)
     if coord_count < 5:
         return feature
 
-    # Skip buildings - usually simple rectangles, simplification may distort
-    props = feature.get("properties", {})
-    if props.get("building"):
-        return feature
+    # Feature-type-specific epsilon scaling
+    # Roads and coastlines need gentler simplification to preserve curves
+    if props.get("highway"):
+        # Roads: reduce epsilon by 60% to preserve curves
+        epsilon *= 0.4
+    elif props.get("natural") == "coastline":
+        # Coastlines: reduce epsilon by 70% to preserve detail
+        epsilon *= 0.3
+    elif props.get("waterway"):
+        # Rivers: reduce epsilon by 50% to preserve meandering
+        epsilon *= 0.5
+    elif props.get("landuse") == "forest" or props.get("natural") == "wood":
+        # Forests: can be more aggressive (irregular boundaries less noticeable)
+        epsilon *= 1.3
+    elif props.get("natural") == "water" or props.get("water"):
+        # Water bodies: moderate simplification
+        epsilon *= 0.7
+
+    # Additional scaling based on feature LOD (less aggressive than before)
+    if min_lod == 0:  # Always visible (major features)
+        epsilon *= 1.2  # Slightly more aggressive (was 1.5)
+    elif min_lod >= 11:  # Only visible when zoomed in
+        epsilon *= 0.7  # Preserve more detail (was 0.5)
 
     # Convert to Shapely, simplify, convert back
     try:
