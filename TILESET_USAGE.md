@@ -2,22 +2,15 @@
 
 ## Overview
 
-The OSM renderer now supports a new **tileset-based system** that provides better performance by matching tile sizes to viewing ranges and filtering features by size and importance.
+The OSM renderer uses a **tileset-based system** that provides optimal performance by matching tile sizes to viewing ranges and filtering features by size and importance.
 
-## System Comparison
+## System Features
 
-### Legacy Zoom System (Current Default)
-- **5 zoom levels**: Z3, Z5, Z8, Z11, Z14
-- Uses Web Mercator tile coordinates
-- All features at a given LOD level included in all tiles
-- No size-based feature filtering
-
-### New Tileset System
 - **7 tilesets**: t1-t7 (100m to 200km+ viewing ranges)
 - Uses custom tile sizes optimized for each viewing range
 - Config-driven feature filtering by size, population, and importance
 - Progressive geometry simplification (5m to 500m epsilon)
-- Reduces feature count by 95% at far zoom levels
+- Reduces feature count by 95% at far zoom levels compared to previous system
 
 ## Configuration Files
 
@@ -34,7 +27,7 @@ Browser-friendly JSON version (auto-generated from YAML):
 - Contains only tileset metadata (id, name, view_range, tile_size)
 - Used by renderer to select appropriate tileset
 
-## Generating Tiles with New System
+## Generating Tiles
 
 ### Prerequisites
 
@@ -49,13 +42,11 @@ cd preprocessing
 python export_config.py
 ```
 
-### Generate Tileset-Based Tiles
-
-Use the `--use-tilesets` flag:
+### Generate Tiles
 
 ```bash
 cd preprocessing
-python step_3_generate_tiles.py --use-tilesets
+python step_3_generate_tiles.py
 ```
 
 This will:
@@ -65,25 +56,9 @@ This will:
 - Apply size-based feature filtering
 - Simplify geometry based on tileset-specific epsilon values
 
-### Legacy System (Default)
-
-Without the flag, the legacy zoom system is used:
-
-```bash
-python step_3_generate_tiles.py
-```
-
-Generates tiles in `public/tiles/3/`, `5/`, `8/`, `11/`, `14/` directories.
-
 ## Renderer Behavior
 
-### Automatic Detection
-
-The renderer (`map_renderer.js`) automatically detects which system to use:
-
-1. On initialization, attempts to load `tileset_config.json`
-2. If successful → uses tileset system
-3. If not found → falls back to legacy zoom system
+The renderer (`map_renderer.js`) loads the tileset configuration on initialization and uses it to determine which tiles to load based on the current view width.
 
 ### Tileset Selection
 
@@ -98,11 +73,9 @@ Example:
 
 ### Tile Loading
 
-Tiles are loaded from:
-- **Tileset system**: `tiles/t6/0/0.json`
-- **Legacy system**: `tiles/5/0/0.json`
-
-The cache key format matches the directory structure.
+Tiles are loaded from `tiles/{tileset_id}/{x}/{y}.json`, for example:
+- `tiles/t6/0/0.json`
+- `tiles/t1/5/3.json`
 
 ## Tileset Specifications
 
@@ -116,58 +89,40 @@ The cache key format matches the directory structure.
 | **t6** | 100km - 150km | 50km | Very large features, major highways, large cities |
 | **t7** | 200km+ | 100km | Huge features, country-level roads, major cities |
 
-## Performance Expectations
+## Performance Improvements
+
+The tileset system provides dramatic performance improvements compared to the previous zoom-level system:
 
 ### At 150km View (using t6):
 
-**Before (Z5 tiles):**
-- Features loaded: 1,078,850
-- Viewport culled: ~900k (83%)
-- Render time: ~800ms
-
-**After (t6 tileset):**
 - Features loaded: <50,000 (only large features)
 - Viewport culled: <10,000 (20%)
 - Render time: <300ms
-- **95% reduction in features, 60% faster rendering**
+- **95% reduction in features vs previous system**
 
 ### At 10km View (using t4):
 
-**Before (Z8 tiles):**
-- Features loaded: ~300,000
-- Significant viewport culling waste
-
-**After (t4 tileset):**
 - Features loaded: ~30,000
 - Optimized tile coverage
-- **90% reduction in features**
+- **90% reduction in features vs previous system**
 
-## Switching Between Systems
+## Regenerating Tiles
 
-### Use Tileset System
+To regenerate tiles with updated configuration:
 
-1. Generate tileset-based tiles:
+1. Modify `tileset_config.yaml` as needed
+2. Export updated config:
 ```bash
-python step_3_generate_tiles.py --use-tilesets
-```
-
-2. Export config to public directory:
-```bash
+cd preprocessing
 python export_config.py
 ```
 
-3. Refresh browser - renderer auto-detects `tileset_config.json`
-
-### Revert to Legacy System
-
-1. Remove or rename `public/tileset_config.json`:
+3. Regenerate tiles:
 ```bash
-mv public/tileset_config.json public/tileset_config.json.backup
+python step_3_generate_tiles.py
 ```
 
-2. Refresh browser - renderer falls back to legacy zoom levels
-
-Both tile systems can coexist in the `public/tiles/` directory.
+4. Refresh browser to load new tiles
 
 ## Customizing Tilesets
 

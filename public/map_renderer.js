@@ -326,26 +326,15 @@ class MapRenderer {
       this.ctx = this.canvas.getContext("2d");
 
       // Load tileset configuration
-      try {
-        const response = await fetch("tileset_config.json");
-        if (response.ok) {
-          const config = await response.json();
-          this.tilesets = config.tilesets;
-          console.log("Loaded tileset configuration:", this.tilesets);
-        } else {
-          // Fallback: use legacy zoom levels if config not found
-          console.warn(
-            "tileset_config.json not found, using legacy zoom levels",
-          );
-          this.tilesets = null;
-        }
-      } catch (error) {
-        console.warn(
-          "Failed to load tileset config, using legacy zoom levels:",
-          error,
+      const response = await fetch("tileset_config.json");
+      if (!response.ok) {
+        throw new Error(
+          "Failed to load tileset_config.json. Run: cd preprocessing && python export_config.py",
         );
-        this.tilesets = null;
       }
+      const config = await response.json();
+      this.tilesets = config.tilesets;
+      console.log("Loaded tileset configuration:", this.tilesets);
 
       // Set up event listeners for zoom and pan
       this.setupInteractions();
@@ -1169,99 +1158,58 @@ class MapRenderer {
   }
 
   getTilesetForView() {
-    // If using new tileset system, find tileset whose view range contains current view width
-    if (this.tilesets) {
-      for (const tileset of this.tilesets) {
-        const [min, max] = tileset.view_range_meters;
-        if (this.viewWidthMeters >= min && this.viewWidthMeters <= max) {
-          return tileset.id;
-        }
+    // Find tileset whose view range contains current view width
+    for (const tileset of this.tilesets) {
+      const [min, max] = tileset.view_range_meters;
+      if (this.viewWidthMeters >= min && this.viewWidthMeters <= max) {
+        return tileset.id;
       }
-
-      // Fallback to closest tileset
-      if (this.viewWidthMeters < 1000) return "t1";
-      if (this.viewWidthMeters < 2000) return "t2";
-      if (this.viewWidthMeters < 7000) return "t3";
-      if (this.viewWidthMeters < 15000) return "t4";
-      if (this.viewWidthMeters < 70000) return "t5";
-      if (this.viewWidthMeters < 150000) return "t6";
-      return "t7";
     }
 
-    // Legacy zoom level system
-    return this.getZoomLevelForScale();
-  }
-
-  getZoomLevelForScale() {
-    // Determine which tile zoom level to use based on view width (legacy system)
-    // Tile sizes: Z3=~3000km, Z5=~750km, Z8=~95km, Z11=~12km, Z14=~1.5km
-    // Use tile zoom when view is 20-50% of tile size for good coverage
-    // Ultra-wide view (>=500km): use Z3 tiles (~3000km)
-    // Very wide view (100-500km): use Z5 tiles (~750km)
-    // Wide view (15-100km): use Z8 tiles (~95km)
-    // Medium view (2-15km): use Z11 tiles (~12km)
-    // Close view (<2km): use Z14 tiles (~1.5km)
-    if (this.viewWidthMeters >= 500000) return 3;
-    if (this.viewWidthMeters >= 100000) return 5;
-    if (this.viewWidthMeters >= 15000) return 8;
-    if (this.viewWidthMeters >= 2000) return 11;
-    return 14;
+    // Fallback to closest tileset
+    if (this.viewWidthMeters < 1000) return "t1";
+    if (this.viewWidthMeters < 2000) return "t2";
+    if (this.viewWidthMeters < 7000) return "t3";
+    if (this.viewWidthMeters < 15000) return "t4";
+    if (this.viewWidthMeters < 70000) return "t5";
+    if (this.viewWidthMeters < 150000) return "t6";
+    return "t7";
   }
 
   getVisibleTiles(bounds) {
-    // Calculate which tiles are visible in the current viewport
+    // Calculate which tiles are visible in the current viewport using custom tile sizes
+    const tilesetId = this.getTilesetForView();
+    const tileset = this.tilesets.find((ts) => ts.id === tilesetId);
+    const tileSizeM = tileset.tile_size_meters;
 
-    if (this.tilesets) {
-      // New tileset system: use custom tile sizes
-      const tilesetId = this.getTilesetForView();
-      const tileset = this.tilesets.find((ts) => ts.id === tilesetId);
-      const tileSizeM = tileset.tile_size_meters;
+    // Convert bounds to tile coordinates using custom tile size
+    const latAvg = (bounds.minLat + bounds.maxLat) / 2;
+    const metersPerDegLon = 111320 * Math.cos((latAvg * Math.PI) / 180);
+    const metersPerDegLat = 111320;
 
-      // Convert bounds to tile coordinates using custom tile size
-      const latAvg = (bounds.minLat + bounds.maxLat) / 2;
-      const metersPerDegLon = 111320 * Math.cos((latAvg * Math.PI) / 180);
-      const metersPerDegLat = 111320;
+    const tileWidthDeg = tileSizeM / metersPerDegLon;
+    const tileHeightDeg = tileSizeM / metersPerDegLat;
 
-      const tileWidthDeg = tileSizeM / metersPerDegLon;
-      const tileHeightDeg = tileSizeM / metersPerDegLat;
+    const minX = Math.floor(bounds.minLon / tileWidthDeg);
+    const maxX = Math.floor(bounds.maxLon / tileWidthDeg);
+    const minY = Math.floor(bounds.minLat / tileHeightDeg);
+    const maxY = Math.floor(bounds.maxLat / tileHeightDeg);
 
-      const minX = Math.floor(bounds.minLon / tileWidthDeg);
-      const maxX = Math.floor(bounds.maxLon / tileWidthDeg);
-      const minY = Math.floor(bounds.minLat / tileHeightDeg);
-      const maxY = Math.floor(bounds.maxLat / tileHeightDeg);
-
-      const tiles = [];
-      for (let x = minX; x <= maxX; x++) {
-        for (let y = minY; y <= maxY; y++) {
-          tiles.push({ tileset: tilesetId, x, y });
-        }
+    const tiles = [];
+    for (let x = minX; x <= maxX; x++) {
+      for (let y = minY; y <= maxY; y++) {
+        tiles.push({ tileset: tilesetId, x, y });
       }
-      return tiles;
-    } else {
-      // Legacy zoom level system
-      const tileZoom = this.getZoomLevelForScale();
-
-      const minX = this.lon2tile(bounds.minLon, tileZoom);
-      const maxX = this.lon2tile(bounds.maxLon, tileZoom);
-      const minY = this.lat2tile(bounds.maxLat, tileZoom); // Note: lat reversed
-      const maxY = this.lat2tile(bounds.minLat, tileZoom);
-
-      const tiles = [];
-      for (let x = minX; x <= maxX; x++) {
-        for (let y = minY; y <= maxY; y++) {
-          tiles.push({ z: tileZoom, x, y });
-        }
-      }
-      return tiles;
     }
+    return tiles;
   }
 
-  getTileKey(tilesetOrZoom, x, y) {
-    return `${tilesetOrZoom}/${x}/${y}`;
+  getTileKey(tileset, x, y) {
+    return `${tileset}/${x}/${y}`;
   }
 
-  async loadTile(tilesetOrZoom, x, y) {
-    const key = this.getTileKey(tilesetOrZoom, x, y);
+  async loadTile(tileset, x, y) {
+    const key = this.getTileKey(tileset, x, y);
 
     // Check cache first
     if (this.tileCache.has(key)) {
@@ -1284,7 +1232,7 @@ class MapRenderer {
       // Add cache-busting parameter based on tile index generation time
       const cacheBuster = this.tileIndex?.generated || Date.now();
       const response = await fetch(
-        `tiles/${tilesetOrZoom}/${x}/${y}.json?v=${cacheBuster}`,
+        `tiles/${tileset}/${x}/${y}.json?v=${cacheBuster}`,
       );
 
       if (!response.ok) {
@@ -1456,11 +1404,9 @@ class MapRenderer {
 
     // Load all visible tiles in parallel
     const loadStart = performance.now();
-    const tilePromises = tiles.map((tile) => {
-      // Handle both legacy (z, x, y) and new (tileset, x, y) formats
-      const key = tile.z !== undefined ? tile.z : tile.tileset;
-      return this.loadTile(key, tile.x, tile.y);
-    });
+    const tilePromises = tiles.map((tile) =>
+      this.loadTile(tile.tileset, tile.x, tile.y),
+    );
     const tileData = await Promise.all(tilePromises);
     const loadTime = performance.now() - loadStart;
 

@@ -1434,20 +1434,16 @@ def open_zoom_db(db_dir, zoom, fingerprint=None, db_prefix="tile_build"):
 def split_geojson_into_tiles(
     geojson_file,
     output_dir,
-    zoom_levels,
     source_pbf_file=None,
     db_prefix=None,
-    use_tilesets=False,
 ):
-    """Split GeoJSON into tiles using per-zoom SQLite databases.
+    """Split GeoJSON into tiles using tileset-based SQLite databases.
 
     Args:
         geojson_file: Path to temporary GeoJSON file to process
         output_dir: Directory to write tiles to
-        zoom_levels: List of zoom levels to generate (ignored if use_tilesets=True)
         source_pbf_file: Path to source OSM PBF file (used for fingerprinting and bounds extraction)
         db_prefix: Optional prefix for database files (defaults to PBF filename or geojson filename)
-        use_tilesets: If True, use tileset-based processing instead of zoom levels
     """
 
     # Determine database directory and fingerprint source
@@ -1464,20 +1460,16 @@ def split_geojson_into_tiles(
             Path(source_pbf_file).stem if source_pbf_file else Path(geojson_file).stem
         )
 
-    # Determine processing mode: tilesets or zoom levels
-    if use_tilesets:
-        processing_keys = TILESET_IDS
-        print(f"Using tileset-based processing: {processing_keys}")
-    else:
-        processing_keys = zoom_levels
-        print(f"Using zoom-level processing: {processing_keys}")
+    # Use tileset-based processing
+    processing_keys = TILESET_IDS
+    print(f"Generating tilesets: {processing_keys}")
 
-    # Open per-zoom/tileset databases, check which ones can be reused
-    zoom_dbs = {}
+    # Open per-tileset databases, check which ones can be reused
+    tileset_dbs = {}
     need_import = False
-    for key in processing_keys:
-        conn, cached = open_zoom_db(db_dir, key, fingerprint, db_prefix)
-        zoom_dbs[key] = conn
+    for tileset_id in processing_keys:
+        conn, cached = open_zoom_db(db_dir, tileset_id, fingerprint, db_prefix)
+        tileset_dbs[tileset_id] = conn
         if not cached:
             need_import = True
 
@@ -1486,7 +1478,7 @@ def split_geojson_into_tiles(
         actual_bounds = None
         try:
             row = (
-                zoom_dbs[processing_keys[0]]
+                tileset_dbs[processing_keys[0]]
                 .execute("SELECT value FROM metadata WHERE key='bounds'")
                 .fetchone()
             )
@@ -1503,27 +1495,27 @@ def split_geojson_into_tiles(
             if actual_bounds:
                 # Store bounds in metadata for future use
                 bounds_json = json.dumps(actual_bounds)
-                zoom_dbs[processing_keys[0]].execute(
+                tileset_dbs[processing_keys[0]].execute(
                     "INSERT OR REPLACE INTO metadata VALUES ('bounds', ?)",
                     (bounds_json,),
                 )
-                zoom_dbs[processing_keys[0]].commit()
+                tileset_dbs[processing_keys[0]].commit()
             else:
                 raise ValueError(
                     f"Could not retrieve bounds from cached database or PBF file. "
                     f"source_pbf_file={source_pbf_file}"
                 )
     else:
-        # If any zoom/tileset needs rebuilding, rebuild all for consistency
-        for key in processing_keys:
-            zoom_dbs[key].close()
-            conn, _ = open_zoom_db(db_dir, key, db_prefix=db_prefix)
-            zoom_dbs[key] = conn
+        # If any tileset needs rebuilding, rebuild all for consistency
+        for tileset_id in processing_keys:
+            tileset_dbs[tileset_id].close()
+            conn, _ = open_zoom_db(db_dir, tileset_id, db_prefix=db_prefix)
+            tileset_dbs[tileset_id] = conn
 
-        # Pass 1: Stream features into per-zoom/tileset SQLite databases
+        # Pass 1: Stream features into per-tileset SQLite databases
         stats = defaultdict(int)
         i = 0
-        batches = {key: [] for key in processing_keys}
+        batches = {tileset_id: [] for tileset_id in processing_keys}
         BATCH_SIZE = 50000
 
         # Get bounds from PBF header
@@ -1608,140 +1600,67 @@ def split_geojson_into_tiles(
                 props = feature.get("properties", {})
                 geom_type = feature["geometry"]["type"]
 
-                if use_tilesets:
-                    # TILESET-BASED PROCESSING
-                    # For each tileset, check if feature should be included
-                    for tileset_config in TILESETS:
-                        tileset_id = tileset_config["id"]
-                        tile_size_m = tileset_config["tile_size_meters"]
+                # For each tileset, check if feature should be included
+                for tileset_config in TILESETS:
+                    tileset_id = tileset_config["id"]
+                    tile_size_m = tileset_config["tile_size_meters"]
 
-                        # Check if feature matches any feature definition in this tileset
-                        feature_config = feature_matches_tileset(
-                            feature, tileset_config, props, geom_type
-                        )
-                        if not feature_config:
-                            continue  # Feature not included in this tileset
+                    # Check if feature matches any feature definition in this tileset
+                    feature_config = feature_matches_tileset(
+                        feature, tileset_config, props, geom_type
+                    )
+                    if not feature_config:
+                        continue  # Feature not included in this tileset
 
-                        # Create a copy for this tileset
-                        tileset_feature = copy.deepcopy(feature)
+                    # Create a copy for this tileset
+                    tileset_feature = copy.deepcopy(feature)
 
-                        # Simplify for this tileset
-                        tileset_feature = simplify_feature_for_tileset(
-                            tileset_feature, tileset_id, feature_config
-                        )
+                    # Simplify for this tileset
+                    tileset_feature = simplify_feature_for_tileset(
+                        tileset_feature, tileset_id, feature_config
+                    )
 
-                        # Add render metadata from config
-                        tileset_feature["_render"] = feature_config["render"]
+                    # Add render metadata from config
+                    tileset_feature["_render"] = feature_config["render"]
 
-                        # Get tiles for this tileset
-                        feature_tiles = get_tiles_for_feature_in_tileset(
-                            tileset_feature, tileset_id, tile_size_m
-                        )
+                    # Get tiles for this tileset
+                    feature_tiles = get_tiles_for_feature_in_tileset(
+                        tileset_feature, tileset_id, tile_size_m
+                    )
 
-                        # Serialize and store
-                        feature_json = json.dumps(
-                            tileset_feature,
-                            separators=(",", ":"),
-                            default=decimal_default,
-                        )
+                    # Serialize and store
+                    feature_json = json.dumps(
+                        tileset_feature,
+                        separators=(",", ":"),
+                        default=decimal_default,
+                    )
 
-                        # Use importance for ordering (default to 5 for medium priority)
-                        _, importance = classify_feature_importance(props, geom_type)
-
-                        for tile_coords in feature_tiles:
-                            ts, x, y = tile_coords
-                            batches[ts].append((x, y, importance, feature_json))
-                            stats[ts] += 1
-                else:
-                    # ZOOM-BASED PROCESSING (original logic)
-                    render_meta = get_render_metadata(props, geom_type)
-                    if render_meta is None:
-                        stats["skipped"] += 1
-                        continue
-
-                    feature["_render"] = render_meta
-
-                    # Get feature bounds only for tile assignment and optimization
-                    # Never use these to update the overall bounding box (use PBF bounds instead)
-                    feature_bounds = get_feature_bounds(feature)
-
-                    # Adjust minLOD based on feature size for better LOD filtering
-                    # Small features should have higher minLOD (only visible when zoomed in)
-                    min_lod = render_meta["minLOD"]
-                    layer = render_meta.get("layer")
-
-                    # Size-based LOD adjustment for forests and water bodies
-                    if layer in ["forests", "water_areas"] and feature_bounds:
-                        # Calculate approximate area in square degrees
-                        width = feature_bounds["maxLon"] - feature_bounds["minLon"]
-                        height = feature_bounds["maxLat"] - feature_bounds["minLat"]
-                        area = width * height
-
-                        # Area thresholds (in square degrees, ~0.01 deg ≈ 1km at this latitude)
-                        # Large features (>1km²): minLOD 0 (always visible)
-                        # Medium features (0.01-1km²): minLOD 1 (visible from 7.5km+)
-                        # Small features (<0.01km²): minLOD 2 (visible from 3km+)
-                        if area < 0.0001:  # ~100m x 100m = 0.01km²
-                            min_lod = max(min_lod, 2)  # Only show when zoomed in
-                        elif area < 0.01:  # ~1km x 1km = 1km²
-                            min_lod = max(min_lod, 1)  # Show at medium zoom
-                        # else: keep original minLOD (usually 0 for large features)
-
-                    # Update the render metadata with adjusted minLOD
-                    render_meta["minLOD"] = min_lod
+                    # Use importance for ordering (default to 5 for medium priority)
                     _, importance = classify_feature_importance(props, geom_type)
 
-                    # Optimize tile assignments based on when features are actually rendered
-                    # Use pre-allocated tuples instead of creating lists
-                    if min_lod == 0:
-                        target_zooms = LOD_0_ZOOMS
-                    elif min_lod == 1:
-                        target_zooms = LOD_1_ZOOMS
-                    elif min_lod == 2:
-                        target_zooms = LOD_2_ZOOMS
-                    elif min_lod == 3:
-                        target_zooms = LOD_3_ZOOMS
-                    else:  # min_lod >= 4
-                        target_zooms = LOD_4_ZOOMS
+                    for tile_coords in feature_tiles:
+                        ts, x, y = tile_coords
+                        batches[ts].append((x, y, importance, feature_json))
+                        stats[ts] += 1
 
-                    # Simplify geometry per zoom level and serialize
-                    # Each zoom level gets appropriately simplified geometry
-                    for zoom in target_zooms:
-                        # Create a copy of the feature and simplify for this zoom level
-                        zoom_feature = copy.deepcopy(feature)
-                        zoom_feature = simplify_feature_for_zoom(
-                            zoom_feature, zoom, min_lod
+                # Flush each tileset's batch independently
+                for tileset_id in processing_keys:
+                    if len(batches[tileset_id]) >= BATCH_SIZE:
+                        tileset_dbs[tileset_id].executemany(
+                            "INSERT INTO tile_features VALUES (?,?,?,?)",
+                            batches[tileset_id],
                         )
-
-                        # Serialize simplified feature for this zoom
-                        feature_json = json.dumps(
-                            zoom_feature, separators=(",", ":"), default=decimal_default
-                        )
-
-                        # Get tiles using simplified geometry
-                        feature_tiles = get_tiles_for_feature(zoom_feature, zoom)
-                        for tile_coords in feature_tiles:
-                            _, x, y = tile_coords
-                            batches[zoom].append((x, y, importance, feature_json))
-                            stats[f"z{zoom}"] += 1
-
-                # Flush each zoom/tileset's batch independently
-                for key in processing_keys:
-                    if len(batches[key]) >= BATCH_SIZE:
-                        zoom_dbs[key].executemany(
-                            "INSERT INTO tile_features VALUES (?,?,?,?)", batches[key]
-                        )
-                        zoom_dbs[key].commit()
-                        batches[key].clear()
+                        tileset_dbs[tileset_id].commit()
+                        batches[tileset_id].clear()
 
         # Flush remaining batches
-        for key in processing_keys:
-            if batches[key]:
-                zoom_dbs[key].executemany(
-                    "INSERT INTO tile_features VALUES (?,?,?,?)", batches[key]
+        for tileset_id in processing_keys:
+            if batches[tileset_id]:
+                tileset_dbs[tileset_id].executemany(
+                    "INSERT INTO tile_features VALUES (?,?,?,?)", batches[tileset_id]
                 )
-                zoom_dbs[key].commit()
-                batches[key].clear()
+                tileset_dbs[tileset_id].commit()
+                batches[tileset_id].clear()
 
         # Final progress line (clear the line first)
         print(
@@ -1754,8 +1673,8 @@ def split_geojson_into_tiles(
         # Store bounds in metadata for cache reuse
         bounds_json = json.dumps(actual_bounds)
 
-        for key in processing_keys:
-            conn = zoom_dbs[key]
+        for tileset_id in processing_keys:
+            conn = tileset_dbs[tileset_id]
             conn.execute(
                 "CREATE INDEX idx_tile ON tile_features (x, y, importance DESC)"
             )
@@ -1765,14 +1684,14 @@ def split_geojson_into_tiles(
             conn.execute("INSERT INTO metadata VALUES ('bounds', ?)", (bounds_json,))
             conn.commit()
 
-    # Pass 2: Write tiles from each zoom/tileset database
+    # Pass 2: Write tiles from each tileset database
     output_path = Path(output_dir)
     total_tiles = 0
     tile_count = 0
 
-    for key in processing_keys:
+    for tileset_id in processing_keys:
         total_tiles += (
-            zoom_dbs[key]
+            tileset_dbs[tileset_id]
             .execute("SELECT COUNT(DISTINCT x || '/' || y) FROM tile_features")
             .fetchone()[0]
         )
@@ -1787,8 +1706,8 @@ def split_geojson_into_tiles(
     tile_rate_history = []  # List of (elapsed_time, tiles_written) tuples
     max_history = 5
 
-    for key in processing_keys:
-        conn = zoom_dbs[key]
+    for tileset_id in processing_keys:
+        conn = tileset_dbs[tileset_id]
         cursor = conn.execute(
             "SELECT x, y, feature_json FROM tile_features ORDER BY x, y, importance DESC"
         )
@@ -1802,7 +1721,7 @@ def split_geojson_into_tiles(
             if tile_key != current_tile:
                 if current_tile is not None:
                     cx, cy = current_tile
-                    tile_dir = output_path / str(key) / str(cx)
+                    tile_dir = output_path / str(tileset_id) / str(cx)
                     if cx not in created_dirs:
                         tile_dir.mkdir(parents=True, exist_ok=True)
                         created_dirs.add(cx)
@@ -1876,10 +1795,10 @@ def split_geojson_into_tiles(
                 feature_jsons = []
             feature_jsons.append(feature_json)
 
-        # Write last tile for this zoom/tileset
+        # Write last tile for this tileset
         if current_tile is not None:
             cx, cy = current_tile
-            tile_dir = output_path / str(key) / str(cx)
+            tile_dir = output_path / str(tileset_id) / str(cx)
             if cx not in created_dirs:
                 tile_dir.mkdir(parents=True, exist_ok=True)
                 created_dirs.add(cx)
@@ -2145,7 +2064,7 @@ def write_tiles_from_databases(db_dir, db_prefix, zoom_levels, output_dir):
 
 def process_geojson_to_tiles(args):
     """Process a single GeoJSON file into tiles."""
-    geojson_file, output_dir, zoom_levels, source_file, use_tilesets = args
+    geojson_file, output_dir, source_file = args
 
     geojson_path = Path(geojson_file)
     source_path = Path(source_file) if source_file else geojson_path
@@ -2154,10 +2073,8 @@ def process_geojson_to_tiles(args):
         bounds = split_geojson_into_tiles(
             str(geojson_file),
             output_dir,
-            zoom_levels,
             source_pbf_file=str(source_path),
             db_prefix=geojson_path.stem,
-            use_tilesets=use_tilesets,
         )
 
         return {"name": geojson_path.name, "status": "success", "bounds": bounds}
@@ -2222,18 +2139,7 @@ def main():
         default=Path("public/tiles"),
         help="Output directory for tiles",
     )
-    parser.add_argument(
-        "--zoom-levels",
-        type=int,
-        nargs="+",
-        default=[3, 5, 8, 11, 14],
-        help="Zoom levels to generate (legacy mode)",
-    )
-    parser.add_argument(
-        "--use-tilesets",
-        action="store_true",
-        help="Use new tileset-based system instead of zoom levels",
-    )
+
     parser.add_argument(
         "-j",
         "--jobs",
@@ -2262,19 +2168,13 @@ def main():
         cached_pbf_files = []
 
         for pbf_file in pbf_files:
-            # Check if all zoom/tileset databases exist with matching fingerprint
+            # Check if all tileset databases exist with matching fingerprint
             db_prefix = pbf_file.stem
             fingerprint = get_input_fingerprint(str(pbf_file))
 
-            # Determine which databases to check
-            if args.use_tilesets:
-                keys_to_check = TILESET_IDS
-            else:
-                keys_to_check = args.zoom_levels
-
             all_cached = True
-            for key in keys_to_check:
-                db_path = args.data_dir / f"{db_prefix}_z{key}.db"
+            for tileset_id in TILESET_IDS:
+                db_path = args.data_dir / f"{db_prefix}_z{tileset_id}.db"
                 if not db_path.exists():
                     all_cached = False
                     break
@@ -2334,7 +2234,7 @@ def main():
     print("=" * 70)
     print()
     print("Configuration:")
-    print(f"  Zoom levels: {', '.join(map(str, args.zoom_levels))}")
+    print(f"  Tilesets: {', '.join(TILESET_IDS)}")
     print(f"  Parallel jobs: {args.jobs}")
     print(f"  Output: {args.output_dir}")
     print()
@@ -2368,9 +2268,7 @@ def main():
                 (
                     str(gj),
                     str(temp_tile_dir),
-                    args.zoom_levels,
                     source_file,
-                    args.use_tilesets,
                 )
             )
 
