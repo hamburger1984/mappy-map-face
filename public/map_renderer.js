@@ -1149,14 +1149,14 @@ class MapRenderer {
   getZoomLevelForScale() {
     // Determine which tile zoom level to use based on view width
     // Ultra-wide view (>=100km): use Z3 tiles
-    // Very wide view (40-100km): use Z5 tiles
-    // Wide view (10-40km): use Z8 tiles
-    // Medium view (2-10km): use Z11 tiles
-    // Close view (<2km): use Z14 tiles
+    // Very wide view (30-100km): use Z5 tiles
+    // Wide view (7-30km): use Z8 tiles
+    // Medium view (1.5-7km): use Z11 tiles
+    // Close view (<1.5km): use Z14 tiles
     if (this.viewWidthMeters >= 100000) return 3;
-    if (this.viewWidthMeters >= 40000) return 5;
-    if (this.viewWidthMeters >= 10000) return 8;
-    if (this.viewWidthMeters >= 2000) return 11;
+    if (this.viewWidthMeters >= 30000) return 5;
+    if (this.viewWidthMeters >= 7000) return 8;
+    if (this.viewWidthMeters >= 1500) return 11;
     return 14;
   }
 
