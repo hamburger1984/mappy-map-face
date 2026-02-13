@@ -484,13 +484,24 @@ def simplify_feature_for_zoom(feature, zoom, min_lod):
 
     # Feature-type-specific epsilon scaling
     # Roads and coastlines need gentler simplification to preserve curves
-    if props.get("highway"):
+    is_road = props.get("highway") is not None
+    is_coastline = props.get("natural") == "coastline"
+    is_waterway = props.get("waterway") is not None
+
+    if is_road:
         # Roads: reduce epsilon by 60% to preserve curves
         epsilon *= 0.4
-    elif props.get("natural") == "coastline":
+        # At highest detail (Z14), skip simplification for roads entirely
+        # to preserve roundabouts and smooth curves
+        if zoom == 14:
+            return feature
+    elif is_coastline:
         # Coastlines: reduce epsilon by 70% to preserve detail
         epsilon *= 0.3
-    elif props.get("waterway"):
+        # At Z14, skip simplification to preserve coastal detail
+        if zoom == 14:
+            return feature
+    elif is_waterway:
         # Rivers: reduce epsilon by 50% to preserve meandering
         epsilon *= 0.5
     elif props.get("landuse") == "forest" or props.get("natural") == "wood":
