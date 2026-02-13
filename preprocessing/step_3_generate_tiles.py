@@ -41,6 +41,13 @@ except ImportError:
     print("Install with: pip install ijson")
     sys.exit(1)
 
+try:
+    import yaml
+except ImportError:
+    print("Error: PyYAML is required for config parsing")
+    print("Install with: pip install PyYAML")
+    sys.exit(1)
+
 
 # ============================================================================
 # TILE GENERATION CORE (from split-tiles.py)
@@ -116,7 +123,31 @@ QUARRY_LANDUSE = frozenset(["quarry", "landfill"])
 # Waterway type classifications
 MAJOR_WATERWAYS = frozenset(["river", "canal"])
 
-# LOD to zoom level mappings (avoid recreating lists per feature)
+# ============================================================================
+# TILESET CONFIGURATION
+# ============================================================================
+
+
+# Load tileset configuration from YAML
+def load_tileset_config():
+    """Load tileset configuration from tileset_config.yaml."""
+    config_path = os.path.join(os.path.dirname(__file__), "..", "tileset_config.yaml")
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+    return config
+
+
+# Global config (loaded at module level)
+TILESET_CONFIG = load_tileset_config()
+TILESETS = TILESET_CONFIG["tilesets"]
+SIMPLIFICATION_SETTINGS = TILESET_CONFIG["simplification_settings"]
+
+# Build tileset ID list
+TILESET_IDS = [ts["id"] for ts in TILESETS]
+TILESET_TILE_SIZES = {ts["id"]: ts["tile_size_meters"] for ts in TILESETS}
+
+# Legacy zoom level mappings (kept for compatibility during transition)
+# TODO: Remove after full migration to tileset system
 LOD_0_ZOOMS = (3, 5, 8, 11, 14)  # Major features: all zoom levels
 LOD_1_ZOOMS = (8, 11, 14)  # Secondary features: not in Z3/Z5
 LOD_2_ZOOMS = (11, 14)  # Detail features: Z11 and Z14
@@ -544,6 +575,256 @@ def simplify_feature_for_zoom(feature, zoom, min_lod):
         pass
 
     return feature
+
+
+# ============================================================================
+# TILESET-BASED PROCESSING FUNCTIONS
+# ============================================================================
+
+
+def feature_matches_tileset(feature, tileset_config, props, geom_type):
+    """
+    Check if a feature should be included in this tileset.
+
+    Args:
+        feature: GeoJSON feature
+        tileset_config: Tileset dict from config
+        props: Feature properties
+        geom_type: Geometry type
+
+    Returns:
+        Matching feature config dict or None
+    """
+    for feature_def in tileset_config["features"]:
+        osm_match = feature_def["osm_match"]
+
+        # Check geometry type
+        if geom_type not in osm_match["geometry"]:
+            continue
+
+        # Check tags
+        tags = osm_match.get("tags", {})
+        if not tags:
+            continue
+
+        matches = False
+        for tag_key, tag_values in tags.items():
+            prop_value = props.get(tag_key)
+            if prop_value:
+                # Handle wildcard "*" or specific values
+                if tag_values == ["*"] or prop_value in tag_values:
+                    matches = True
+                    break
+
+        if not matches:
+            continue
+
+        # Check excluded tags
+        tags_exclude = osm_match.get("tags_exclude", {})
+        excluded = False
+        for tag_key, tag_values in tags_exclude.items():
+            prop_value = props.get(tag_key)
+            if prop_value and prop_value in tag_values:
+                excluded = True
+                break
+
+        if excluded:
+            continue
+
+        # Check area constraints (for polygons)
+        if "min_area_km2" in osm_match or "max_area_km2" in osm_match:
+            if "_area_km2" not in feature:
+                # Calculate area
+                bounds = get_feature_bounds(feature)
+                if bounds:
+                    width_deg = bounds["maxLon"] - bounds["minLon"]
+                    height_deg = bounds["maxLat"] - bounds["minLat"]
+                    # Approximate area in km² (1 deg ≈ 111km at equator)
+                    area_km2 = (width_deg * 111) * (height_deg * 111)
+                    feature["_area_km2"] = area_km2
+                else:
+                    continue
+
+            area = feature["_area_km2"]
+            if "min_area_km2" in osm_match and area < osm_match["min_area_km2"]:
+                continue
+            if "max_area_km2" in osm_match and area > osm_match["max_area_km2"]:
+                continue
+
+        # Check population constraints (for places)
+        if "population_min" in osm_match or "population_max" in osm_match:
+            pop = props.get("population", 0)
+            try:
+                pop = int(pop)
+            except:
+                pop = 0
+
+            if "population_min" in osm_match and pop < osm_match["population_min"]:
+                continue
+            if "population_max" in osm_match and pop > osm_match["population_max"]:
+                continue
+
+        # Check requires_name flag
+        if osm_match.get("requires_name", False):
+            if not props.get("name"):
+                continue
+
+        # Feature matches this definition
+        return feature_def
+
+    return None
+
+
+def simplify_feature_for_tileset(feature, tileset_id, feature_config):
+    """
+    Simplify feature geometry for specific tileset using config.
+
+    Args:
+        feature: GeoJSON feature
+        tileset_id: Tileset ID (e.g., "t3")
+        feature_config: Feature definition from config
+
+    Returns:
+        Modified feature with simplified geometry
+    """
+    from shapely.geometry import mapping, shape
+
+    simplif = feature_config.get("simplification", {})
+
+    # Check if simplification disabled for this feature in this tileset
+    if simplif.get("disabled", False):
+        return feature
+
+    epsilon_m = simplif.get("epsilon_m")
+    if not epsilon_m:
+        return feature
+
+    geom = feature.get("geometry")
+    if not geom or geom["type"] == "Point":
+        return feature
+
+    try:
+        shapely_geom = shape(geom)
+
+        # Convert epsilon from meters to degrees (approximate)
+        epsilon_deg = epsilon_m / 111000
+
+        # Simplify with topology preservation
+        simplified = shapely_geom.simplify(
+            epsilon_deg, preserve_topology=SIMPLIFICATION_SETTINGS["preserve_topology"]
+        )
+
+        # Apply grid snapping if enabled
+        if SIMPLIFICATION_SETTINGS.get("snap_to_grid", False):
+            grid_divisor = SIMPLIFICATION_SETTINGS.get("snap_grid_divisor", 2)
+            grid_size_m = epsilon_m / grid_divisor
+            simplified = snap_to_grid(simplified, grid_size_m)
+
+        feature["geometry"] = mapping(simplified)
+
+    except Exception as e:
+        # If simplification fails, keep original
+        pass
+
+    return feature
+
+
+def snap_to_grid(geom, grid_size_m):
+    """
+    Snap geometry coordinates to grid to prevent gaps between adjacent features.
+
+    Args:
+        geom: Shapely geometry
+        grid_size_m: Grid size in meters
+
+    Returns:
+        Snapped Shapely geometry
+    """
+    from shapely.geometry import (
+        LineString,
+        MultiLineString,
+        MultiPolygon,
+        Point,
+        Polygon,
+    )
+
+    # Convert grid size from meters to degrees (approximate)
+    grid_deg = grid_size_m / 111000
+
+    def snap_coords(coords):
+        """Round coordinates to grid."""
+        return [
+            (round(x / grid_deg) * grid_deg, round(y / grid_deg) * grid_deg)
+            for x, y in coords
+        ]
+
+    geom_type = geom.geom_type
+
+    if geom_type == "Point":
+        x, y = geom.coords[0]
+        return Point(round(x / grid_deg) * grid_deg, round(y / grid_deg) * grid_deg)
+
+    elif geom_type == "LineString":
+        return LineString(snap_coords(geom.coords))
+
+    elif geom_type == "Polygon":
+        exterior = snap_coords(geom.exterior.coords)
+        interiors = [snap_coords(interior.coords) for interior in geom.interiors]
+        return Polygon(exterior, interiors)
+
+    elif geom_type == "MultiLineString":
+        return MultiLineString([snap_coords(line.coords) for line in geom.geoms])
+
+    elif geom_type == "MultiPolygon":
+        polys = []
+        for poly in geom.geoms:
+            exterior = snap_coords(poly.exterior.coords)
+            interiors = [snap_coords(interior.coords) for interior in poly.interiors]
+            polys.append(Polygon(exterior, interiors))
+        return MultiPolygon(polys)
+
+    return geom
+
+
+def get_tiles_for_feature_in_tileset(feature, tileset_id, tile_size_m):
+    """
+    Get tile coordinates for a feature in a specific tileset.
+
+    Uses custom tile size instead of Web Mercator zoom levels.
+
+    Args:
+        feature: GeoJSON feature
+        tileset_id: Tileset ID
+        tile_size_m: Tile size in meters
+
+    Returns:
+        List of (tileset_id, x, y) tuples
+    """
+    bounds = get_feature_bounds(feature)
+    if not bounds:
+        return []
+
+    # Convert tile size to degrees (approximate at latitude 53°)
+    lat_avg = (bounds["minLat"] + bounds["maxLat"]) / 2
+    meters_per_deg_lon = 111320 * math.cos(math.radians(lat_avg))
+    meters_per_deg_lat = 111320
+
+    tile_width_deg = tile_size_m / meters_per_deg_lon
+    tile_height_deg = tile_size_m / meters_per_deg_lat
+
+    # Calculate tile indices
+    # Use 0,0 as origin at lat=0, lon=0
+    min_x = int(math.floor(bounds["minLon"] / tile_width_deg))
+    max_x = int(math.floor(bounds["maxLon"] / tile_width_deg))
+    min_y = int(math.floor(bounds["minLat"] / tile_height_deg))
+    max_y = int(math.floor(bounds["maxLat"] / tile_height_deg))
+
+    tiles = []
+    for x in range(min_x, max_x + 1):
+        for y in range(min_y, max_y + 1):
+            tiles.append((tileset_id, x, y))
+
+    return tiles
 
 
 def get_feature_bounds(feature):
@@ -1889,7 +2170,12 @@ def main():
         type=int,
         nargs="+",
         default=[3, 5, 8, 11, 14],
-        help="Zoom levels to generate",
+        help="Zoom levels to generate (legacy mode)",
+    )
+    parser.add_argument(
+        "--use-tilesets",
+        action="store_true",
+        help="Use new tileset-based system instead of zoom levels",
     )
     parser.add_argument(
         "-j",
