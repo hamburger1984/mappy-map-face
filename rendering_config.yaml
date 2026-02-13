@@ -1,0 +1,950 @@
+# OSM Renderer Configuration
+# Defines which features are visible at each zoom level and how they are processed
+
+# Zoom levels: discrete view width steps from 100m to 200km
+zoom_levels:
+  - name: "z14_close"
+    view_width_meters: [100, 150, 200, 300, 500, 700, 1000, 1500]
+    lod: 4
+    tile_zoom: 14
+    tile_size_km: 1.5
+
+  - name: "z11_medium"
+    view_width_meters: [2000, 3000]
+    lod: 3
+    tile_zoom: 11
+    tile_size_km: 12
+
+  - name: "z11_zoomed_in"
+    view_width_meters: [5000, 7000]
+    lod: 2
+    tile_zoom: 11
+    tile_size_km: 12
+
+  - name: "z8_wide"
+    view_width_meters: [10000, 15000, 20000, 30000, 50000, 70000]
+    lod: 1
+    tile_zoom: 8
+    tile_size_km: 95
+
+  - name: "z5_very_wide"
+    view_width_meters: [100000, 150000]
+    lod: 0
+    tile_zoom: 5
+    tile_size_km: 750
+
+  - name: "z3_ultra_wide"
+    view_width_meters: [200000]
+    lod: 0
+    tile_zoom: 3
+    tile_size_km: 3000
+
+# Feature definitions
+features:
+  # ============================================================================
+  # WATER FEATURES
+  # ============================================================================
+
+  - name: "large_water_bodies"
+    description: "Large lakes, seas, ocean areas"
+    layer: "water_areas"
+    geometry_types: ["Polygon", "MultiPolygon"]
+    osm_tags:
+      natural: ["water", "coastline"]
+      waterway: ["riverbank"]
+      water: ["*"]
+      landuse: ["basin", "reservoir", "salt_pond"]
+    render:
+      color: [170, 211, 223, 255]  # Light blue
+      fill: true
+      stroke: false
+    visibility:
+      min_lod: 0  # Always visible
+      min_area_km2: 1.0  # Only show if larger than 1km²
+    tiles:
+      include_in: [3, 5, 8, 11, 14]
+    simplification:
+      z3: {epsilon_deg: 0.003, epsilon_m: 300}
+      z5: {epsilon_deg: 0.002, epsilon_m: 200}
+      z8: {epsilon_deg: 0.0008, epsilon_m: 80}
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "medium_water_bodies"
+    description: "Medium-sized lakes and ponds"
+    layer: "water_areas"
+    geometry_types: ["Polygon", "MultiPolygon"]
+    osm_tags:
+      natural: ["water", "coastline"]
+      waterway: ["riverbank"]
+      water: ["*"]
+      landuse: ["basin", "reservoir", "salt_pond"]
+    render:
+      color: [170, 211, 223, 255]
+      fill: true
+      stroke: false
+    visibility:
+      min_lod: 1
+      min_area_km2: 0.01  # 100m x 100m
+      max_area_km2: 1.0   # Smaller than large water bodies
+    tiles:
+      include_in: [8, 11, 14]
+    simplification:
+      z8: {epsilon_deg: 0.0008, epsilon_m: 80}
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "small_water_bodies"
+    description: "Small ponds and water features"
+    layer: "water_areas"
+    geometry_types: ["Polygon", "MultiPolygon"]
+    osm_tags:
+      natural: ["water", "coastline"]
+      waterway: ["riverbank"]
+      water: ["*"]
+      landuse: ["basin", "reservoir", "salt_pond"]
+    render:
+      color: [170, 211, 223, 255]
+      fill: true
+      stroke: false
+    visibility:
+      min_lod: 2
+      max_area_km2: 0.01  # Smaller than 100m x 100m
+    tiles:
+      include_in: [11, 14]
+    simplification:
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "major_rivers"
+    description: "Major rivers and canals"
+    layer: "waterways"
+    geometry_types: ["LineString", "MultiLineString"]
+    osm_tags:
+      waterway: ["river", "canal"]
+    osm_tags_exclude:
+      waterway: ["riverbank"]
+    render:
+      color: [170, 211, 223, 255]
+      fill: false
+      stroke: true
+      width_meters: null  # Use OSM width tag
+    visibility:
+      min_lod: 1
+    tiles:
+      include_in: [8, 11, 14]
+    simplification:
+      z8: {epsilon_deg: 0.0008, epsilon_m: 80}
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "minor_waterways"
+    description: "Streams, ditches, drains"
+    layer: "waterways"
+    geometry_types: ["LineString", "MultiLineString"]
+    osm_tags:
+      waterway: ["stream", "ditch", "drain"]
+    render:
+      color: [170, 211, 223, 255]
+      fill: false
+      stroke: true
+      width_meters: null
+    visibility:
+      min_lod: 2
+    tiles:
+      include_in: [11, 14]
+    simplification:
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "coastline"
+    description: "Ocean/sea coastline with direction visualization"
+    layer: "coastline"
+    geometry_types: ["LineString", "MultiLineString"]
+    osm_tags:
+      natural: ["coastline"]
+    osm_tags_exclude:
+      geometry_type: ["Polygon", "MultiPolygon"]  # Only lines, not polygons
+    render:
+      color: [255, 0, 255, 255]  # Magenta for debugging
+      fill: false
+      stroke: true
+      width_px: 3
+      show_direction: true  # Draw direction arrows
+    visibility:
+      min_lod: 0
+    tiles:
+      include_in: [3, 5, 8, 11, 14]
+    simplification:
+      # More aggressive simplification to preserve shape
+      z3: {epsilon_deg: 0.0009, epsilon_m: 90, scale_factor: 0.3}
+      z5: {epsilon_deg: 0.0006, epsilon_m: 60, scale_factor: 0.3}
+      z8: {epsilon_deg: 0.00024, epsilon_m: 24, scale_factor: 0.3}
+      z11: {epsilon_deg: 0.00006, epsilon_m: 6, scale_factor: 0.3}
+      z14: {disabled: true}  # No simplification at highest detail
+
+  # ============================================================================
+  # FOREST AND VEGETATION
+  # ============================================================================
+
+  - name: "large_forests"
+    description: "Large forest areas"
+    layer: "forests"
+    geometry_types: ["Polygon", "MultiPolygon"]
+    osm_tags:
+      landuse: ["forest"]
+      natural: ["wood"]
+    render:
+      color: [173, 209, 158, 255]  # Green
+      fill: true
+      stroke: false
+    visibility:
+      min_lod: 0
+      min_area_km2: 1.0
+    tiles:
+      include_in: [3, 5, 8, 11, 14]
+    simplification:
+      z3: {epsilon_deg: 0.003, epsilon_m: 300}
+      z5: {epsilon_deg: 0.002, epsilon_m: 200}
+      z8: {epsilon_deg: 0.0008, epsilon_m: 80}
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "medium_forests"
+    description: "Medium forest patches"
+    layer: "forests"
+    geometry_types: ["Polygon", "MultiPolygon"]
+    osm_tags:
+      landuse: ["forest"]
+      natural: ["wood"]
+    render:
+      color: [173, 209, 158, 255]
+      fill: true
+      stroke: false
+    visibility:
+      min_lod: 1
+      min_area_km2: 0.01
+      max_area_km2: 1.0
+    tiles:
+      include_in: [8, 11, 14]
+    simplification:
+      z8: {epsilon_deg: 0.0008, epsilon_m: 80}
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "small_forests"
+    description: "Small tree clusters"
+    layer: "forests"
+    geometry_types: ["Polygon", "MultiPolygon"]
+    osm_tags:
+      landuse: ["forest"]
+      natural: ["wood"]
+    render:
+      color: [173, 209, 158, 255]
+      fill: true
+      stroke: false
+    visibility:
+      min_lod: 2
+      max_area_km2: 0.01
+    tiles:
+      include_in: [11, 14]
+    simplification:
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  # ============================================================================
+  # ROADS - MAJOR
+  # ============================================================================
+
+  - name: "motorways"
+    description: "Motorways and trunk roads"
+    layer: "major_roads"
+    geometry_types: ["LineString", "MultiLineString"]
+    osm_tags:
+      highway: ["motorway", "trunk", "motorway_link", "trunk_link"]
+    render:
+      color: [233, 115, 103, 255]  # Red-orange
+      fill: false
+      stroke: true
+      width_meters: null  # Use OSM width tag
+      name_priority: 1
+    visibility:
+      min_lod: 0
+    tiles:
+      include_in: [3, 5, 8, 11, 14]
+    simplification:
+      # Preserve curves with reduced epsilon
+      z3: {epsilon_deg: 0.0012, epsilon_m: 120, scale_factor: 0.4}
+      z5: {epsilon_deg: 0.0008, epsilon_m: 80, scale_factor: 0.4}
+      z8: {epsilon_deg: 0.00032, epsilon_m: 32, scale_factor: 0.4}
+      z11: {epsilon_deg: 0.00008, epsilon_m: 8, scale_factor: 0.4}
+      z14: {disabled: true}
+
+  - name: "primary_roads"
+    description: "Primary roads (Bundesstraßen)"
+    layer: "major_roads"
+    geometry_types: ["LineString", "MultiLineString"]
+    osm_tags:
+      highway: ["primary", "primary_link"]
+    render:
+      color: [252, 214, 164, 255]  # Orange-yellow
+      fill: false
+      stroke: true
+      width_meters: null
+      name_priority: 2
+    visibility:
+      min_lod: 0
+    tiles:
+      include_in: [3, 5, 8, 11, 14]
+    simplification:
+      z3: {epsilon_deg: 0.0012, epsilon_m: 120, scale_factor: 0.4}
+      z5: {epsilon_deg: 0.0008, epsilon_m: 80, scale_factor: 0.4}
+      z8: {epsilon_deg: 0.00032, epsilon_m: 32, scale_factor: 0.4}
+      z11: {epsilon_deg: 0.00008, epsilon_m: 8, scale_factor: 0.4}
+      z14: {disabled: true}
+
+  - name: "secondary_roads"
+    description: "Secondary roads"
+    layer: "major_roads"
+    geometry_types: ["LineString", "MultiLineString"]
+    osm_tags:
+      highway: ["secondary", "secondary_link"]
+    render:
+      color: [252, 214, 164, 255]
+      fill: false
+      stroke: true
+      width_meters: null
+      name_priority: 3
+    visibility:
+      min_lod: 1
+    tiles:
+      include_in: [8, 11, 14]
+    simplification:
+      z8: {epsilon_deg: 0.00032, epsilon_m: 32, scale_factor: 0.4}
+      z11: {epsilon_deg: 0.00008, epsilon_m: 8, scale_factor: 0.4}
+      z14: {disabled: true}
+
+  - name: "tertiary_roads"
+    description: "Tertiary roads"
+    layer: "roads"
+    geometry_types: ["LineString", "MultiLineString"]
+    osm_tags:
+      highway: ["tertiary", "tertiary_link"]
+    render:
+      color: [255, 255, 255, 255]  # White
+      fill: false
+      stroke: true
+      width_meters: null
+      name_priority: 4
+    visibility:
+      min_lod: 2
+    tiles:
+      include_in: [11, 14]
+    simplification:
+      z11: {epsilon_deg: 0.00008, epsilon_m: 8, scale_factor: 0.4}
+      z14: {disabled: true}
+
+  - name: "residential_roads"
+    description: "Residential streets"
+    layer: "roads"
+    geometry_types: ["LineString", "MultiLineString"]
+    osm_tags:
+      highway: ["residential", "unclassified", "living_street"]
+    render:
+      color: [255, 255, 255, 255]
+      fill: false
+      stroke: true
+      width_meters: null
+      name_priority: 5
+    visibility:
+      min_lod: 2
+    tiles:
+      include_in: [11, 14]
+    simplification:
+      z11: {epsilon_deg: 0.00008, epsilon_m: 8, scale_factor: 0.4}
+      z14: {disabled: true}
+
+  - name: "minor_roads"
+    description: "Service roads, tracks, paths"
+    layer: "roads"
+    geometry_types: ["LineString", "MultiLineString"]
+    osm_tags:
+      highway: ["service", "track", "path", "footway", "cycleway", "bridleway", "pedestrian", "steps"]
+    render:
+      color: [220, 220, 220, 255]  # Light gray
+      fill: false
+      stroke: true
+      width_meters: null
+      name_priority: 6
+    visibility:
+      min_lod: 3
+    tiles:
+      include_in: [14]
+    simplification:
+      z14: {disabled: true}
+
+  # ============================================================================
+  # RAILWAYS
+  # ============================================================================
+
+  - name: "major_railways"
+    description: "Main rail lines, high-speed rail"
+    layer: "railways"
+    geometry_types: ["LineString", "MultiLineString"]
+    osm_tags:
+      railway: ["rail", "narrow_gauge", "preserved"]
+    render:
+      color: [153, 153, 153, 255]  # Gray
+      fill: false
+      stroke: true
+      width_px: 2
+    visibility:
+      min_lod: 0
+    tiles:
+      include_in: [3, 5, 8, 11, 14]
+    simplification:
+      z3: {epsilon_deg: 0.003, epsilon_m: 300}
+      z5: {epsilon_deg: 0.002, epsilon_m: 200}
+      z8: {epsilon_deg: 0.0008, epsilon_m: 80}
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "subway_light_rail"
+    description: "Subway and light rail"
+    layer: "railways"
+    geometry_types: ["LineString", "MultiLineString"]
+    osm_tags:
+      railway: ["subway", "light_rail"]
+    render:
+      color: [153, 153, 153, 255]
+      fill: false
+      stroke: true
+      width_px: 2
+    visibility:
+      min_lod: 1
+    tiles:
+      include_in: [8, 11, 14]
+    simplification:
+      z8: {epsilon_deg: 0.0008, epsilon_m: 80}
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "tram"
+    description: "Tram and minor rail"
+    layer: "railways"
+    geometry_types: ["LineString", "MultiLineString"]
+    osm_tags:
+      railway: ["tram", "funicular", "miniature"]
+    render:
+      color: [153, 153, 153, 255]
+      fill: false
+      stroke: true
+      width_px: 1
+    visibility:
+      min_lod: 2
+    tiles:
+      include_in: [11, 14]
+    simplification:
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  # ============================================================================
+  # LANDUSE
+  # ============================================================================
+
+  - name: "parks"
+    description: "Parks and green spaces"
+    layer: "natural_background"
+    geometry_types: ["Polygon", "MultiPolygon"]
+    osm_tags:
+      leisure: ["park", "garden", "recreation_ground", "dog_park", "playground"]
+      landuse: ["grass", "meadow", "village_green", "recreation_ground"]
+    render:
+      color: [200, 230, 180, 255]  # Light green
+      fill: true
+      stroke: false
+    visibility:
+      min_lod: 1
+    tiles:
+      include_in: [8, 11, 14]
+    simplification:
+      z8: {epsilon_deg: 0.0008, epsilon_m: 80}
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "agriculture"
+    description: "Agricultural land"
+    layer: "natural_background"
+    geometry_types: ["Polygon", "MultiPolygon"]
+    osm_tags:
+      landuse: ["farmland", "farmyard", "orchard", "vineyard", "plant_nursery", "greenhouse_horticulture"]
+    render:
+      color: [238, 240, 213, 255]  # Beige
+      fill: true
+      stroke: false
+    visibility:
+      min_lod: 1
+    tiles:
+      include_in: [8, 11, 14]
+    simplification:
+      z8: {epsilon_deg: 0.0008, epsilon_m: 80}
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "residential_areas"
+    description: "Residential landuse"
+    layer: "landuse_areas"
+    geometry_types: ["Polygon", "MultiPolygon"]
+    osm_tags:
+      landuse: ["residential"]
+    render:
+      color: [224, 224, 224, 255]  # Light gray
+      fill: true
+      stroke: false
+    visibility:
+      min_lod: 1
+    tiles:
+      include_in: [8, 11, 14]
+    simplification:
+      z8: {epsilon_deg: 0.0008, epsilon_m: 80}
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "commercial_areas"
+    description: "Commercial and retail landuse"
+    layer: "landuse_areas"
+    geometry_types: ["Polygon", "MultiPolygon"]
+    osm_tags:
+      landuse: ["commercial", "retail"]
+    render:
+      color: [243, 233, 234, 255]  # Light pink
+      fill: true
+      stroke: false
+    visibility:
+      min_lod: 1
+    tiles:
+      include_in: [8, 11, 14]
+    simplification:
+      z8: {epsilon_deg: 0.0008, epsilon_m: 80}
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "industrial_areas"
+    description: "Industrial landuse"
+    layer: "landuse_areas"
+    geometry_types: ["Polygon", "MultiPolygon"]
+    osm_tags:
+      landuse: ["industrial"]
+    render:
+      color: [240, 233, 240, 255]  # Light purple
+      fill: true
+      stroke: false
+    visibility:
+      min_lod: 1
+    tiles:
+      include_in: [8, 11, 14]
+    simplification:
+      z8: {epsilon_deg: 0.0008, epsilon_m: 80}
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "cemeteries"
+    description: "Cemeteries and graveyards"
+    layer: "landuse_areas"
+    geometry_types: ["Polygon", "MultiPolygon"]
+    osm_tags:
+      landuse: ["cemetery"]
+      amenity: ["grave_yard"]
+    render:
+      color: [205, 220, 200, 255]  # Green-gray
+      fill: true
+      stroke: false
+    visibility:
+      min_lod: 1
+    tiles:
+      include_in: [8, 11, 14]
+    simplification:
+      z8: {epsilon_deg: 0.0008, epsilon_m: 80}
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "military_areas"
+    description: "Military zones"
+    layer: "landuse_areas"
+    geometry_types: ["Polygon", "MultiPolygon"]
+    osm_tags:
+      landuse: ["military"]
+      military: ["*"]
+    render:
+      color: [235, 215, 215, 255]  # Light red-brown
+      fill: true
+      stroke: false
+    visibility:
+      min_lod: 1
+    tiles:
+      include_in: [8, 11, 14]
+    simplification:
+      z8: {epsilon_deg: 0.0008, epsilon_m: 80}
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "railway_yards"
+    description: "Railway infrastructure"
+    layer: "landuse_areas"
+    geometry_types: ["Polygon", "MultiPolygon"]
+    osm_tags:
+      landuse: ["railway"]
+    render:
+      color: [210, 205, 210, 255]  # Light purple-gray
+      fill: true
+      stroke: false
+    visibility:
+      min_lod: 1
+    tiles:
+      include_in: [8, 11, 14]
+    simplification:
+      z8: {epsilon_deg: 0.0008, epsilon_m: 80}
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "allotments"
+    description: "Community gardens"
+    layer: "landuse_areas"
+    geometry_types: ["Polygon", "MultiPolygon"]
+    osm_tags:
+      landuse: ["allotments"]
+    render:
+      color: [220, 235, 210, 255]  # Lighter green
+      fill: true
+      stroke: false
+    visibility:
+      min_lod: 2
+    tiles:
+      include_in: [11, 14]
+    simplification:
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "construction_areas"
+    description: "Construction sites"
+    layer: "landuse_areas"
+    geometry_types: ["Polygon", "MultiPolygon"]
+    osm_tags:
+      landuse: ["construction", "brownfield", "greenfield"]
+    render:
+      color: [235, 220, 200, 255]  # Orange-brown
+      fill: true
+      stroke: false
+    visibility:
+      min_lod: 2
+    tiles:
+      include_in: [11, 14]
+    simplification:
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "education_areas"
+    description: "Schools and universities"
+    layer: "landuse_areas"
+    geometry_types: ["Polygon", "MultiPolygon"]
+    osm_tags:
+      landuse: ["education"]
+      amenity: ["school", "university", "college"]
+    render:
+      color: [245, 235, 210, 255]  # Yellow-tan
+      fill: true
+      stroke: false
+    visibility:
+      min_lod: 2
+    tiles:
+      include_in: [11, 14]
+    simplification:
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "religious_areas"
+    description: "Religious sites"
+    layer: "landuse_areas"
+    geometry_types: ["Polygon", "MultiPolygon"]
+    osm_tags:
+      landuse: ["religious"]
+      amenity: ["place_of_worship"]
+    render:
+      color: [225, 220, 230, 255]  # Light purple
+      fill: true
+      stroke: false
+    visibility:
+      min_lod: 2
+    tiles:
+      include_in: [11, 14]
+    simplification:
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  - name: "quarries"
+    description: "Quarries and landfills"
+    layer: "landuse_areas"
+    geometry_types: ["Polygon", "MultiPolygon"]
+    osm_tags:
+      landuse: ["quarry", "landfill"]
+    render:
+      color: [210, 200, 190, 255]  # Gray-brown
+      fill: true
+      stroke: false
+    visibility:
+      min_lod: 2
+    tiles:
+      include_in: [11, 14]
+    simplification:
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  # ============================================================================
+  # BUILDINGS
+  # ============================================================================
+
+  - name: "buildings"
+    description: "All building structures"
+    layer: "areas"
+    geometry_types: ["Polygon", "MultiPolygon"]
+    osm_tags:
+      building: ["*"]
+    osm_tags_exclude:
+      building: ["no"]
+    render:
+      color: [218, 208, 200, 255]  # Tan
+      fill: true
+      stroke: false
+    visibility:
+      min_lod: 2
+    tiles:
+      include_in: [11, 14]
+    simplification:
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  # ============================================================================
+  # BOUNDARIES
+  # ============================================================================
+
+  - name: "country_borders"
+    description: "National borders"
+    layer: "boundaries"
+    geometry_types: ["LineString", "MultiLineString"]
+    osm_tags:
+      boundary: ["administrative"]
+      admin_level: ["2"]
+    render:
+      color: [128, 128, 128, 255]  # Gray
+      fill: false
+      stroke: true
+      width_px: 2
+      dash_pattern: [5, 5]
+    visibility:
+      min_lod: 0
+    tiles:
+      include_in: [3, 5, 8, 11, 14]
+    simplification:
+      z3: {epsilon_deg: 0.003, epsilon_m: 300}
+      z5: {epsilon_deg: 0.002, epsilon_m: 200}
+      z8: {epsilon_deg: 0.0008, epsilon_m: 80}
+      z11: {epsilon_deg: 0.0002, epsilon_m: 20}
+      z14: {epsilon_deg: 0.00005, epsilon_m: 5}
+
+  # ============================================================================
+  # PLACE LABELS
+  # ============================================================================
+
+  - name: "cities"
+    description: "City labels"
+    layer: "place_labels"
+    geometry_types: ["Point"]
+    osm_tags:
+      place: ["city"]
+    requires_tags:
+      name: ["*"]
+    render:
+      color: [0, 0, 0, 255]  # Black text
+      fill: false
+      font_size: 18
+      priority: 1
+    visibility:
+      min_lod: 0
+    tiles:
+      include_in: [3, 5, 8, 11, 14]
+
+  - name: "large_towns"
+    description: "Large town labels (>50k population)"
+    layer: "place_labels"
+    geometry_types: ["Point"]
+    osm_tags:
+      place: ["town"]
+    requires_tags:
+      name: ["*"]
+    filter_criteria:
+      population_min: 50000
+    render:
+      color: [0, 0, 0, 255]
+      fill: false
+      font_size: 16
+      priority: 2
+    visibility:
+      min_lod: 0
+    tiles:
+      include_in: [3, 5, 8, 11, 14]
+
+  - name: "towns"
+    description: "Town labels"
+    layer: "place_labels"
+    geometry_types: ["Point"]
+    osm_tags:
+      place: ["town"]
+    requires_tags:
+      name: ["*"]
+    filter_criteria:
+      population_max: 49999
+    render:
+      color: [0, 0, 0, 255]
+      fill: false
+      font_size: 16
+      priority: 3
+    visibility:
+      min_lod: 1
+    tiles:
+      include_in: [8, 11, 14]
+
+  - name: "large_villages"
+    description: "Large village labels (>5k population)"
+    layer: "place_labels"
+    geometry_types: ["Point"]
+    osm_tags:
+      place: ["village"]
+    requires_tags:
+      name: ["*"]
+    filter_criteria:
+      population_min: 5000
+    render:
+      color: [0, 0, 0, 255]
+      fill: false
+      font_size: 14
+      priority: 4
+    visibility:
+      min_lod: 1
+    tiles:
+      include_in: [8, 11, 14]
+
+  - name: "villages"
+    description: "Village labels"
+    layer: "place_labels"
+    geometry_types: ["Point"]
+    osm_tags:
+      place: ["village"]
+    requires_tags:
+      name: ["*"]
+    filter_criteria:
+      population_max: 4999
+    render:
+      color: [0, 0, 0, 255]
+      fill: false
+      font_size: 14
+      priority: 5
+    visibility:
+      min_lod: 2
+    tiles:
+      include_in: [11, 14]
+
+  - name: "suburbs"
+    description: "Suburb/borough labels"
+    layer: "place_labels"
+    geometry_types: ["Point"]
+    osm_tags:
+      place: ["suburb", "borough", "quarter"]
+    requires_tags:
+      name: ["*"]
+    render:
+      color: [0, 0, 0, 255]
+      fill: false
+      font_size: 13
+      priority: 6
+    visibility:
+      min_lod: 2
+    tiles:
+      include_in: [11, 14]
+
+  - name: "hamlets"
+    description: "Hamlet/neighbourhood labels"
+    layer: "place_labels"
+    geometry_types: ["Point"]
+    osm_tags:
+      place: ["hamlet", "neighbourhood"]
+    requires_tags:
+      name: ["*"]
+    render:
+      color: [0, 0, 0, 255]
+      fill: false
+      font_size: 12
+      priority: 7
+    visibility:
+      min_lod: 3
+    tiles:
+      include_in: [14]
+
+  - name: "localities"
+    description: "Locality/isolated dwelling labels"
+    layer: "place_labels"
+    geometry_types: ["Point"]
+    osm_tags:
+      place: ["locality", "isolated_dwelling"]
+    requires_tags:
+      name: ["*"]
+    render:
+      color: [0, 0, 0, 255]
+      fill: false
+      font_size: 11
+      priority: 8
+    visibility:
+      min_lod: 4
+    tiles:
+      include_in: [14]
+
+  # ============================================================================
+  # POINTS OF INTEREST (POIs)
+  # ============================================================================
+
+  - name: "pois"
+    description: "Points of interest (restaurants, shops, etc.)"
+    layer: "poi_markers"
+    geometry_types: ["Point"]
+    osm_tags:
+      amenity: ["*"]
+      shop: ["*"]
+      tourism: ["*"]
+      historic: ["*"]
+      leisure: ["*"]
+    requires_tags:
+      name: ["*"]
+    render:
+      color: null  # Category-specific
+      fill: true
+      icon_size: 8
+    visibility:
+      min_lod: 4
+    tiles:
+      include_in: [14]
+
+# Rendering layer order (bottom to top)
+layer_order:
+  - natural_background  # Parks, agriculture (background)
+  - water_areas         # Water bodies
+  - forests             # Forest areas
+  - landuse_areas       # Residential, commercial, etc.
+  - areas               # Buildings
+  - boundaries          # Country borders
+  - coastline           # Coastline visualization
+  - railways            # Rail lines
+  - major_roads         # Highways
+  - roads               # Smaller roads
+  - waterways           # Rivers and streams
+  - place_labels        # City/town names
+  - street_names        # Road names (rendered dynamically)
+  - poi_markers         # POI icons

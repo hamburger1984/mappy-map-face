@@ -1328,7 +1328,30 @@ def split_geojson_into_tiles(
                 # Never use these to update the overall bounding box (use PBF bounds instead)
                 feature_bounds = get_feature_bounds(feature)
 
+                # Adjust minLOD based on feature size for better LOD filtering
+                # Small features should have higher minLOD (only visible when zoomed in)
                 min_lod = render_meta["minLOD"]
+                layer = render_meta.get("layer")
+
+                # Size-based LOD adjustment for forests and water bodies
+                if layer in ["forests", "water_areas"] and feature_bounds:
+                    # Calculate approximate area in square degrees
+                    width = feature_bounds["maxLon"] - feature_bounds["minLon"]
+                    height = feature_bounds["maxLat"] - feature_bounds["minLat"]
+                    area = width * height
+
+                    # Area thresholds (in square degrees, ~0.01 deg ≈ 1km at this latitude)
+                    # Large features (>1km²): minLOD 0 (always visible)
+                    # Medium features (0.01-1km²): minLOD 1 (visible from 7.5km+)
+                    # Small features (<0.01km²): minLOD 2 (visible from 3km+)
+                    if area < 0.0001:  # ~100m x 100m = 0.01km²
+                        min_lod = max(min_lod, 2)  # Only show when zoomed in
+                    elif area < 0.01:  # ~1km x 1km = 1km²
+                        min_lod = max(min_lod, 1)  # Show at medium zoom
+                    # else: keep original minLOD (usually 0 for large features)
+
+                # Update the render metadata with adjusted minLOD
+                render_meta["minLOD"] = min_lod
                 _, importance = classify_feature_importance(props, geom_type)
 
                 # Optimize tile assignments based on when features are actually rendered

@@ -1148,16 +1148,17 @@ class MapRenderer {
 
   getZoomLevelForScale() {
     // Determine which tile zoom level to use based on view width
-    // Optimized to reduce data waste - use higher detail tiles earlier
-    // Ultra-wide view (>=100km): use Z3 tiles
-    // Very wide view (50-100km): use Z5 tiles
-    // Wide view (7-50km): use Z8 tiles
-    // Medium view (1-7km): use Z11 tiles
-    // Close view (<1km): use Z14 tiles
-    if (this.viewWidthMeters >= 100000) return 3;
-    if (this.viewWidthMeters >= 50000) return 5;
-    if (this.viewWidthMeters >= 7000) return 8;
-    if (this.viewWidthMeters >= 1000) return 11;
+    // Tile sizes: Z3=~3000km, Z5=~750km, Z8=~95km, Z11=~12km, Z14=~1.5km
+    // Use tile zoom when view is 20-50% of tile size for good coverage
+    // Ultra-wide view (>=500km): use Z3 tiles (~3000km)
+    // Very wide view (100-500km): use Z5 tiles (~750km)
+    // Wide view (15-100km): use Z8 tiles (~95km)
+    // Medium view (2-15km): use Z11 tiles (~12km)
+    // Close view (<2km): use Z14 tiles (~1.5km)
+    if (this.viewWidthMeters >= 500000) return 3;
+    if (this.viewWidthMeters >= 100000) return 5;
+    if (this.viewWidthMeters >= 15000) return 8;
+    if (this.viewWidthMeters >= 2000) return 11;
     return 14;
   }
 
@@ -1390,6 +1391,10 @@ class MapRenderer {
     const features = [];
     const seenFeatures = new Set(); // Track seen features to avoid duplicates
 
+    // Get current LOD for early filtering
+    const currentLOD = this.getLOD();
+    let lodFilteredCount = 0;
+
     // Geometry type to numeric ID mapping for hash
     const geomTypeId = {
       Point: 1,
@@ -1402,6 +1407,11 @@ class MapRenderer {
     for (const tile of tileData) {
       if (tile && tile.features) {
         for (const feature of tile.features) {
+          // Early LOD filtering: skip features that won't be rendered at current zoom
+          if (feature._render && feature._render.minLOD > currentLOD) {
+            lodFilteredCount++;
+            continue;
+          }
           // Fast deduplication: use first + last coordinate + geometry type as numeric key
           // This catches true duplicates while avoiding false positives
           const geom = feature.geometry;
@@ -1467,14 +1477,17 @@ class MapRenderer {
       }
     }
     const mergeTime = performance.now() - mergeStart;
+    const totalLoaded = tileData.reduce(
+      (sum, t) => sum + (t?.features?.length || 0),
+      0,
+    );
     const duplicatesRemoved =
       seenFeatures.size > 0
-        ? tileData.reduce((sum, t) => sum + (t?.features?.length || 0), 0) -
-          features.length
+        ? totalLoaded - features.length - lodFilteredCount
         : 0;
 
     console.log(
-      `[TILES] Merged ${features.length} features (removed ${duplicatesRemoved} duplicates) in ${mergeTime.toFixed(0)}ms`,
+      `[TILES] Merged ${features.length} features (filtered ${lodFilteredCount} by LOD, removed ${duplicatesRemoved} duplicates) in ${mergeTime.toFixed(0)}ms`,
     );
 
     // Log feature type breakdown for debugging
