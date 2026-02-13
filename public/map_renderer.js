@@ -255,6 +255,9 @@ class MapRenderer {
     this.viewWidthMeters = 10000; // Initial view: 10km across
     this.currentZoomIndex = 12; // Index into zoomLevels array
     this.scrollAccumulator = 0; // Accumulate scroll wheel deltas for discrete zoom
+    this.targetZoomIndex = 12; // Target zoom level during scroll
+    this.zoomTimeout = null; // Debounce timer for zoom rendering
+    this.isZooming = false; // Track if currently in zoom animation
     this.offsetX = 0;
     this.offsetY = 0;
     this.minViewWidthMeters = this.zoomLevels[0]; // Max zoom
@@ -599,7 +602,7 @@ class MapRenderer {
       }
     });
 
-    // Scroll wheel zoom with accumulation for discrete levels
+    // Scroll wheel zoom with instant preview and debounced render
     this.canvas.addEventListener(
       "wheel",
       (e) => {
@@ -616,17 +619,26 @@ class MapRenderer {
             Math.abs(this.scrollAccumulator) / threshold,
           );
 
+          // Update target zoom index
           if (this.scrollAccumulator > 0) {
             // Scroll down = zoom out
-            for (let i = 0; i < steps; i++) {
-              this.zoomOut();
-            }
+            this.targetZoomIndex = Math.min(
+              this.zoomLevels.length - 1,
+              this.targetZoomIndex + steps,
+            );
           } else {
             // Scroll up = zoom in
-            for (let i = 0; i < steps; i++) {
-              this.zoomIn();
-            }
+            this.targetZoomIndex = Math.max(0, this.targetZoomIndex - steps);
           }
+
+          // Instant canvas scale preview (no rerender)
+          this.previewZoom();
+
+          // Debounce actual render (300ms after last scroll)
+          clearTimeout(this.zoomTimeout);
+          this.zoomTimeout = setTimeout(() => {
+            this.finalizeZoom();
+          }, 300);
 
           // Reset accumulator (keep remainder for smooth feel)
           this.scrollAccumulator = this.scrollAccumulator % threshold;
@@ -671,10 +683,62 @@ class MapRenderer {
     this.debouncedRender();
   }
 
+  previewZoom() {
+    // Instant canvas scaling for zoom preview (no rerender)
+    if (!this._offscreenCanvas) return;
+
+    const currentWidth = this.zoomLevels[this.currentZoomIndex];
+    const targetWidth = this.zoomLevels[this.targetZoomIndex];
+    const scale = currentWidth / targetWidth;
+
+    this.isZooming = true;
+
+    // Clear and scale the canvas to show preview
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.save();
+
+    // Scale around center point
+    const centerX = this.canvas.width / 2;
+    const centerY = this.canvas.height / 2;
+    this.ctx.translate(centerX, centerY);
+    this.ctx.scale(scale, scale);
+    this.ctx.translate(-centerX, -centerY);
+
+    // Draw last rendered frame scaled
+    this.ctx.drawImage(this._offscreenCanvas, 0, 0);
+
+    this.ctx.restore();
+  }
+
+  finalizeZoom() {
+    // Actually perform the zoom with proper render
+    this.isZooming = false;
+
+    if (this.targetZoomIndex !== this.currentZoomIndex) {
+      const oldWidth = this.viewWidthMeters;
+      const newWidth = this.zoomLevels[this.targetZoomIndex];
+
+      // Update offset to zoom around center
+      const scale = oldWidth / newWidth;
+      this.offsetX *= scale;
+      this.offsetY *= scale;
+
+      // Update state
+      this.currentZoomIndex = this.targetZoomIndex;
+      this.viewWidthMeters = newWidth;
+
+      // Trigger proper render
+      this.updateZoomSlider();
+      this.updateStats();
+      this.renderMap();
+    }
+  }
+
   zoomIn() {
     // Step to next smaller zoom level (more detail)
     if (this.currentZoomIndex > 0) {
       this.currentZoomIndex--;
+      this.targetZoomIndex = this.currentZoomIndex;
       this.setViewWidth(this.zoomLevels[this.currentZoomIndex]);
     }
   }
@@ -683,6 +747,7 @@ class MapRenderer {
     // Step to next larger zoom level (less detail)
     if (this.currentZoomIndex < this.zoomLevels.length - 1) {
       this.currentZoomIndex++;
+      this.targetZoomIndex = this.currentZoomIndex;
       this.setViewWidth(this.zoomLevels[this.currentZoomIndex]);
     }
   }
