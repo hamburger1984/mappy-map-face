@@ -101,6 +101,7 @@ tilesets:
           geometry: ["LineString", "MultiLineString"]
           tags:
             highway: ["motorway", "trunk", "motorway_link", "trunk_link"]
+            construction: ["motorway", "trunk", "motorway_link", "trunk_link"]
         render:
           layer: "major_roads"
           color: [233, 115, 103, 255]
@@ -115,6 +116,7 @@ tilesets:
           geometry: ["LineString", "MultiLineString"]
           tags:
             highway: ["primary", "primary_link"]
+            construction: ["primary", "primary_link"]
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
@@ -129,6 +131,7 @@ tilesets:
           geometry: ["LineString", "MultiLineString"]
           tags:
             highway: ["secondary", "secondary_link"]
+            construction: ["secondary", "secondary_link"]
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
@@ -143,6 +146,7 @@ tilesets:
           geometry: ["LineString", "MultiLineString"]
           tags:
             highway: ["tertiary", "tertiary_link"]
+            construction: ["tertiary", "tertiary_link"]
         render:
           layer: "roads"
           color: [255, 255, 255, 255]
@@ -157,6 +161,7 @@ tilesets:
           geometry: ["LineString", "MultiLineString"]
           tags:
             highway: ["residential", "unclassified", "living_street"]
+            construction: ["residential", "living_street"]
         render:
           layer: "roads"
           color: [255, 255, 255, 255]
@@ -171,6 +176,17 @@ tilesets:
           geometry: ["LineString", "MultiLineString"]
           tags:
             highway:
+              [
+                "service",
+                "track",
+                "path",
+                "footway",
+                "cycleway",
+                "bridleway",
+                "pedestrian",
+                "steps",
+              ]
+            construction:
               [
                 "service",
                 "track",

@@ -30,7 +30,7 @@ except ImportError:
 # OSM data sources
 OSM_SOURCES = {
     "hamburg": "https://download.geofabrik.de/europe/germany/hamburg-latest.osm.pbf",
-    "schleswig-holstein": "https://download.geofabrik.de/europe/germany/schleswig-holstein-latest.osm.pbf",
+    #"schleswig-holstein": "https://download.geofabrik.de/europe/germany/schleswig-holstein-latest.osm.pbf",
     # "mecklenburg-vorpommern": "https://download.geofabrik.de/europe/germany/mecklenburg-vorpommern-latest.osm.pbf",
     # "niedersachsen": "https://download.geofabrik.de/europe/germany/niedersachsen-latest.osm.pbf",
     # "nordrhein-westfalen": "https://download.geofabrik.de/europe/germany/nordrhein-westfalen-latest.osm.pbf",
@@ -45,6 +45,19 @@ def check_file_age(file_path, max_age_days=30):
     file_time = datetime.fromtimestamp(file_path.stat().st_mtime)
     age = datetime.now() - file_time
     return age < timedelta(days=max_age_days)
+
+
+def format_file_age(file_path):
+    """Format file age as human-readable string."""
+    age = datetime.now() - datetime.fromtimestamp(file_path.stat().st_mtime)
+    total_seconds = int(age.total_seconds())
+    if total_seconds < 60:
+        return f"{total_seconds}s old"
+    if total_seconds < 3600:
+        return f"{total_seconds // 60}m old"
+    if age.days < 1:
+        return f"{total_seconds // 3600}h old"
+    return f"{age.days}d old"
 
 
 def download_with_progress(url, output_path, desc):
@@ -194,15 +207,12 @@ def download_osm_file(args):
 
     # Check if already up-to-date
     if pbf_file.exists() and check_file_age(pbf_file, max_age_days=30):
-        age_days = (
-            datetime.now() - datetime.fromtimestamp(pbf_file.stat().st_mtime)
-        ).days
         size_mb = pbf_file.stat().st_size / (1024 * 1024)
         return {
             "name": name,
             "status": "cached",
             "size_mb": size_mb,
-            "age_days": age_days,
+            "age": format_file_age(pbf_file),
         }
 
     try:
@@ -220,15 +230,12 @@ def download_and_convert_land_polygons(args):
 
     # Check if already up-to-date
     if output_file.exists() and check_file_age(output_file, max_age_days=30):
-        age_days = (
-            datetime.now() - datetime.fromtimestamp(output_file.stat().st_mtime)
-        ).days
         size_mb = output_file.stat().st_size / (1024 * 1024)
         return {
             "name": name,
             "status": "cached",
             "size_mb": size_mb,
-            "age_days": age_days,
+            "age": format_file_age(output_file),
         }
 
     # Check for ogr2ogr
@@ -350,9 +357,7 @@ def main():
     print("\nOSM Files:")
     for result in sorted(osm_results, key=lambda x: x["name"]):
         if result["status"] == "cached":
-            print(
-                f"  ✓ {result['name']}: {result['size_mb']:.1f} MB ({result['age_days']} days old)"
-            )
+            print(f"  ✓ {result['name']}: {result['size_mb']:.1f} MB ({result['age']})")
         elif result["status"] == "downloaded":
             print(
                 f"  ✓ {result['name']}: {result['size_mb']:.1f} MB (newly downloaded)"

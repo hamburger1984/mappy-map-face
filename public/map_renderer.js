@@ -1260,6 +1260,7 @@ class MapRenderer {
   analyzeTileContent(tileData) {
     // Use pre-computed metadata if available (optimization)
     if (tileData && tileData._meta) {
+      console.log(`using metadata`, tileData._meta);
       return {
         hasCoastline: tileData._meta.hasCoastline,
         hasLandFeatures: tileData._meta.hasLandFeatures,
@@ -1272,6 +1273,7 @@ class MapRenderer {
 
     // Fallback: analyze tile features (for tiles without metadata)
     if (!tileData || !tileData.features || tileData.features.length === 0) {
+      console.log(`no features found`);
       return { hasCoastline: false, hasLandFeatures: false, isEmpty: true };
     }
 
@@ -1284,6 +1286,7 @@ class MapRenderer {
       // Check for coastline
       if (props.natural === "coastline") {
         hasCoastline = true;
+        console.log(`got coastline`, feature);
       }
 
       // Check for land-specific features
@@ -1324,8 +1327,9 @@ class MapRenderer {
     // Analyze tiles
     const tileAnalyses = new Map();
     for (const tile of visibleTiles) {
-      const tileKey = this.getTileKey(tile.z, tile.x, tile.y);
+      const tileKey = this.getTileKey(tile.tileset, tile.x, tile.y);
       const tileData = this.tileCache.get(tileKey);
+      // tile does not exist(?)
       if (!tileData) continue;
 
       const analysis = this.analyzeTileContent(tileData);
@@ -1338,18 +1342,23 @@ class MapRenderer {
 
     // Now render specific tile backgrounds as needed
     for (const tile of visibleTiles) {
-      const tileKey = this.getTileKey(tile.z, tile.x, tile.y);
+      const tileKey = this.getTileKey(tile.tileset, tile.x, tile.y);
       const analysis = tileAnalyses.get(tileKey);
-      if (!analysis) continue;
+      if (!analysis) {
+        console.log("No analysis for tile", tileKey, bounds);
+        continue;
+      }
 
       const tileBounds = this.getTileBounds(tile.x, tile.y, tile.z);
 
       // Coastline tiles get very light ocean color
       if (analysis.hasCoastline) {
+        console.log("filling with coast color", tileKey, bounds);
         this.fillTileBounds(tileBounds, COASTLINE_COLOR, bounds);
       }
       // Land tiles (no coastline) get land color
       else if (analysis.hasLandFeatures) {
+        console.log("filling with land color", tileKey, bounds);
         this.fillTileBounds(tileBounds, LAND_COLOR, bounds);
       }
       // Ocean tiles (empty) already have ocean background from default
@@ -1744,8 +1753,8 @@ class MapRenderer {
     // Load visible tiles
     const tileLoadStart = performance.now();
     const visibleTiles = this.getVisibleTiles(adjustedBounds);
-    const cachedCount = visibleTiles.filter(({ z, x, y }) =>
-      this.tileCache.has(this.getTileKey(z, x, y)),
+    const cachedCount = visibleTiles.filter(({ tileset, x, y }) =>
+      this.tileCache.has(this.getTileKey(tileset, x, y)),
     ).length;
 
     this.mapData = await this.loadVisibleTiles(adjustedBounds);
@@ -2850,6 +2859,7 @@ class MapRenderer {
       }
 
       // Construction roads: borders only in pass 1
+      console.log("Construction roads", constructionFlats.length);
       if (constructionFlats.length > 0) {
         for (const cf of constructionFlats) {
           const t = Math.min(1, Math.max(0, (cf.width - 1) / 5));

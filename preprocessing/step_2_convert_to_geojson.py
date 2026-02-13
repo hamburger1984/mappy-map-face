@@ -20,47 +20,43 @@ except ImportError:
     sys.exit(1)
 
 
+def get_work_dir(pbf_path):
+    """Get the working directory for a PBF file's intermediate artifacts.
+
+    For 'data/hamburg-latest.osm.pbf', returns 'data/hamburg-latest/'.
+    """
+    # Strip .osm.pbf to get the folder name
+    folder_name = pbf_path.name.replace(".osm.pbf", "")
+    return pbf_path.parent / folder_name
+
+
 def convert_pbf_to_geojson(args):
     """Convert a single PBF file to GeoJSON."""
-    pbf_file, config_file, zoom_levels = args
+    pbf_file, config_file = args
     pbf_path = Path(pbf_file)
-    geojson_path = pbf_path.parent / f"{pbf_path.stem}.geojson"
+
+    # Intermediate artifacts go into a subfolder
+    work_dir = get_work_dir(pbf_path)
+    work_dir.mkdir(exist_ok=True)
+    geojson_path = work_dir / f"{pbf_path.stem}.geojson"
 
     # Check if databases are cached with matching fingerprint (skip conversion entirely)
     # We don't need GeoJSON if databases are already built
-    db_prefix = pbf_path.stem
-    fingerprint = f"{pbf_path.stat().st_size}:{pbf_path.stat().st_mtime_ns}"
-
-    all_dbs_cached = True
-    for zoom in zoom_levels:
-        db_path = pbf_path.parent / f"{db_prefix}_z{zoom}.db"
-        if not db_path.exists():
-            all_dbs_cached = False
-            break
+    meta_path = work_dir / "meta.json"
+    if meta_path.exists():
+        import json
 
         try:
-            import sqlite3
-
-            conn = sqlite3.connect(str(db_path))
-            row = conn.execute(
-                "SELECT value FROM metadata WHERE key='fingerprint'"
-            ).fetchone()
-            conn.close()
-
-            if not row or row[0] != fingerprint:
-                all_dbs_cached = False
-                break
+            meta = json.loads(meta_path.read_text())
+            fingerprint = f"{pbf_path.stat().st_size}:{pbf_path.stat().st_mtime_ns}"
+            if meta.get("fingerprint") == fingerprint and meta.get("tilesets_complete"):
+                return {
+                    "name": pbf_path.name,
+                    "status": "db_cached",
+                    "output": str(geojson_path),
+                }
         except:
-            all_dbs_cached = False
-            break
-
-    if all_dbs_cached:
-        # Databases cached, no need for GeoJSON
-        return {
-            "name": pbf_path.name,
-            "status": "db_cached",
-            "output": str(geojson_path),
-        }
+            pass
 
     # Check if GeoJSON exists and is newer than PBF (skip conversion)
     if geojson_path.exists():
@@ -137,13 +133,6 @@ def main():
     parser.add_argument(
         "-j", "--jobs", type=int, default=3, help="Number of parallel conversions"
     )
-    parser.add_argument(
-        "--zoom-levels",
-        type=int,
-        nargs="+",
-        default=[8, 11, 14],
-        help="Zoom levels (for database cache checking)",
-    )
 
     args = parser.parse_args()
 
@@ -169,8 +158,7 @@ def main():
 
     # Convert files in parallel
     conversion_args = [
-        (str(pbf), args.config if args.config.exists() else None, args.zoom_levels)
-        for pbf in pbf_files
+        (str(pbf), args.config if args.config.exists() else None) for pbf in pbf_files
     ]
 
     with Pool(min(args.jobs, len(pbf_files))) as pool:

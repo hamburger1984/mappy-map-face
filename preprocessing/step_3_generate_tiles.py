@@ -493,9 +493,9 @@ def simplify_feature_for_zoom(feature, zoom, min_lod):
 
     # Base epsilon values for zoom levels (more conservative than before)
     epsilon_map = {
-        3: 0.003,  # ~300m - Continental view (was 0.01)
-        5: 0.002,  # ~200m - Regional view (was 0.005)
-        8: 0.0008,  # ~80m - City-wide view (was 0.001)
+        3: 0.003,  # ~300m - Continental view
+        5: 0.002,  # ~200m - Regional view
+        8: 0.0008,  # ~80m - City-wide view
         11: 0.0002,  # ~20m - Neighborhood view
         14: 0.00005,  # ~5m - Street-level view
     }
@@ -1360,6 +1360,32 @@ def get_input_fingerprint(input_file):
     return f"{stat.st_size}:{stat.st_mtime_ns}"
 
 
+def get_work_dir(pbf_path):
+    """Get the working directory for a PBF file's intermediate artifacts.
+
+    For 'data/hamburg-latest.osm.pbf', returns 'data/hamburg-latest/'.
+    """
+    folder_name = pbf_path.name.replace(".osm.pbf", "")
+    return pbf_path.parent / folder_name
+
+
+def load_meta(work_dir):
+    """Load meta.json from work directory, or return empty dict."""
+    meta_path = work_dir / "meta.json"
+    if meta_path.exists():
+        try:
+            return json.loads(meta_path.read_text())
+        except:
+            pass
+    return {}
+
+
+def save_meta(work_dir, meta):
+    """Save meta.json to work directory."""
+    meta_path = work_dir / "meta.json"
+    meta_path.write_text(json.dumps(meta, indent=2))
+
+
 def get_pbf_bounds(pbf_file):
     """Extract bounding box from PBF file header using osmium.
 
@@ -1395,22 +1421,9 @@ def get_pbf_bounds(pbf_file):
     return None
 
 
-def open_zoom_db(db_dir, zoom, fingerprint=None, db_prefix="tile_build"):
-    """Open (or create) a per-zoom SQLite database. Returns (conn, is_cached)."""
-    db_path = db_dir / f"{db_prefix}_z{zoom}.db"
-
+def open_tileset_db(db_path):
+    """Open (or create) a per-tileset SQLite database."""
     if db_path.exists():
-        if fingerprint:
-            try:
-                conn = sqlite3.connect(str(db_path))
-                row = conn.execute(
-                    "SELECT value FROM metadata WHERE key='fingerprint'"
-                ).fetchone()
-                if row and row[0] == fingerprint:
-                    return conn, True
-                conn.close()
-            except sqlite3.OperationalError:
-                pass
         db_path.unlink()
 
     conn = sqlite3.connect(str(db_path))
@@ -1428,14 +1441,13 @@ def open_zoom_db(db_dir, zoom, fingerprint=None, db_prefix="tile_build"):
         )
     """)
     conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT)")
-    return conn, False
+    return conn
 
 
 def split_geojson_into_tiles(
     geojson_file,
     output_dir,
     source_pbf_file=None,
-    db_prefix=None,
 ):
     """Split GeoJSON into tiles using tileset-based SQLite databases.
 
@@ -1443,74 +1455,61 @@ def split_geojson_into_tiles(
         geojson_file: Path to temporary GeoJSON file to process
         output_dir: Directory to write tiles to
         source_pbf_file: Path to source OSM PBF file (used for fingerprinting and bounds extraction)
-        db_prefix: Optional prefix for database files (defaults to PBF filename or geojson filename)
     """
 
-    # Determine database directory and fingerprint source
+    # Determine work directory and fingerprint
     if source_pbf_file:
-        db_dir = Path(source_pbf_file).parent
+        pbf_path = Path(source_pbf_file)
+        work_dir = get_work_dir(pbf_path)
         fingerprint = get_input_fingerprint(source_pbf_file)
     else:
-        db_dir = Path(geojson_file).parent
+        work_dir = Path(geojson_file).parent
         fingerprint = get_input_fingerprint(geojson_file)
 
-    # Use PBF/GeoJSON filename (without extension) as db_prefix if not provided
-    if db_prefix is None:
-        db_prefix = (
-            Path(source_pbf_file).stem if source_pbf_file else Path(geojson_file).stem
-        )
+    work_dir.mkdir(exist_ok=True)
+    db_prefix = (
+        Path(source_pbf_file).stem if source_pbf_file else Path(geojson_file).stem
+    )
 
-    # Use tileset-based processing
+    # Check if cached via meta.json
+    meta = load_meta(work_dir)
+    need_import = not (
+        meta.get("fingerprint") == fingerprint and meta.get("tilesets_complete")
+    )
+
     processing_keys = TILESET_IDS
     print(f"Generating tilesets: {processing_keys}")
 
-    # Open per-tileset databases, check which ones can be reused
-    tileset_dbs = {}
-    need_import = False
-    for tileset_id in processing_keys:
-        conn, cached = open_zoom_db(db_dir, tileset_id, fingerprint, db_prefix)
-        tileset_dbs[tileset_id] = conn
-        if not cached:
-            need_import = True
+    if not need_import:
+        # Open existing databases read-only for Pass 2
+        tileset_dbs = {}
+        for tileset_id in processing_keys:
+            db_path = work_dir / f"{db_prefix}_z{tileset_id}.db"
+            if not db_path.exists():
+                need_import = True
+                break
+            tileset_dbs[tileset_id] = sqlite3.connect(str(db_path))
 
     if not need_import:
-        # Retrieve bounds from cached database metadata
-        actual_bounds = None
-        try:
-            row = (
-                tileset_dbs[processing_keys[0]]
-                .execute("SELECT value FROM metadata WHERE key='bounds'")
-                .fetchone()
-            )
-            if row:
-                actual_bounds = json.loads(row[0])
-        except:
-            pass
-
-        # If bounds not in metadata (old database), get from PBF file
+        # Retrieve bounds from meta.json or PBF
+        actual_bounds = meta.get("bounds")
         if actual_bounds is None:
             if source_pbf_file and Path(source_pbf_file).suffix == ".pbf":
                 actual_bounds = get_pbf_bounds(source_pbf_file)
-
             if actual_bounds:
-                # Store bounds in metadata for future use
-                bounds_json = json.dumps(actual_bounds)
-                tileset_dbs[processing_keys[0]].execute(
-                    "INSERT OR REPLACE INTO metadata VALUES ('bounds', ?)",
-                    (bounds_json,),
-                )
-                tileset_dbs[processing_keys[0]].commit()
+                meta["bounds"] = actual_bounds
+                save_meta(work_dir, meta)
             else:
                 raise ValueError(
-                    f"Could not retrieve bounds from cached database or PBF file. "
+                    f"Could not retrieve bounds from meta.json or PBF file. "
                     f"source_pbf_file={source_pbf_file}"
                 )
     else:
-        # If any tileset needs rebuilding, rebuild all for consistency
+        # Build all databases from scratch
+        tileset_dbs = {}
         for tileset_id in processing_keys:
-            tileset_dbs[tileset_id].close()
-            conn, _ = open_zoom_db(db_dir, tileset_id, db_prefix=db_prefix)
-            tileset_dbs[tileset_id] = conn
+            db_path = work_dir / f"{db_prefix}_z{tileset_id}.db"
+            tileset_dbs[tileset_id] = open_tileset_db(db_path)
 
         # Pass 1: Stream features into per-tileset SQLite databases
         stats = defaultdict(int)
@@ -1669,25 +1668,26 @@ def split_geojson_into_tiles(
         )
 
         # Create indexes for fast reads in Pass 2
-
-        # Store bounds in metadata for cache reuse
-        bounds_json = json.dumps(actual_bounds)
-
         for tileset_id in processing_keys:
             conn = tileset_dbs[tileset_id]
             conn.execute(
                 "CREATE INDEX idx_tile ON tile_features (x, y, importance DESC)"
             )
-            conn.execute(
-                "INSERT INTO metadata VALUES ('fingerprint', ?)", (fingerprint,)
-            )
-            conn.execute("INSERT INTO metadata VALUES ('bounds', ?)", (bounds_json,))
             conn.commit()
+
+        # Store fingerprint and bounds in meta.json
+        meta = {
+            "fingerprint": fingerprint,
+            "bounds": actual_bounds,
+            "tilesets_complete": True,
+        }
+        save_meta(work_dir, meta)
 
     # Pass 2: Write tiles from each tileset database
     output_path = Path(output_dir)
     total_tiles = 0
     tile_count = 0
+    total_bytes = 0
 
     for tileset_id in processing_keys:
         total_tiles += (
@@ -1747,6 +1747,7 @@ def split_geojson_into_tiles(
                         f.write('{"type":"FeatureCollection","features":[')
                         f.write(",".join(all_features))
                         f.write("]}")
+                    total_bytes += tile_file.stat().st_size
                     tile_count += 1
 
                     # Update at target tile count (adaptive based on write rate)
@@ -1855,6 +1856,7 @@ def split_geojson_into_tiles(
                         )
                     ):
                         has_land_features = True
+                        print(f"got land features for {cx},{cy}\n")
                 except:
                     pass
 
@@ -1868,16 +1870,21 @@ def split_geojson_into_tiles(
                 f.write('},"features":[')
                 f.write(",".join(all_features))
                 f.write("]}")
+            total_bytes += tile_file.stat().st_size
             tile_count += 1
 
         conn.close()
 
     # Final tile writing summary (clear the line first)
     write_elapsed = time.time() - write_start
-    print(f"\r  Created {tile_count:,} tiles in {write_elapsed:.0f}s" + " " * 60)
+    size_mb = total_bytes / (1024 * 1024)
+    print(
+        f"\r  Created {tile_count:,} tiles ({size_mb:.1f} MB) in {write_elapsed:.0f}s"
+        + " " * 40
+    )
 
-    # Return actual bounds from PBF file (never calculated from features)
-    return actual_bounds
+    # Return actual bounds and tile size
+    return {"bounds": actual_bounds, "total_bytes": total_bytes}
 
 
 # ============================================================================
@@ -1885,12 +1892,16 @@ def split_geojson_into_tiles(
 # ============================================================================
 
 
-def write_tiles_from_databases(db_dir, db_prefix, output_dir):
-    """Write tile JSON files from existing SQLite databases."""
+def write_tiles_from_databases(work_dir, db_prefix, output_dir):
+    """Write tile JSON files from existing SQLite databases in work directory.
+
+    Returns total bytes written.
+    """
     output_path = Path(output_dir)
+    total_bytes = 0
 
     for tileset_id in TILESET_IDS:
-        db_path = db_dir / f"{db_prefix}_z{tileset_id}.db"
+        db_path = work_dir / f"{db_prefix}_z{tileset_id}.db"
         if not db_path.exists():
             continue
 
@@ -1979,6 +1990,7 @@ def write_tiles_from_databases(db_dir, db_prefix, output_dir):
                         f.write('},"features":[')
                         f.write(",".join(merged_features))
                         f.write("]}")
+                    total_bytes += tile_file.stat().st_size
                     tile_count += 1
 
                 current_tile = tile_key
@@ -2056,10 +2068,13 @@ def write_tiles_from_databases(db_dir, db_prefix, output_dir):
                 f.write('},"features":[')
                 f.write(",".join(merged_features))
                 f.write("]}")
+            total_bytes += tile_file.stat().st_size
             tile_count += 1
 
         conn.close()
-        print(f"  Z{zoom}: {tile_count:,} tiles")
+        print(f"  {tileset_id}: {tile_count:,} tiles")
+
+    return total_bytes
 
 
 def process_geojson_to_tiles(args):
@@ -2070,14 +2085,18 @@ def process_geojson_to_tiles(args):
     source_path = Path(source_file) if source_file else geojson_path
 
     try:
-        bounds = split_geojson_into_tiles(
+        result = split_geojson_into_tiles(
             str(geojson_file),
             output_dir,
             source_pbf_file=str(source_path),
-            db_prefix=geojson_path.stem,
         )
 
-        return {"name": geojson_path.name, "status": "success", "bounds": bounds}
+        return {
+            "name": geojson_path.name,
+            "status": "success",
+            "bounds": result["bounds"],
+            "total_bytes": result["total_bytes"],
+        }
 
     except Exception as e:
         import traceback
@@ -2168,40 +2187,17 @@ def main():
         cached_pbf_files = []
 
         for pbf_file in pbf_files:
-            # Check if all tileset databases exist with matching fingerprint
-            db_prefix = pbf_file.stem
+            # Check if cached via meta.json in work directory
+            work_dir = get_work_dir(pbf_file)
             fingerprint = get_input_fingerprint(str(pbf_file))
+            meta = load_meta(work_dir)
 
-            all_cached = True
-            for tileset_id in TILESET_IDS:
-                db_path = args.data_dir / f"{db_prefix}_z{tileset_id}.db"
-                if not db_path.exists():
-                    all_cached = False
-                    break
-
-                # Check fingerprint
-                try:
-                    import sqlite3
-
-                    conn = sqlite3.connect(str(db_path))
-                    row = conn.execute(
-                        "SELECT value FROM metadata WHERE key='fingerprint'"
-                    ).fetchone()
-                    conn.close()
-
-                    if not row or row[0] != fingerprint:
-                        all_cached = False
-                        break
-                except:
-                    all_cached = False
-                    break
-
-            if all_cached:
+            if meta.get("fingerprint") == fingerprint and meta.get("tilesets_complete"):
                 cached_pbf_files.append(pbf_file)
                 print(f"  ✓ {pbf_file.name}: databases cached, skipping GeoJSON")
             else:
-                # Need GeoJSON for this file
-                geojson_file = pbf_file.parent / f"{pbf_file.stem}.geojson"
+                # Need GeoJSON for this file - it lives in the work dir
+                geojson_file = work_dir / f"{pbf_file.stem}.geojson"
                 if not geojson_file.exists():
                     print(
                         f"  ⚠ {pbf_file.name}: needs processing but {geojson_file.name} not found"
@@ -2259,10 +2255,9 @@ def main():
         # Find corresponding PBF files for fingerprinting
         tile_args = []
         for gj in geojson_files:
-            # GeoJSON files are named like "hamburg-latest.osm.geojson"
-            # PBF files are named like "hamburg-latest.osm.pbf"
-            # So we need to replace .geojson with .pbf, not append .osm.pbf to stem
-            pbf_file = gj.with_suffix(".pbf")
+            # GeoJSON is at data/hamburg-latest/hamburg-latest.osm.geojson
+            # PBF is at data/hamburg-latest.osm.pbf (one level up)
+            pbf_file = gj.parent.parent / f"{gj.parent.name}.osm.pbf"
             source_file = str(pbf_file) if pbf_file.exists() else str(gj)
             tile_args.append(
                 (
@@ -2297,21 +2292,24 @@ def main():
 
         # Write tiles from each cached database
         for pbf_file in cached_pbf_files:
+            work_dir = get_work_dir(pbf_file)
             db_prefix = pbf_file.stem
             output_path = Path(str(temp_tile_dir))
 
-            # Get bounds from PBF for this region
-            bounds = get_pbf_bounds(pbf_file)
+            # Get bounds from meta.json or PBF
+            meta = load_meta(work_dir)
+            bounds = meta.get("bounds") or get_pbf_bounds(pbf_file)
 
             # Write tiles from the cached databases
             print(f"Writing tiles for {pbf_file.stem}...")
-            write_tiles_from_databases(args.data_dir, db_prefix, output_path)
+            source_bytes = write_tiles_from_databases(work_dir, db_prefix, output_path)
 
             all_results.append(
                 {
                     "name": f"{pbf_file.stem}.geojson",
                     "status": "success",
                     "bounds": bounds,
+                    "total_bytes": source_bytes,
                 }
             )
 
@@ -2342,10 +2340,17 @@ def main():
 
             # Clean up names for display
             name = result["name"].replace(".geojson", "").replace("-latest.osm", "")
-            if "land" in name:
-                print(f"  ✓ {name}")
+            tile_bytes = result.get("total_bytes", 0)
+            if tile_bytes >= 1024 * 1024:
+                size_str = f"{tile_bytes / (1024 * 1024):.1f} MB"
+            elif tile_bytes >= 1024:
+                size_str = f"{tile_bytes / 1024:.0f} KB"
             else:
-                print(f"  ✓ {name.replace('-', ' ').title()}")
+                size_str = f"{tile_bytes} B"
+            if "land" in name:
+                print(f"  ✓ {name} ({size_str} tiles)")
+            else:
+                print(f"  ✓ {name.replace('-', ' ').title()} ({size_str} tiles)")
             success_count += 1
         else:
             name = result["name"].replace(".geojson", "").replace("-latest.osm", "")
@@ -2404,9 +2409,18 @@ def main():
         with open(index_file, "w", encoding="utf-8") as f:
             json.dump(index_data, f, indent=2)
 
+        # Calculate total tile size
+        grand_total_bytes = sum(
+            r.get("total_bytes", 0) for r in all_results if r["status"] == "success"
+        )
+        if grand_total_bytes >= 1024 * 1024:
+            total_size_str = f"{grand_total_bytes / (1024 * 1024):.1f} MB"
+        else:
+            total_size_str = f"{grand_total_bytes / 1024:.0f} KB"
+
         print()
         print("Finalizing tiles...")
-        print(f"  ✓ Created index with {tile_count:,} tiles")
+        print(f"  ✓ Created index with {tile_count:,} tiles ({total_size_str})")
         print(
             f"  ✓ Bounds: {merged_bounds['minLat']:.2f}°N to {merged_bounds['maxLat']:.2f}°N, "
             f"{merged_bounds['minLon']:.2f}°E to {merged_bounds['maxLon']:.2f}°E"
