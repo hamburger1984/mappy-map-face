@@ -1,0 +1,2401 @@
+# Tileset Configuration
+# Defines all tilesets with their viewing ranges and feature inclusion rules
+
+# =============================================================================
+# GLOBAL SIMPLIFICATION SETTINGS
+# =============================================================================
+simplification_settings:
+  # Always preserve topology to prevent self-intersections and invalid geometries
+  preserve_topology: true
+
+  # Grid snapping: Round coordinates to grid after simplification to prevent gaps
+  # between adjacent features. Grid size = epsilon / snap_grid_divisor
+  # Set snap_to_grid: false to disable (default)
+  snap_to_grid: false
+  snap_grid_divisor: 2 # Grid size = epsilon_m / 2
+
+# =============================================================================
+# TILESETS
+# =============================================================================
+tilesets:
+  # ===========================================================================
+  # T1: STREET LEVEL (100m - 1000m)
+  # ===========================================================================
+  - id: "t1"
+    name: "Street Level"
+    view_range_meters: [100, 1000]
+    tile_size_meters: 200
+
+    features:
+      # Water features
+      - name: "coastline"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            natural: ["coastline"]
+        render:
+          layer: "coastline"
+          color: [255, 0, 255, 255]
+          stroke_width_px: 3
+          show_direction: true
+        simplification:
+          disabled: true
+
+      - name: "water_bodies_all"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["water"]
+            waterway: ["riverbank"]
+            landuse: ["basin", "reservoir", "salt_pond"]
+          # No area filter - include all sizes
+        render:
+          layer: "water"
+          color: [170, 211, 223, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "major_rivers"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            waterway: ["river", "canal"]
+        render:
+          layer: "waterways"
+          color: [170, 211, 223, 255]
+          use_width_tag: true
+        simplification:
+          disabled: true
+
+      - name: "minor_waterways"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            waterway: ["stream", "ditch", "drain"]
+        render:
+          layer: "waterways"
+          color: [170, 211, 223, 255]
+          use_width_tag: true
+        simplification:
+          disabled: true
+
+      # Forest features
+      - name: "forests_all"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["forest"]
+            natural: ["wood"]
+          # No area filter - include all sizes
+        render:
+          layer: "forests"
+          color: [173, 209, 158, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      # Roads
+      - name: "motorways"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["motorway", "trunk", "motorway_link", "trunk_link"]
+        render:
+          layer: "major_roads"
+          color: [233, 115, 103, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 1
+        simplification:
+          disabled: true
+
+      - name: "primary_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["primary", "primary_link"]
+        render:
+          layer: "major_roads"
+          color: [252, 214, 164, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 2
+        simplification:
+          disabled: true
+
+      - name: "secondary_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["secondary", "secondary_link"]
+        render:
+          layer: "major_roads"
+          color: [252, 214, 164, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 3
+        simplification:
+          disabled: true
+
+      - name: "tertiary_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["tertiary", "tertiary_link"]
+        render:
+          layer: "roads"
+          color: [255, 255, 255, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 4
+        simplification:
+          disabled: true
+
+      - name: "residential_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["residential", "unclassified", "living_street"]
+        render:
+          layer: "roads"
+          color: [255, 255, 255, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 5
+        simplification:
+          disabled: true
+
+      - name: "minor_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway:
+              [
+                "service",
+                "track",
+                "path",
+                "footway",
+                "cycleway",
+                "bridleway",
+                "pedestrian",
+                "steps",
+              ]
+        render:
+          layer: "roads"
+          color: [220, 220, 220, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 6
+        simplification:
+          disabled: true
+
+      # Railways
+      - name: "major_rail"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            railway: ["rail", "narrow_gauge", "preserved"]
+        render:
+          layer: "railways"
+          color: [153, 153, 153, 255]
+          stroke_width_px: 2
+        simplification:
+          disabled: true
+
+      - name: "subway_light_rail"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            railway: ["subway", "light_rail"]
+        render:
+          layer: "railways"
+          color: [153, 153, 153, 255]
+          stroke_width_px: 2
+        simplification:
+          disabled: true
+
+      - name: "tram"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            railway: ["tram", "funicular", "miniature"]
+        render:
+          layer: "railways"
+          color: [153, 153, 153, 255]
+          stroke_width_px: 1
+        simplification:
+          disabled: true
+
+      # Landuse
+      - name: "parks"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            leisure:
+              ["park", "garden", "recreation_ground", "dog_park", "playground"]
+            landuse: ["grass", "meadow", "village_green", "recreation_ground"]
+        render:
+          layer: "landuse"
+          color: [200, 230, 180, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "agriculture"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse:
+              [
+                "farmland",
+                "farmyard",
+                "orchard",
+                "vineyard",
+                "plant_nursery",
+                "greenhouse_horticulture",
+              ]
+        render:
+          layer: "landuse"
+          color: [238, 240, 213, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "residential_landuse"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["residential"]
+        render:
+          layer: "landuse"
+          color: [224, 224, 224, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "commercial_landuse"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["commercial", "retail"]
+        render:
+          layer: "landuse"
+          color: [243, 233, 234, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "industrial_landuse"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["industrial"]
+        render:
+          layer: "landuse"
+          color: [240, 233, 240, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "cemeteries"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["cemetery"]
+            amenity: ["grave_yard"]
+        render:
+          layer: "landuse"
+          color: [205, 220, 200, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "military"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["military"]
+            military: ["*"]
+        render:
+          layer: "landuse"
+          color: [235, 215, 215, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "railway_yards"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["railway"]
+        render:
+          layer: "landuse"
+          color: [210, 205, 210, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "allotments"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["allotments"]
+        render:
+          layer: "landuse"
+          color: [220, 235, 210, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "construction"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["construction", "brownfield", "greenfield"]
+        render:
+          layer: "landuse"
+          color: [235, 220, 200, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "education"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["education"]
+            amenity: ["school", "university", "college"]
+        render:
+          layer: "landuse"
+          color: [245, 235, 210, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "religious"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["religious"]
+            amenity: ["place_of_worship"]
+        render:
+          layer: "landuse"
+          color: [225, 220, 230, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "quarries"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["quarry", "landfill"]
+        render:
+          layer: "landuse"
+          color: [210, 200, 190, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      # Buildings
+      - name: "buildings"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            building: ["*"]
+          tags_exclude:
+            building: ["no"]
+        render:
+          layer: "buildings"
+          color: [218, 208, 200, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      # Boundaries
+      - name: "country_borders"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            boundary: ["administrative"]
+            admin_level: ["2"]
+        render:
+          layer: "boundaries"
+          color: [128, 128, 128, 255]
+          stroke_width_px: 2
+          dash_pattern: [5, 5]
+        simplification:
+          disabled: true
+
+      # Place labels
+      - name: "cities"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["city"]
+          requires_name: true
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 18
+          priority: 1
+
+      - name: "large_towns"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["town"]
+          requires_name: true
+          population_min: 50000
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 16
+          priority: 2
+
+      - name: "towns"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["town"]
+          requires_name: true
+          population_max: 49999
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 16
+          priority: 3
+
+      - name: "large_villages"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["village"]
+          requires_name: true
+          population_min: 5000
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 14
+          priority: 4
+
+      - name: "villages"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["village"]
+          requires_name: true
+          population_max: 4999
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 14
+          priority: 5
+
+      - name: "suburbs"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["suburb", "borough", "quarter"]
+          requires_name: true
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 13
+          priority: 6
+
+      - name: "hamlets"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["hamlet", "neighbourhood"]
+          requires_name: true
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 12
+          priority: 7
+
+      - name: "localities"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["locality", "isolated_dwelling"]
+          requires_name: true
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 11
+          priority: 8
+
+      # POIs
+      - name: "pois"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            amenity: ["*"]
+            shop: ["*"]
+            tourism: ["*"]
+            historic: ["*"]
+            leisure: ["*"]
+          requires_name: true
+        render:
+          layer: "pois"
+          icon_size_px: 8
+
+  # ===========================================================================
+  # T2: NEIGHBORHOOD (1500m - 2000m)
+  # ===========================================================================
+  - id: "t2"
+    name: "Neighborhood"
+    view_range_meters: [1500, 2000]
+    tile_size_meters: 750
+
+    features:
+      # Same as t1 but WITHOUT pois and localities
+      - name: "coastline"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            natural: ["coastline"]
+        render:
+          layer: "coastline"
+          color: [255, 0, 255, 255]
+          stroke_width_px: 3
+          show_direction: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "water_bodies_all"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["water"]
+            waterway: ["riverbank"]
+            landuse: ["basin", "reservoir", "salt_pond"]
+        render:
+          layer: "water"
+          color: [170, 211, 223, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "major_rivers"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            waterway: ["river", "canal"]
+        render:
+          layer: "waterways"
+          color: [170, 211, 223, 255]
+          use_width_tag: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "minor_waterways"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            waterway: ["stream", "ditch", "drain"]
+        render:
+          layer: "waterways"
+          color: [170, 211, 223, 255]
+          use_width_tag: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "forests_all"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["forest"]
+            natural: ["wood"]
+        render:
+          layer: "forests"
+          color: [173, 209, 158, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "motorways"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["motorway", "trunk", "motorway_link", "trunk_link"]
+        render:
+          layer: "major_roads"
+          color: [233, 115, 103, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 1
+        simplification:
+          epsilon_m: 5
+
+      - name: "primary_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["primary", "primary_link"]
+        render:
+          layer: "major_roads"
+          color: [252, 214, 164, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 2
+        simplification:
+          epsilon_m: 5
+
+      - name: "secondary_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["secondary", "secondary_link"]
+        render:
+          layer: "major_roads"
+          color: [252, 214, 164, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 3
+        simplification:
+          epsilon_m: 5
+
+      - name: "tertiary_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["tertiary", "tertiary_link"]
+        render:
+          layer: "roads"
+          color: [255, 255, 255, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 4
+        simplification:
+          epsilon_m: 5
+
+      - name: "residential_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["residential", "unclassified", "living_street"]
+        render:
+          layer: "roads"
+          color: [255, 255, 255, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 5
+        simplification:
+          epsilon_m: 5
+
+      - name: "minor_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway:
+              [
+                "service",
+                "track",
+                "path",
+                "footway",
+                "cycleway",
+                "bridleway",
+                "pedestrian",
+                "steps",
+              ]
+        render:
+          layer: "roads"
+          color: [220, 220, 220, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 6
+        simplification:
+          epsilon_m: 5
+
+      - name: "major_rail"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            railway: ["rail", "narrow_gauge", "preserved"]
+        render:
+          layer: "railways"
+          color: [153, 153, 153, 255]
+          stroke_width_px: 2
+        simplification:
+          epsilon_m: 5
+
+      - name: "subway_light_rail"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            railway: ["subway", "light_rail"]
+        render:
+          layer: "railways"
+          color: [153, 153, 153, 255]
+          stroke_width_px: 2
+        simplification:
+          epsilon_m: 5
+
+      - name: "tram"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            railway: ["tram", "funicular", "miniature"]
+        render:
+          layer: "railways"
+          color: [153, 153, 153, 255]
+          stroke_width_px: 1
+        simplification:
+          epsilon_m: 5
+
+      - name: "parks"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            leisure:
+              ["park", "garden", "recreation_ground", "dog_park", "playground"]
+            landuse: ["grass", "meadow", "village_green", "recreation_ground"]
+        render:
+          layer: "landuse"
+          color: [200, 230, 180, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "agriculture"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse:
+              [
+                "farmland",
+                "farmyard",
+                "orchard",
+                "vineyard",
+                "plant_nursery",
+                "greenhouse_horticulture",
+              ]
+        render:
+          layer: "landuse"
+          color: [238, 240, 213, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "residential_landuse"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["residential"]
+        render:
+          layer: "landuse"
+          color: [224, 224, 224, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "commercial_landuse"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["commercial", "retail"]
+        render:
+          layer: "landuse"
+          color: [243, 233, 234, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "industrial_landuse"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["industrial"]
+        render:
+          layer: "landuse"
+          color: [240, 233, 240, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "cemeteries"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["cemetery"]
+            amenity: ["grave_yard"]
+        render:
+          layer: "landuse"
+          color: [205, 220, 200, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "military"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["military"]
+            military: ["*"]
+        render:
+          layer: "landuse"
+          color: [235, 215, 215, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "railway_yards"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["railway"]
+        render:
+          layer: "landuse"
+          color: [210, 205, 210, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "allotments"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["allotments"]
+        render:
+          layer: "landuse"
+          color: [220, 235, 210, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "construction"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["construction", "brownfield", "greenfield"]
+        render:
+          layer: "landuse"
+          color: [235, 220, 200, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "education"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["education"]
+            amenity: ["school", "university", "college"]
+        render:
+          layer: "landuse"
+          color: [245, 235, 210, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "religious"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["religious"]
+            amenity: ["place_of_worship"]
+        render:
+          layer: "landuse"
+          color: [225, 220, 230, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "quarries"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["quarry", "landfill"]
+        render:
+          layer: "landuse"
+          color: [210, 200, 190, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "buildings"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            building: ["*"]
+          tags_exclude:
+            building: ["no"]
+        render:
+          layer: "buildings"
+          color: [218, 208, 200, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "country_borders"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            boundary: ["administrative"]
+            admin_level: ["2"]
+        render:
+          layer: "boundaries"
+          color: [128, 128, 128, 255]
+          stroke_width_px: 2
+          dash_pattern: [5, 5]
+        simplification:
+          epsilon_m: 5
+
+      - name: "cities"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["city"]
+          requires_name: true
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 18
+          priority: 1
+
+      - name: "large_towns"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["town"]
+          requires_name: true
+          population_min: 50000
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 16
+          priority: 2
+
+      - name: "towns"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["town"]
+          requires_name: true
+          population_max: 49999
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 16
+          priority: 3
+
+      - name: "large_villages"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["village"]
+          requires_name: true
+          population_min: 5000
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 14
+          priority: 4
+
+      - name: "villages"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["village"]
+          requires_name: true
+          population_max: 4999
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 14
+          priority: 5
+
+      - name: "suburbs"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["suburb", "borough", "quarter"]
+          requires_name: true
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 13
+          priority: 6
+
+      - name: "hamlets"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["hamlet", "neighbourhood"]
+          requires_name: true
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 12
+          priority: 7
+      # NO localities (LOD 4 only)
+      # NO pois (LOD 4 only)
+
+  # ===========================================================================
+  # T3: DISTRICT (3000m - 7000m)
+  # ===========================================================================
+  - id: "t3"
+    name: "District"
+    view_range_meters: [3000, 7000]
+    tile_size_meters: 2000
+
+    features:
+      # Same as t2 but WITHOUT minor_roads, hamlets
+      - name: "coastline"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            natural: ["coastline"]
+        render:
+          layer: "coastline"
+          color: [255, 0, 255, 255]
+          stroke_width_px: 3
+          show_direction: true
+        simplification:
+          epsilon_m: 10
+
+      - name: "water_bodies_all"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["water"]
+            waterway: ["riverbank"]
+            landuse: ["basin", "reservoir", "salt_pond"]
+        render:
+          layer: "water"
+          color: [170, 211, 223, 255]
+          fill: true
+        simplification:
+          epsilon_m: 10
+
+      - name: "major_rivers"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            waterway: ["river", "canal"]
+        render:
+          layer: "waterways"
+          color: [170, 211, 223, 255]
+          use_width_tag: true
+        simplification:
+          epsilon_m: 10
+
+      - name: "minor_waterways"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            waterway: ["stream", "ditch", "drain"]
+        render:
+          layer: "waterways"
+          color: [170, 211, 223, 255]
+          use_width_tag: true
+        simplification:
+          epsilon_m: 10
+
+      - name: "forests_all"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["forest"]
+            natural: ["wood"]
+        render:
+          layer: "forests"
+          color: [173, 209, 158, 255]
+          fill: true
+        simplification:
+          epsilon_m: 10
+
+      - name: "motorways"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["motorway", "trunk", "motorway_link", "trunk_link"]
+        render:
+          layer: "major_roads"
+          color: [233, 115, 103, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 1
+        simplification:
+          epsilon_m: 10
+
+      - name: "primary_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["primary", "primary_link"]
+        render:
+          layer: "major_roads"
+          color: [252, 214, 164, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 2
+        simplification:
+          epsilon_m: 10
+
+      - name: "secondary_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["secondary", "secondary_link"]
+        render:
+          layer: "major_roads"
+          color: [252, 214, 164, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 3
+        simplification:
+          epsilon_m: 10
+
+      - name: "tertiary_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["tertiary", "tertiary_link"]
+        render:
+          layer: "roads"
+          color: [255, 255, 255, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 4
+        simplification:
+          epsilon_m: 10
+
+      - name: "residential_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["residential", "unclassified", "living_street"]
+        render:
+          layer: "roads"
+          color: [255, 255, 255, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 5
+        simplification:
+          epsilon_m: 10
+      # NO minor_roads (LOD 3+ only)
+
+      - name: "major_rail"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            railway: ["rail", "narrow_gauge", "preserved"]
+        render:
+          layer: "railways"
+          color: [153, 153, 153, 255]
+          stroke_width_px: 2
+        simplification:
+          epsilon_m: 10
+
+      - name: "subway_light_rail"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            railway: ["subway", "light_rail"]
+        render:
+          layer: "railways"
+          color: [153, 153, 153, 255]
+          stroke_width_px: 2
+        simplification:
+          epsilon_m: 10
+
+      - name: "tram"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            railway: ["tram", "funicular", "miniature"]
+        render:
+          layer: "railways"
+          color: [153, 153, 153, 255]
+          stroke_width_px: 1
+        simplification:
+          epsilon_m: 10
+
+      - name: "parks"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            leisure:
+              ["park", "garden", "recreation_ground", "dog_park", "playground"]
+            landuse: ["grass", "meadow", "village_green", "recreation_ground"]
+        render:
+          layer: "landuse"
+          color: [200, 230, 180, 255]
+          fill: true
+        simplification:
+          epsilon_m: 10
+
+      - name: "agriculture"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse:
+              [
+                "farmland",
+                "farmyard",
+                "orchard",
+                "vineyard",
+                "plant_nursery",
+                "greenhouse_horticulture",
+              ]
+        render:
+          layer: "landuse"
+          color: [238, 240, 213, 255]
+          fill: true
+        simplification:
+          epsilon_m: 10
+
+      - name: "residential_landuse"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["residential"]
+        render:
+          layer: "landuse"
+          color: [224, 224, 224, 255]
+          fill: true
+        simplification:
+          epsilon_m: 10
+
+      - name: "commercial_landuse"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["commercial", "retail"]
+        render:
+          layer: "landuse"
+          color: [243, 233, 234, 255]
+          fill: true
+        simplification:
+          epsilon_m: 10
+
+      - name: "industrial_landuse"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["industrial"]
+        render:
+          layer: "landuse"
+          color: [240, 233, 240, 255]
+          fill: true
+        simplification:
+          epsilon_m: 10
+
+      - name: "cemeteries"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["cemetery"]
+            amenity: ["grave_yard"]
+        render:
+          layer: "landuse"
+          color: [205, 220, 200, 255]
+          fill: true
+        simplification:
+          epsilon_m: 10
+
+      - name: "military"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["military"]
+            military: ["*"]
+        render:
+          layer: "landuse"
+          color: [235, 215, 215, 255]
+          fill: true
+        simplification:
+          epsilon_m: 10
+
+      - name: "railway_yards"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["railway"]
+        render:
+          layer: "landuse"
+          color: [210, 205, 210, 255]
+          fill: true
+        simplification:
+          epsilon_m: 10
+
+      - name: "allotments"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["allotments"]
+        render:
+          layer: "landuse"
+          color: [220, 235, 210, 255]
+          fill: true
+        simplification:
+          epsilon_m: 10
+
+      - name: "construction"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["construction", "brownfield", "greenfield"]
+        render:
+          layer: "landuse"
+          color: [235, 220, 200, 255]
+          fill: true
+        simplification:
+          epsilon_m: 10
+
+      - name: "education"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["education"]
+            amenity: ["school", "university", "college"]
+        render:
+          layer: "landuse"
+          color: [245, 235, 210, 255]
+          fill: true
+        simplification:
+          epsilon_m: 10
+
+      - name: "religious"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["religious"]
+            amenity: ["place_of_worship"]
+        render:
+          layer: "landuse"
+          color: [225, 220, 230, 255]
+          fill: true
+        simplification:
+          epsilon_m: 10
+
+      - name: "quarries"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["quarry", "landfill"]
+        render:
+          layer: "landuse"
+          color: [210, 200, 190, 255]
+          fill: true
+        simplification:
+          epsilon_m: 10
+
+      - name: "buildings"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            building: ["*"]
+          tags_exclude:
+            building: ["no"]
+        render:
+          layer: "buildings"
+          color: [218, 208, 200, 255]
+          fill: true
+        simplification:
+          epsilon_m: 10
+
+      - name: "country_borders"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            boundary: ["administrative"]
+            admin_level: ["2"]
+        render:
+          layer: "boundaries"
+          color: [128, 128, 128, 255]
+          stroke_width_px: 2
+          dash_pattern: [5, 5]
+        simplification:
+          epsilon_m: 10
+
+      - name: "cities"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["city"]
+          requires_name: true
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 18
+          priority: 1
+
+      - name: "large_towns"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["town"]
+          requires_name: true
+          population_min: 50000
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 16
+          priority: 2
+
+      - name: "towns"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["town"]
+          requires_name: true
+          population_max: 49999
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 16
+          priority: 3
+
+      - name: "large_villages"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["village"]
+          requires_name: true
+          population_min: 5000
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 14
+          priority: 4
+
+      - name: "villages"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["village"]
+          requires_name: true
+          population_max: 4999
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 14
+          priority: 5
+
+      - name: "suburbs"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["suburb", "borough", "quarter"]
+          requires_name: true
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 13
+          priority: 6
+      # NO hamlets (LOD 3+ only)
+      # NO localities (LOD 4 only)
+      # NO pois (LOD 4 only)
+
+  # ===========================================================================
+  # T4: CITY FINE (10km - 15km)
+  # ===========================================================================
+  - id: "t4"
+    name: "City Fine"
+    view_range_meters: [10000, 15000]
+    tile_size_meters: 5000
+
+    features:
+      # LOD 1: major + secondary features, medium+ water/forests
+      - name: "coastline"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            natural: ["coastline"]
+        render:
+          layer: "coastline"
+          color: [255, 0, 255, 255]
+          stroke_width_px: 3
+          show_direction: true
+        simplification:
+          epsilon_m: 25
+
+      - name: "water_bodies_medium_large"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["water"]
+            waterway: ["riverbank"]
+            landuse: ["basin", "reservoir", "salt_pond"]
+          min_area_km2: 0.01 # Only medium and large
+        render:
+          layer: "water"
+          color: [170, 211, 223, 255]
+          fill: true
+        simplification:
+          epsilon_m: 25
+
+      - name: "major_rivers"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            waterway: ["river", "canal"]
+        render:
+          layer: "waterways"
+          color: [170, 211, 223, 255]
+          use_width_tag: true
+        simplification:
+          epsilon_m: 25
+      # NO minor_waterways (LOD 2+)
+
+      - name: "forests_medium_large"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["forest"]
+            natural: ["wood"]
+          min_area_km2: 0.01 # Only medium and large
+        render:
+          layer: "forests"
+          color: [173, 209, 158, 255]
+          fill: true
+        simplification:
+          epsilon_m: 25
+
+      - name: "motorways"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["motorway", "trunk", "motorway_link", "trunk_link"]
+        render:
+          layer: "major_roads"
+          color: [233, 115, 103, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 1
+        simplification:
+          epsilon_m: 25
+
+      - name: "primary_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["primary", "primary_link"]
+        render:
+          layer: "major_roads"
+          color: [252, 214, 164, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 2
+        simplification:
+          epsilon_m: 25
+
+      - name: "secondary_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["secondary", "secondary_link"]
+        render:
+          layer: "major_roads"
+          color: [252, 214, 164, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 3
+        simplification:
+          epsilon_m: 25
+      # NO tertiary_roads (LOD 2+)
+      # NO residential_roads (LOD 2+)
+      # NO minor_roads (LOD 3+)
+
+      - name: "major_rail"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            railway: ["rail", "narrow_gauge", "preserved"]
+        render:
+          layer: "railways"
+          color: [153, 153, 153, 255]
+          stroke_width_px: 2
+        simplification:
+          epsilon_m: 25
+
+      - name: "subway_light_rail"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            railway: ["subway", "light_rail"]
+        render:
+          layer: "railways"
+          color: [153, 153, 153, 255]
+          stroke_width_px: 2
+        simplification:
+          epsilon_m: 25
+      # NO tram (LOD 2+)
+
+      - name: "parks"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            leisure:
+              ["park", "garden", "recreation_ground", "dog_park", "playground"]
+            landuse: ["grass", "meadow", "village_green", "recreation_ground"]
+        render:
+          layer: "landuse"
+          color: [200, 230, 180, 255]
+          fill: true
+        simplification:
+          epsilon_m: 25
+
+      - name: "agriculture"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse:
+              [
+                "farmland",
+                "farmyard",
+                "orchard",
+                "vineyard",
+                "plant_nursery",
+                "greenhouse_horticulture",
+              ]
+        render:
+          layer: "landuse"
+          color: [238, 240, 213, 255]
+          fill: true
+        simplification:
+          epsilon_m: 25
+
+      - name: "residential_landuse"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["residential"]
+        render:
+          layer: "landuse"
+          color: [224, 224, 224, 255]
+          fill: true
+        simplification:
+          epsilon_m: 25
+
+      - name: "commercial_landuse"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["commercial", "retail"]
+        render:
+          layer: "landuse"
+          color: [243, 233, 234, 255]
+          fill: true
+        simplification:
+          epsilon_m: 25
+
+      - name: "industrial_landuse"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["industrial"]
+        render:
+          layer: "landuse"
+          color: [240, 233, 240, 255]
+          fill: true
+        simplification:
+          epsilon_m: 25
+
+      - name: "cemeteries"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["cemetery"]
+            amenity: ["grave_yard"]
+        render:
+          layer: "landuse"
+          color: [205, 220, 200, 255]
+          fill: true
+        simplification:
+          epsilon_m: 25
+
+      - name: "military"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["military"]
+            military: ["*"]
+        render:
+          layer: "landuse"
+          color: [235, 215, 215, 255]
+          fill: true
+        simplification:
+          epsilon_m: 25
+
+      - name: "railway_yards"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["railway"]
+        render:
+          layer: "landuse"
+          color: [210, 205, 210, 255]
+          fill: true
+        simplification:
+          epsilon_m: 25
+      # NO allotments (LOD 2+)
+      # NO construction (LOD 2+)
+      # NO education (LOD 2+)
+      # NO religious (LOD 2+)
+      # NO quarries (LOD 2+)
+      # NO buildings (LOD 2+)
+
+      - name: "country_borders"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            boundary: ["administrative"]
+            admin_level: ["2"]
+        render:
+          layer: "boundaries"
+          color: [128, 128, 128, 255]
+          stroke_width_px: 2
+          dash_pattern: [5, 5]
+        simplification:
+          epsilon_m: 25
+
+      - name: "cities"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["city"]
+          requires_name: true
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 18
+          priority: 1
+
+      - name: "large_towns"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["town"]
+          requires_name: true
+          population_min: 50000
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 16
+          priority: 2
+
+      - name: "towns"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["town"]
+          requires_name: true
+          population_max: 49999
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 16
+          priority: 3
+
+      - name: "large_villages"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["village"]
+          requires_name: true
+          population_min: 5000
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 14
+          priority: 4
+      # NO villages (LOD 2+)
+      # NO suburbs (LOD 2+)
+      # NO hamlets (LOD 3+)
+      # NO localities (LOD 4)
+      # NO pois (LOD 4)
+
+  # ===========================================================================
+  # T5: CITY WIDE (20km - 70km)
+  # ===========================================================================
+  - id: "t5"
+    name: "City Wide"
+    view_range_meters: [20000, 70000]
+    tile_size_meters: 15000
+
+    features:
+      # Same as t4 but with more aggressive simplification
+      - name: "coastline"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            natural: ["coastline"]
+        render:
+          layer: "coastline"
+          color: [255, 0, 255, 255]
+          stroke_width_px: 3
+          show_direction: true
+        simplification:
+          epsilon_m: 50
+
+      - name: "water_bodies_medium_large"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["water"]
+            waterway: ["riverbank"]
+            landuse: ["basin", "reservoir", "salt_pond"]
+          min_area_km2: 0.01
+        render:
+          layer: "water"
+          color: [170, 211, 223, 255]
+          fill: true
+        simplification:
+          epsilon_m: 50
+
+      - name: "major_rivers"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            waterway: ["river", "canal"]
+        render:
+          layer: "waterways"
+          color: [170, 211, 223, 255]
+          use_width_tag: true
+        simplification:
+          epsilon_m: 50
+
+      - name: "forests_medium_large"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["forest"]
+            natural: ["wood"]
+          min_area_km2: 0.01
+        render:
+          layer: "forests"
+          color: [173, 209, 158, 255]
+          fill: true
+        simplification:
+          epsilon_m: 50
+
+      - name: "motorways"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["motorway", "trunk", "motorway_link", "trunk_link"]
+        render:
+          layer: "major_roads"
+          color: [233, 115, 103, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 1
+        simplification:
+          epsilon_m: 50
+
+      - name: "primary_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["primary", "primary_link"]
+        render:
+          layer: "major_roads"
+          color: [252, 214, 164, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 2
+        simplification:
+          epsilon_m: 50
+
+      - name: "secondary_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["secondary", "secondary_link"]
+        render:
+          layer: "major_roads"
+          color: [252, 214, 164, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 3
+        simplification:
+          epsilon_m: 50
+
+      - name: "major_rail"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            railway: ["rail", "narrow_gauge", "preserved"]
+        render:
+          layer: "railways"
+          color: [153, 153, 153, 255]
+          stroke_width_px: 2
+        simplification:
+          epsilon_m: 50
+
+      - name: "subway_light_rail"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            railway: ["subway", "light_rail"]
+        render:
+          layer: "railways"
+          color: [153, 153, 153, 255]
+          stroke_width_px: 2
+        simplification:
+          epsilon_m: 50
+
+      - name: "parks"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            leisure:
+              ["park", "garden", "recreation_ground", "dog_park", "playground"]
+            landuse: ["grass", "meadow", "village_green", "recreation_ground"]
+        render:
+          layer: "landuse"
+          color: [200, 230, 180, 255]
+          fill: true
+        simplification:
+          epsilon_m: 50
+
+      - name: "agriculture"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse:
+              [
+                "farmland",
+                "farmyard",
+                "orchard",
+                "vineyard",
+                "plant_nursery",
+                "greenhouse_horticulture",
+              ]
+        render:
+          layer: "landuse"
+          color: [238, 240, 213, 255]
+          fill: true
+        simplification:
+          epsilon_m: 50
+
+      - name: "residential_landuse"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["residential"]
+        render:
+          layer: "landuse"
+          color: [224, 224, 224, 255]
+          fill: true
+        simplification:
+          epsilon_m: 50
+
+      - name: "commercial_landuse"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["commercial", "retail"]
+        render:
+          layer: "landuse"
+          color: [243, 233, 234, 255]
+          fill: true
+        simplification:
+          epsilon_m: 50
+
+      - name: "industrial_landuse"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["industrial"]
+        render:
+          layer: "landuse"
+          color: [240, 233, 240, 255]
+          fill: true
+        simplification:
+          epsilon_m: 50
+
+      - name: "cemeteries"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["cemetery"]
+            amenity: ["grave_yard"]
+        render:
+          layer: "landuse"
+          color: [205, 220, 200, 255]
+          fill: true
+        simplification:
+          epsilon_m: 50
+
+      - name: "military"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["military"]
+            military: ["*"]
+        render:
+          layer: "landuse"
+          color: [235, 215, 215, 255]
+          fill: true
+        simplification:
+          epsilon_m: 50
+
+      - name: "railway_yards"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["railway"]
+        render:
+          layer: "landuse"
+          color: [210, 205, 210, 255]
+          fill: true
+        simplification:
+          epsilon_m: 50
+
+      - name: "country_borders"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            boundary: ["administrative"]
+            admin_level: ["2"]
+        render:
+          layer: "boundaries"
+          color: [128, 128, 128, 255]
+          stroke_width_px: 2
+          dash_pattern: [5, 5]
+        simplification:
+          epsilon_m: 50
+
+      - name: "cities"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["city"]
+          requires_name: true
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 18
+          priority: 1
+
+      - name: "large_towns"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["town"]
+          requires_name: true
+          population_min: 50000
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 16
+          priority: 2
+
+      - name: "towns"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["town"]
+          requires_name: true
+          population_max: 49999
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 16
+          priority: 3
+
+      - name: "large_villages"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["village"]
+          requires_name: true
+          population_min: 5000
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 14
+          priority: 4
+
+  # ===========================================================================
+  # T6: REGIONAL (100km - 150km)
+  # ===========================================================================
+  - id: "t6"
+    name: "Regional"
+    view_range_meters: [100000, 150000]
+    tile_size_meters: 50000
+
+    features:
+      # LOD 0: Only large water/forests, major roads/rail, cities/large towns
+      - name: "coastline"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            natural: ["coastline"]
+        render:
+          layer: "coastline"
+          color: [255, 0, 255, 255]
+          stroke_width_px: 3
+          show_direction: true
+        simplification:
+          epsilon_m: 200
+
+      - name: "water_bodies_large"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["water"]
+            waterway: ["riverbank"]
+            landuse: ["basin", "reservoir", "salt_pond"]
+          min_area_km2: 1.0 # Only large
+        render:
+          layer: "water"
+          color: [170, 211, 223, 255]
+          fill: true
+        simplification:
+          epsilon_m: 200
+      # NO major_rivers (LOD 1+)
+
+      - name: "forests_large"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["forest"]
+            natural: ["wood"]
+          min_area_km2: 1.0 # Only large
+        render:
+          layer: "forests"
+          color: [173, 209, 158, 255]
+          fill: true
+        simplification:
+          epsilon_m: 200
+
+      - name: "motorways"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["motorway", "trunk", "motorway_link", "trunk_link"]
+        render:
+          layer: "major_roads"
+          color: [233, 115, 103, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 1
+        simplification:
+          epsilon_m: 200
+
+      - name: "primary_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["primary", "primary_link"]
+        render:
+          layer: "major_roads"
+          color: [252, 214, 164, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 2
+        simplification:
+          epsilon_m: 200
+      # NO secondary_roads (LOD 1+)
+
+      - name: "major_rail"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            railway: ["rail", "narrow_gauge", "preserved"]
+        render:
+          layer: "railways"
+          color: [153, 153, 153, 255]
+          stroke_width_px: 2
+        simplification:
+          epsilon_m: 200
+      # NO subway_light_rail (LOD 1+)
+      # NO landuse features (LOD 1+)
+
+      - name: "country_borders"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            boundary: ["administrative"]
+            admin_level: ["2"]
+        render:
+          layer: "boundaries"
+          color: [128, 128, 128, 255]
+          stroke_width_px: 2
+          dash_pattern: [5, 5]
+        simplification:
+          epsilon_m: 200
+
+      - name: "cities"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["city"]
+          requires_name: true
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 18
+          priority: 1
+
+      - name: "large_towns"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["town"]
+          requires_name: true
+          population_min: 50000
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 16
+          priority: 2
+      # NO towns (LOD 1+)
+
+  # ===========================================================================
+  # T7: CONTINENTAL (200km+)
+  # ===========================================================================
+  - id: "t7"
+    name: "Continental"
+    view_range_meters: [200000, 1000000]
+    tile_size_meters: 100000
+
+    features:
+      # Same as t6 but with even more aggressive simplification
+      - name: "coastline"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            natural: ["coastline"]
+        render:
+          layer: "coastline"
+          color: [255, 0, 255, 255]
+          stroke_width_px: 3
+          show_direction: true
+        simplification:
+          epsilon_m: 500
+
+      - name: "water_bodies_large"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["water"]
+            waterway: ["riverbank"]
+            landuse: ["basin", "reservoir", "salt_pond"]
+          min_area_km2: 1.0
+        render:
+          layer: "water"
+          color: [170, 211, 223, 255]
+          fill: true
+        simplification:
+          epsilon_m: 500
+
+      - name: "forests_large"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["forest"]
+            natural: ["wood"]
+          min_area_km2: 1.0
+        render:
+          layer: "forests"
+          color: [173, 209, 158, 255]
+          fill: true
+        simplification:
+          epsilon_m: 500
+
+      - name: "motorways"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["motorway", "trunk", "motorway_link", "trunk_link"]
+        render:
+          layer: "major_roads"
+          color: [233, 115, 103, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 1
+        simplification:
+          epsilon_m: 500
+
+      - name: "primary_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway: ["primary", "primary_link"]
+        render:
+          layer: "major_roads"
+          color: [252, 214, 164, 255]
+          use_width_tag: true
+          show_name: true
+          name_priority: 2
+        simplification:
+          epsilon_m: 500
+
+      - name: "major_rail"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            railway: ["rail", "narrow_gauge", "preserved"]
+        render:
+          layer: "railways"
+          color: [153, 153, 153, 255]
+          stroke_width_px: 2
+        simplification:
+          epsilon_m: 500
+
+      - name: "country_borders"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            boundary: ["administrative"]
+            admin_level: ["2"]
+        render:
+          layer: "boundaries"
+          color: [128, 128, 128, 255]
+          stroke_width_px: 2
+          dash_pattern: [5, 5]
+        simplification:
+          epsilon_m: 500
+
+      - name: "cities"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["city"]
+          requires_name: true
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 18
+          priority: 1
+
+      - name: "large_towns"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["town"]
+          requires_name: true
+          population_min: 50000
+        render:
+          layer: "labels"
+          color: [0, 0, 0, 255]
+          font_size: 16
+          priority: 2
+
+# =============================================================================
+# LAYER RENDERING ORDER (bottom to top)
+# =============================================================================
+layer_order:
+  - landuse
+  - water
+  - forests
+  - buildings
+  - boundaries
+  - coastline
+  - railways
+  - major_roads
+  - roads
+  - waterways
+  - labels
+  - pois
