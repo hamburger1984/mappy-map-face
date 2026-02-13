@@ -1630,18 +1630,29 @@ class MapRenderer {
       const props = feature.properties || {};
       const type = feature.geometry.type;
 
-      // Use cached classification if available, otherwise classify and cache
+      // Classification cache, but invalidate if zoom changed significantly
+      // (width calculation is view-dependent)
       let featureInfo = feature._classCache;
+      const currentZoom = this.getZoomLevelForScale();
+
+      // Invalidate cache if zoom level changed (width needs recalculation)
+      if (featureInfo && feature._cachedZoom !== currentZoom) {
+        featureInfo = null;
+        feature._classCache = null;
+      }
+
       if (!featureInfo) {
         featureInfo = this.classifyFeature(props, type);
-        // Pre-compute batch keys to avoid string allocations in render loop
-        if (featureInfo.color) {
-          const c = featureInfo.color;
-          const w = featureInfo.width || 1;
-          featureInfo._lineKey = `${c.r},${c.g},${c.b},${c.a}|${w}`;
-          featureInfo._fillKey = this._getRGBA(c.r, c.g, c.b, c.a / 255);
-        }
         feature._classCache = featureInfo;
+        feature._cachedZoom = currentZoom;
+      }
+
+      // Precompute batch keys to avoid string allocations in render loop
+      if (featureInfo.color) {
+        const c = featureInfo.color;
+        const w = featureInfo.width || 1;
+        featureInfo._lineKey = `${c.r},${c.g},${c.b},${c.a}|${w}`;
+        featureInfo._fillKey = this._getRGBA(c.r, c.g, c.b, c.a / 255);
       }
 
       // For POIs, check toggle state dynamically (it can change without re-classifying)
