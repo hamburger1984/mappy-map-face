@@ -1131,32 +1131,6 @@ class MapRenderer {
     return false;
   }
 
-  // Web Mercator projection helpers
-  lon2tile(lon, zoom) {
-    return Math.floor(((lon + 180) / 360) * Math.pow(2, zoom));
-  }
-
-  lat2tile(lat, zoom) {
-    return Math.floor(
-      ((1 -
-        Math.log(
-          Math.tan((lat * Math.PI) / 180) + 1 / Math.cos((lat * Math.PI) / 180),
-        ) /
-          Math.PI) /
-        2) *
-        Math.pow(2, zoom),
-    );
-  }
-
-  tile2lon(x, zoom) {
-    return (x / Math.pow(2, zoom)) * 360 - 180;
-  }
-
-  tile2lat(y, zoom) {
-    const n = Math.PI - (2 * Math.PI * y) / Math.pow(2, zoom);
-    return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
-  }
-
   getTilesetForView() {
     // Find tileset whose view range contains current view width
     for (const tileset of this.tilesets) {
@@ -1349,38 +1323,39 @@ class MapRenderer {
         continue;
       }
 
-      const tileBounds = this.getTileBounds(tile.x, tile.y, tile.z);
+      const tileBounds = this.getTileBounds(tile.tileset, tile.x, tile.y);
 
       // Coastline tiles get very light ocean color
       if (analysis.hasCoastline) {
-        console.log("filling with coast color", tileKey, bounds);
         this.fillTileBounds(tileBounds, COASTLINE_COLOR, bounds);
       }
       // Land tiles (no coastline) get land color
       else if (analysis.hasLandFeatures) {
-        console.log("filling with land color", tileKey, bounds);
         this.fillTileBounds(tileBounds, LAND_COLOR, bounds);
       }
       // Ocean tiles (empty) already have ocean background from default
     }
   }
 
-  getTileBounds(x, y, z) {
-    // Calculate geographic bounds of a tile
-    const n = Math.pow(2, z);
-    const minLon = (x / n) * 360 - 180;
-    const maxLon = ((x + 1) / n) * 360 - 180;
+  getTileBounds(tilesetId, x, y) {
+    // Calculate geographic bounds of a tile using the tileset's meter-based grid
+    const tileset = this.tilesets.find((ts) => ts.id === tilesetId);
+    const tileSizeM = tileset.tile_size_meters;
 
-    const minLat = this.tile2lat(y + 1, z);
-    const maxLat = this.tile2lat(y, z);
+    // Use same latitude approximation as tile generation
+    const latApprox = y * (tileSizeM / 111320) + tileSizeM / 111320 / 2;
+    const metersPerDegLon = 111320 * Math.cos((latApprox * Math.PI) / 180);
+    const metersPerDegLat = 111320;
+
+    const tileWidthDeg = tileSizeM / metersPerDegLon;
+    const tileHeightDeg = tileSizeM / metersPerDegLat;
+
+    const minLon = x * tileWidthDeg;
+    const maxLon = (x + 1) * tileWidthDeg;
+    const minLat = y * tileHeightDeg;
+    const maxLat = (y + 1) * tileHeightDeg;
 
     return { minLon, maxLon, minLat, maxLat };
-  }
-
-  tile2lat(y, z) {
-    const n = Math.pow(2, z);
-    const latRad = Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n)));
-    return (latRad * 180) / Math.PI;
   }
 
   fillTileBounds(tileBounds, color, viewBounds) {
@@ -1408,7 +1383,7 @@ class MapRenderer {
     const tiles = this.getVisibleTiles(bounds);
 
     console.log(
-      `[TILES] Loading ${tiles.length} tiles at zoom ${tiles[0]?.z || "unknown"}`,
+      `[TILES] Loading ${tiles.length} tiles at tileset ${tiles[0]?.tileset || "unknown"}`,
     );
 
     // Load all visible tiles in parallel
@@ -4058,8 +4033,8 @@ class MapRenderer {
     const toScreenY = (lat) => canvasHeight - (lat - minLat) * scaleY;
 
     // Draw each tile boundary with white line wrapped in two black lines
-    for (const { z, x, y } of visibleTiles) {
-      const tileBounds = this.getTileBounds(x, y, z);
+    for (const { tileset, x, y } of visibleTiles) {
+      const tileBounds = this.getTileBounds(tileset, x, y);
 
       const left = toScreenX(tileBounds.minLon);
       const right = toScreenX(tileBounds.maxLon);
@@ -4079,7 +4054,7 @@ class MapRenderer {
 
       // Draw tile label in top-left corner with white text and black outline
       this.ctx.save();
-      const labelText = `Z${z} (${x},${y})`;
+      const labelText = `${tileset} (${x},${y})`;
       this.ctx.font = "bold 14px monospace";
       this.ctx.textAlign = "left";
       const labelX = left + 5;
