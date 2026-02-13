@@ -225,12 +225,39 @@ class MapRenderer {
     this.canvasWidth = 1200;
     this.canvasHeight = 800;
 
+    // Discrete logarithmic zoom levels (in meters)
+    // Roughly sqrt(2) steps for smooth progression
+    this.zoomLevels = [
+      100, // 0: Street detail
+      150, // 1
+      200, // 2
+      300, // 3
+      500, // 4: Block level
+      700, // 5
+      1000, // 6: Neighborhood
+      1500, // 7
+      2000, // 8
+      3000, // 9
+      5000, // 10: District
+      7000, // 11
+      10000, // 12: City area
+      15000, // 13
+      20000, // 14
+      30000, // 15
+      50000, // 16: Regional
+      70000, // 17
+      100000, // 18: Wide regional
+      150000, // 19
+      200000, // 20: Full extent
+    ];
+
     // Viewport state (in real-world meters)
     this.viewWidthMeters = 10000; // Initial view: 10km across
+    this.currentZoomIndex = 12; // Index into zoomLevels array
     this.offsetX = 0;
     this.offsetY = 0;
-    this.minViewWidthMeters = 100; // Max zoom: 100m across
-    this.maxViewWidthMeters = 200000; // Min zoom: 200km across (full dataset)
+    this.minViewWidthMeters = this.zoomLevels[0]; // Max zoom
+    this.maxViewWidthMeters = this.zoomLevels[this.zoomLevels.length - 1]; // Min zoom
 
     // Hamburg city center coordinates
     this.centerLat = 53.55;
@@ -592,28 +619,47 @@ class MapRenderer {
   }
 
   setViewWidth(newWidthMeters) {
-    newWidthMeters = Math.max(
-      this.minViewWidthMeters,
-      Math.min(this.maxViewWidthMeters, newWidthMeters),
-    );
-    if (newWidthMeters === this.viewWidthMeters) return;
-    const scale = this.viewWidthMeters / newWidthMeters; // inverted because larger width = zoomed out
+    // Snap to nearest discrete zoom level
+    let nearestIndex = 0;
+    let minDiff = Math.abs(this.zoomLevels[0] - newWidthMeters);
+
+    for (let i = 1; i < this.zoomLevels.length; i++) {
+      const diff = Math.abs(this.zoomLevels[i] - newWidthMeters);
+      if (diff < minDiff) {
+        minDiff = diff;
+        nearestIndex = i;
+      }
+    }
+
+    const snappedWidth = this.zoomLevels[nearestIndex];
+
+    // Don't update if already at this zoom level
+    if (snappedWidth === this.viewWidthMeters) return;
+
+    const scale = this.viewWidthMeters / snappedWidth;
     this.offsetX *= scale;
     this.offsetY *= scale;
-    this.viewWidthMeters = newWidthMeters;
+    this.viewWidthMeters = snappedWidth;
+    this.currentZoomIndex = nearestIndex;
     this.updateZoomSlider();
     this.updateStats();
     this.debouncedRender();
   }
 
   zoomIn() {
-    // Decrease view width by 10% (zoom in = see less area)
-    this.setViewWidth(this.viewWidthMeters * 0.9);
+    // Step to next smaller zoom level (more detail)
+    if (this.currentZoomIndex > 0) {
+      this.currentZoomIndex--;
+      this.setViewWidth(this.zoomLevels[this.currentZoomIndex]);
+    }
   }
 
   zoomOut() {
-    // Increase view width by 11% (zoom out = see more area)
-    this.setViewWidth(this.viewWidthMeters / 0.9);
+    // Step to next larger zoom level (less detail)
+    if (this.currentZoomIndex < this.zoomLevels.length - 1) {
+      this.currentZoomIndex++;
+      this.setViewWidth(this.zoomLevels[this.currentZoomIndex]);
+    }
   }
 
   updateZoomSlider() {
