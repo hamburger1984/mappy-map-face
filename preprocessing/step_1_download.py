@@ -31,10 +31,10 @@ except ImportError:
 OSM_SOURCES = {
     "hamburg": "https://download.geofabrik.de/europe/germany/hamburg-latest.osm.pbf",
     "schleswig-holstein": "https://download.geofabrik.de/europe/germany/schleswig-holstein-latest.osm.pbf",
-    "mecklenburg-vorpommern": "https://download.geofabrik.de/europe/germany/mecklenburg-vorpommern-latest.osm.pbf",
-    "niedersachsen": "https://download.geofabrik.de/europe/germany/niedersachsen-latest.osm.pbf",
-    "nordrhein-westfalen": "https://download.geofabrik.de/europe/germany/nordrhein-westfalen-latest.osm.pbf",
-    "denmark": "https://download.geofabrik.de/europe/denmark-latest.osm.pbf",
+    # "mecklenburg-vorpommern": "https://download.geofabrik.de/europe/germany/mecklenburg-vorpommern-latest.osm.pbf",
+    # "niedersachsen": "https://download.geofabrik.de/europe/germany/niedersachsen-latest.osm.pbf",
+    # "nordrhein-westfalen": "https://download.geofabrik.de/europe/germany/nordrhein-westfalen-latest.osm.pbf",
+    # "denmark": "https://download.geofabrik.de/europe/denmark-latest.osm.pbf",
 }
 
 
@@ -312,7 +312,7 @@ def main():
     args.data_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 70)
-    print("Step 1: Download OSM Data and Land Polygons")
+    print("Step 1: Download OSM Data")
     print("=" * 70)
     print()
 

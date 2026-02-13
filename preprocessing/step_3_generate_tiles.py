@@ -1885,12 +1885,12 @@ def split_geojson_into_tiles(
 # ============================================================================
 
 
-def write_tiles_from_databases(db_dir, db_prefix, zoom_levels, output_dir):
+def write_tiles_from_databases(db_dir, db_prefix, output_dir):
     """Write tile JSON files from existing SQLite databases."""
     output_path = Path(output_dir)
 
-    for zoom in zoom_levels:
-        db_path = db_dir / f"{db_prefix}_z{zoom}.db"
+    for tileset_id in TILESET_IDS:
+        db_path = db_dir / f"{db_prefix}_z{tileset_id}.db"
         if not db_path.exists():
             continue
 
@@ -1910,7 +1910,7 @@ def write_tiles_from_databases(db_dir, db_prefix, zoom_levels, output_dir):
                 if current_tile is not None:
                     # Write previous tile
                     cx, cy = current_tile
-                    tile_dir = output_path / str(zoom) / str(cx)
+                    tile_dir = output_path / str(tileset_id) / str(cx)
                     if cx not in created_dirs:
                         tile_dir.mkdir(parents=True, exist_ok=True)
                         created_dirs.add(cx)
@@ -1988,7 +1988,7 @@ def write_tiles_from_databases(db_dir, db_prefix, zoom_levels, output_dir):
         # Write last tile
         if current_tile is not None:
             cx, cy = current_tile
-            tile_dir = output_path / str(zoom) / str(cx)
+            tile_dir = output_path / str(tileset_id) / str(cx)
             if cx not in created_dirs:
                 tile_dir.mkdir(parents=True, exist_ok=True)
                 created_dirs.add(cx)
@@ -2305,9 +2305,7 @@ def main():
 
             # Write tiles from the cached databases
             print(f"Writing tiles for {pbf_file.stem}...")
-            write_tiles_from_databases(
-                args.data_dir, db_prefix, args.zoom_levels, output_path
-            )
+            write_tiles_from_databases(args.data_dir, db_prefix, output_path)
 
             all_results.append(
                 {
@@ -2360,8 +2358,8 @@ def main():
     # Write tile index
     if success_count > 0:
         tile_count = sum(
-            len(list((temp_tile_dir / str(z)).rglob("*.json")))
-            for z in args.zoom_levels
+            len(list((temp_tile_dir / tileset_id).rglob("*.json")))
+            for tileset_id in TILESET_IDS
         )
 
         # Check if we have valid merged bounds
@@ -2394,7 +2392,7 @@ def main():
         index_file = temp_tile_dir / "index.json"
         index_data = {
             "bounds": merged_bounds,
-            "zoom_levels": sorted(args.zoom_levels),
+            "tilesets": TILESET_IDS,
             "tile_count": tile_count,
             "center": {
                 "lon": HAMBURG_CENTER_LON,
