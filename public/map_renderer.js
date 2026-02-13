@@ -899,10 +899,64 @@ class MapRenderer {
     }, this.renderDelay);
   }
 
+  computeBoundingBox(geom) {
+    // Compute bounding box for a geometry
+    let minLon = Infinity,
+      maxLon = -Infinity;
+    let minLat = Infinity,
+      maxLat = -Infinity;
+
+    const updateBounds = (coord) => {
+      const [lon, lat] = coord;
+      if (lon < minLon) minLon = lon;
+      if (lon > maxLon) maxLon = lon;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+    };
+
+    const coords = geom.coordinates;
+    const type = geom.type;
+
+    if (type === "Point") {
+      updateBounds(coords);
+    } else if (type === "LineString") {
+      for (const coord of coords) updateBounds(coord);
+    } else if (type === "Polygon") {
+      for (const coord of coords[0]) updateBounds(coord);
+    } else if (type === "MultiLineString") {
+      for (const line of coords) {
+        for (const coord of line) updateBounds(coord);
+      }
+    } else if (type === "MultiPolygon") {
+      for (const polygon of coords) {
+        for (const coord of polygon[0]) updateBounds(coord);
+      }
+    }
+
+    return { minLon, maxLon, minLat, maxLat };
+  }
+
   isFeatureInViewport(feature, bounds) {
     // Quick viewport culling - check if feature overlaps visible area
     if (!feature.geometry || !feature.geometry.coordinates) return false;
 
+    // Use cached bounding box if available (much faster than checking every coordinate)
+    if (feature._bbox) {
+      const bbox = feature._bbox;
+      // Quick rejection: if feature bbox doesn't overlap viewport, skip
+      if (
+        bbox.maxLon < bounds.minLon ||
+        bbox.minLon > bounds.maxLon ||
+        bbox.maxLat < bounds.minLat ||
+        bbox.minLat > bounds.maxLat
+      ) {
+        return false;
+      }
+      // Bbox overlaps, feature is likely visible
+      return true;
+    }
+
+    // Fallback: check coordinates (slower)
     const checkCoord = (coord) => {
       const [lon, lat] = coord;
       return (
@@ -958,13 +1012,15 @@ class MapRenderer {
 
   getZoomLevelForScale() {
     // Determine which tile zoom level to use based on view width
-    // Very wide view (>40km): use Z5 tiles
+    // Ultra-wide view (>=100km): use Z3 tiles
+    // Very wide view (40-100km): use Z5 tiles
     // Wide view (10-40km): use Z8 tiles
     // Medium view (2-10km): use Z11 tiles
     // Close view (<2km): use Z14 tiles
-    if (this.viewWidthMeters > 40000) return 5;
-    if (this.viewWidthMeters > 10000) return 8;
-    if (this.viewWidthMeters > 2000) return 11;
+    if (this.viewWidthMeters >= 100000) return 3;
+    if (this.viewWidthMeters >= 40000) return 5;
+    if (this.viewWidthMeters >= 10000) return 8;
+    if (this.viewWidthMeters >= 2000) return 11;
     return 14;
   }
 
@@ -1262,6 +1318,12 @@ class MapRenderer {
           // Only add if we haven't seen this feature before
           if (!seenFeatures.has(featureKey)) {
             seenFeatures.add(featureKey);
+
+            // Pre-compute bounding box for fast viewport culling
+            if (geom && geom.coordinates) {
+              feature._bbox = this.computeBoundingBox(geom);
+            }
+
             features.push(feature);
           }
         }
@@ -1277,6 +1339,16 @@ class MapRenderer {
     console.log(
       `[TILES] Merged ${features.length} features (removed ${duplicatesRemoved} duplicates) in ${mergeTime.toFixed(0)}ms`,
     );
+
+    // Log feature type breakdown for debugging
+    if (features.length > 0) {
+      const typeCount = {};
+      for (const f of features) {
+        const type = f.geometry?.type || "unknown";
+        typeCount[type] = (typeCount[type] || 0) + 1;
+      }
+      console.log(`[TILES] Breakdown:`, typeCount);
+    }
 
     return {
       type: "FeatureCollection",

@@ -116,8 +116,8 @@ QUARRY_LANDUSE = frozenset(["quarry", "landfill"])
 MAJOR_WATERWAYS = frozenset(["river", "canal"])
 
 # LOD to zoom level mappings (avoid recreating lists per feature)
-LOD_0_ZOOMS = (5, 8, 11, 14)  # Major features: all zoom levels
-LOD_1_ZOOMS = (8, 11, 14)  # Secondary features: not in Z5
+LOD_0_ZOOMS = (3, 5, 8, 11, 14)  # Major features: all zoom levels
+LOD_1_ZOOMS = (8, 11, 14)  # Secondary features: not in Z3/Z5
 LOD_2_ZOOMS = (11, 14)  # Detail features: Z11 and Z14
 LOD_3_ZOOMS = (14,)  # Very close detail: only Z14
 LOD_4_ZOOMS = (14,)  # Very close detail: only Z14
@@ -1716,7 +1716,7 @@ def main():
         "--zoom-levels",
         type=int,
         nargs="+",
-        default=[5, 8, 11, 14],
+        default=[3, 5, 8, 11, 14],
         help="Zoom levels to generate",
     )
     parser.add_argument(
