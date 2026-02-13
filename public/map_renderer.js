@@ -1630,21 +1630,25 @@ class MapRenderer {
       const props = feature.properties || {};
       const type = feature.geometry.type;
 
-      // Classification cache, but invalidate if zoom changed significantly
-      // (width calculation is view-dependent)
+      // Classification cache, but invalidate if view width changed significantly
+      // (width calculation is view-dependent on metersPerPixel)
       let featureInfo = feature._classCache;
-      const currentZoom = this.getZoomLevelForScale();
+      const currentViewWidth = this.viewWidthMeters;
 
-      // Invalidate cache if zoom level changed (width needs recalculation)
-      if (featureInfo && feature._cachedZoom !== currentZoom) {
-        featureInfo = null;
-        feature._classCache = null;
+      // Invalidate cache if view width changed by >20% (width needs recalculation)
+      // This catches zoom changes within same tile zoom level
+      if (featureInfo && feature._cachedViewWidth) {
+        const viewWidthRatio = currentViewWidth / feature._cachedViewWidth;
+        if (viewWidthRatio < 0.8 || viewWidthRatio > 1.25) {
+          featureInfo = null;
+          feature._classCache = null;
+        }
       }
 
       if (!featureInfo) {
         featureInfo = this.classifyFeature(props, type);
         feature._classCache = featureInfo;
-        feature._cachedZoom = currentZoom;
+        feature._cachedViewWidth = currentViewWidth;
       }
 
       // Precompute batch keys to avoid string allocations in render loop
