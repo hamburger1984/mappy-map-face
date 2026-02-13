@@ -116,10 +116,11 @@ QUARRY_LANDUSE = frozenset(["quarry", "landfill"])
 MAJOR_WATERWAYS = frozenset(["river", "canal"])
 
 # LOD to zoom level mappings (avoid recreating lists per feature)
-LOD_0_ZOOMS = (8, 11, 14)  # Major features: all zoom levels
-LOD_1_ZOOMS = (11, 14)  # Secondary features: not in Z8
-LOD_2_ZOOMS = (14,)  # Detail features: only Z14
+LOD_0_ZOOMS = (5, 8, 11, 14)  # Major features: all zoom levels
+LOD_1_ZOOMS = (8, 11, 14)  # Secondary features: not in Z5
+LOD_2_ZOOMS = (11, 14)  # Detail features: Z11 and Z14
 LOD_3_ZOOMS = (14,)  # Very close detail: only Z14
+LOD_4_ZOOMS = (14,)  # Very close detail: only Z14
 
 # POI category definitions (mirrors map_renderer.js POI_CATEGORIES)
 POI_CATEGORIES = {
@@ -842,6 +843,10 @@ def classify_feature_importance(props, geom_type):
         if construction:
             effective_highway = construction
 
+    # Coastlines (always visible for debugging/visualization)
+    if natural == "coastline":
+        return (0, 110)  # Z0-Z5, highest importance
+
     # Major water bodies (always visible)
     if natural == "water" or props.get("water") or waterway == "riverbank":
         return (0, 100)  # Z0-Z5, very important
@@ -1191,8 +1196,10 @@ def split_geojson_into_tiles(
                     target_zooms = LOD_1_ZOOMS
                 elif min_lod == 2:
                     target_zooms = LOD_2_ZOOMS
-                else:  # min_lod >= 3
+                elif min_lod == 3:
                     target_zooms = LOD_3_ZOOMS
+                else:  # min_lod >= 4
+                    target_zooms = LOD_4_ZOOMS
 
                 # Serialize feature once and reuse for all tiles
                 # Skip expensive per-tile optimization for simplified land polygons
@@ -1709,7 +1716,7 @@ def main():
         "--zoom-levels",
         type=int,
         nargs="+",
-        default=[8, 11, 14],
+        default=[5, 8, 11, 14],
         help="Zoom levels to generate",
     )
     parser.add_argument(
@@ -1778,7 +1785,7 @@ def main():
                     print(
                         f"  ⚠ {pbf_file.name}: needs processing but {geojson_file.name} not found"
                     )
-                    print(f"     Run 'just convert' first")
+                    print("     Run 'just convert' first")
                     sys.exit(1)
                 files_to_process.append(geojson_file)
 
@@ -1805,7 +1812,7 @@ def main():
     print("Step 3: Generate Map Tiles")
     print("=" * 70)
     print()
-    print(f"Configuration:")
+    print("Configuration:")
     print(f"  Zoom levels: {', '.join(map(str, args.zoom_levels))}")
     print(f"  Parallel jobs: {args.jobs}")
     print(f"  Output: {args.output_dir}")

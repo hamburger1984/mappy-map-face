@@ -958,9 +958,11 @@ class MapRenderer {
 
   getZoomLevelForScale() {
     // Determine which tile zoom level to use based on view width
-    // Wide view (>10km): use Z8 tiles
+    // Very wide view (>40km): use Z5 tiles
+    // Wide view (10-40km): use Z8 tiles
     // Medium view (2-10km): use Z11 tiles
     // Close view (<2km): use Z14 tiles
+    if (this.viewWidthMeters > 40000) return 5;
     if (this.viewWidthMeters > 10000) return 8;
     if (this.viewWidthMeters > 2000) return 11;
     return 14;
@@ -1099,13 +1101,9 @@ class MapRenderer {
     // Colors
     const OCEAN_COLOR = "rgb(170, 211, 223)"; // Water blue
     const LAND_COLOR = "rgb(242, 239, 233)"; // Light tan/beige
-    const COASTLINE_COLOR = "rgb(255, 250, 240)"; // Light cream/ivory (contrasts with magenta)
+    const COASTLINE_COLOR = "rgb(220, 235, 240)"; // Very light variant of ocean/water color
 
-    // Analyze tiles first to determine if we need ocean or land default background
-    let hasAnyOceanTiles = false;
-    let hasAnyLandTiles = false;
-    let hasAnyCoastlineTiles = false;
-
+    // Analyze tiles
     const tileAnalyses = new Map();
     for (const tile of visibleTiles) {
       const tileKey = this.getTileKey(tile.z, tile.x, tile.y);
@@ -1114,30 +1112,10 @@ class MapRenderer {
 
       const analysis = this.analyzeTileContent(tileData);
       tileAnalyses.set(tileKey, analysis);
-
-      if (analysis.hasCoastline) {
-        hasAnyCoastlineTiles = true;
-      }
-      if (analysis.isEmpty) {
-        hasAnyOceanTiles = true;
-      }
-      if (analysis.hasLandFeatures && !analysis.hasCoastline) {
-        hasAnyLandTiles = true;
-      }
     }
 
-    // Set default background based on majority tile type
-    let defaultBackground;
-    if (hasAnyCoastlineTiles) {
-      // If any coastline tiles, use light cream as default (good contrast with magenta)
-      defaultBackground = COASTLINE_COLOR;
-    } else if (hasAnyOceanTiles) {
-      defaultBackground = OCEAN_COLOR;
-    } else {
-      defaultBackground = LAND_COLOR;
-    }
-
-    this.ctx.fillStyle = defaultBackground;
+    // Default background is always ocean
+    this.ctx.fillStyle = OCEAN_COLOR;
     this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
 
     // Now render specific tile backgrounds as needed
@@ -1148,27 +1126,15 @@ class MapRenderer {
 
       const tileBounds = this.getTileBounds(tile.x, tile.y, tile.z);
 
-      // Case A: Coastal tile (has coastline) - use light cream background
+      // Coastline tiles get very light ocean color
       if (analysis.hasCoastline) {
-        if (defaultBackground !== COASTLINE_COLOR) {
-          this.fillTileBounds(tileBounds, COASTLINE_COLOR, bounds);
-        }
-        // else: already coastline background, nothing to do
+        this.fillTileBounds(tileBounds, COASTLINE_COLOR, bounds);
       }
-      // Case B: Pure inland tile (has land features, no coastline)
+      // Land tiles (no coastline) get land color
       else if (analysis.hasLandFeatures) {
-        if (defaultBackground !== LAND_COLOR) {
-          this.fillTileBounds(tileBounds, LAND_COLOR, bounds);
-        }
-        // else: already land background, nothing to do
+        this.fillTileBounds(tileBounds, LAND_COLOR, bounds);
       }
-      // Case C: Pure ocean tile (no features at all)
-      else if (analysis.isEmpty) {
-        if (defaultBackground !== OCEAN_COLOR) {
-          this.fillTileBounds(tileBounds, OCEAN_COLOR, bounds);
-        }
-        // else: already ocean background, nothing to do
-      }
+      // Ocean tiles (empty) already have ocean background from default
     }
   }
 
@@ -1637,6 +1603,7 @@ class MapRenderer {
           strokeWidth: featureInfo.strokeWidth,
           _lineKey: featureInfo._lineKey,
           _fillKey: featureInfo._fillKey,
+          showDirection: featureInfo.showDirection,
         });
       }
     }
@@ -1711,7 +1678,7 @@ class MapRenderer {
     this.renderLayer(layers.boundaries, adjustedBounds, false);
     layerTimings.boundaries = performance.now() - layerStart;
 
-    // 9b. Coastline with direction arrows (on top for debugging)
+    // 9b. Coastline with direction arrows (for debugging/visualization)
     layerStart = performance.now();
     this.renderCoastlineWithArrows(layers.coastline, adjustedBounds);
     layerTimings.coastline = performance.now() - layerStart;
@@ -1909,12 +1876,12 @@ class MapRenderer {
       };
     }
 
-    // Water areas (filled polygons, including coastline + water landuse)
+    // Water areas (filled polygons)
+    // Note: coastline is handled separately as a LineString with direction arrows
     if (
       props.natural === "water" ||
       props.water ||
       props.waterway === "riverbank" ||
-      props.natural === "coastline" ||
       props.landuse === "basin" ||
       props.landuse === "reservoir"
     ) {
@@ -3002,7 +2969,62 @@ class MapRenderer {
           y: toScreenY(c[1]),
         }));
 
-        // Draw the coastline as a thick magenta line
+        // Draw blue border on the right side of the coastline
+        // (perpendicular offset to the right of the direction)
+        const offsetDistance = 5; // pixels to the right
+        const rightSideCoords = [];
+
+        for (let i = 0; i < screenCoords.length; i++) {
+          let dx, dy;
+
+          if (i === 0) {
+            // First point: use direction to next point
+            dx = screenCoords[i + 1].x - screenCoords[i].x;
+            dy = screenCoords[i + 1].y - screenCoords[i].y;
+          } else if (i === screenCoords.length - 1) {
+            // Last point: use direction from previous point
+            dx = screenCoords[i].x - screenCoords[i - 1].x;
+            dy = screenCoords[i].y - screenCoords[i - 1].y;
+          } else {
+            // Middle points: average direction from both segments
+            const dx1 = screenCoords[i].x - screenCoords[i - 1].x;
+            const dy1 = screenCoords[i].y - screenCoords[i - 1].y;
+            const dx2 = screenCoords[i + 1].x - screenCoords[i].x;
+            const dy2 = screenCoords[i + 1].y - screenCoords[i].y;
+            dx = dx1 + dx2;
+            dy = dy1 + dy2;
+          }
+
+          // Normalize direction
+          const len = Math.sqrt(dx * dx + dy * dy);
+          if (len > 0) {
+            dx /= len;
+            dy /= len;
+          }
+
+          // Perpendicular to the right (rotate 90° counter-clockwise)
+          const perpX = -dy;
+          const perpY = dx;
+
+          rightSideCoords.push({
+            x: screenCoords[i].x + perpX * offsetDistance,
+            y: screenCoords[i].y + perpY * offsetDistance,
+          });
+        }
+
+        // Draw the blue border line on the right side
+        this.ctx.strokeStyle = "rgba(0, 150, 255, 0.7)"; // Blue
+        this.ctx.lineWidth = 3;
+        this.ctx.lineCap = "round";
+        this.ctx.lineJoin = "round";
+        this.ctx.beginPath();
+        this.ctx.moveTo(rightSideCoords[0].x, rightSideCoords[0].y);
+        for (let i = 1; i < rightSideCoords.length; i++) {
+          this.ctx.lineTo(rightSideCoords[i].x, rightSideCoords[i].y);
+        }
+        this.ctx.stroke();
+
+        // Draw the coastline as a thick magenta line (center line)
         this.ctx.strokeStyle = `rgba(${color.r},${color.g},${color.b},${color.a / 255})`;
         this.ctx.lineWidth = width || 3;
         this.ctx.lineCap = "round";
@@ -3726,41 +3748,55 @@ class MapRenderer {
     if (!visibleTiles || visibleTiles.length === 0) return;
 
     this.ctx.save();
-    this.ctx.strokeStyle = "magenta";
-    this.ctx.lineWidth = 2;
-    this.ctx.setLineDash([10, 5]); // Dashed line pattern
 
-    // Get coordinate transformation functions
-    const toScreenX = (lon) => {
-      const lonRange = bounds.maxLon - bounds.minLon;
-      return ((lon - bounds.minLon) / lonRange) * this.canvasWidth;
-    };
+    // Use the same coordinate transformation as the rest of the renderer
+    const lonRange = bounds.maxLon - bounds.minLon;
+    const latRange = bounds.maxLat - bounds.minLat;
+    const scaleX = this.canvasWidth / lonRange;
+    const scaleY = this.canvasHeight / latRange;
+    const minLon = bounds.minLon;
+    const minLat = bounds.minLat;
+    const canvasHeight = this.canvasHeight;
 
-    const toScreenY = (lat) => {
-      const latRange = bounds.maxLat - bounds.minLat;
-      return (
-        this.canvasHeight -
-        ((lat - bounds.minLat) / latRange) * this.canvasHeight
-      );
-    };
+    const toScreenX = (lon) => (lon - minLon) * scaleX;
+    const toScreenY = (lat) => canvasHeight - (lat - minLat) * scaleY;
 
-    // Draw each tile boundary
+    // Draw each tile boundary with white line wrapped in two black lines
     for (const { z, x, y } of visibleTiles) {
-      const tileBounds = this.getTileBounds(z, x, y);
+      const tileBounds = this.getTileBounds(x, y, z);
 
       const left = toScreenX(tileBounds.minLon);
       const right = toScreenX(tileBounds.maxLon);
       const top = toScreenY(tileBounds.maxLat);
       const bottom = toScreenY(tileBounds.minLat);
 
-      // Draw rectangle for tile boundary
+      // Draw outer black border (3px wide)
+      this.ctx.strokeStyle = "rgba(0, 0, 0, 0.9)";
+      this.ctx.lineWidth = 2;
+      this.ctx.setLineDash([]);
       this.ctx.strokeRect(left, top, right - left, bottom - top);
 
-      // Draw tile label
+      // Draw inner white border (1px wide)
+      this.ctx.strokeStyle = "rgba(255, 255, 255, 1)";
+      this.ctx.lineWidth = 1;
+      this.ctx.strokeRect(left, top, right - left, bottom - top);
+
+      // Draw tile label in top-left corner with white text and black outline
       this.ctx.save();
-      this.ctx.fillStyle = "magenta";
-      this.ctx.font = "bold 12px monospace";
-      this.ctx.fillText(`Z${z} (${x},${y})`, left + 5, top + 15);
+      const labelText = `Z${z} (${x},${y})`;
+      this.ctx.font = "bold 14px monospace";
+      this.ctx.textAlign = "left";
+      const labelX = left + 5;
+      const labelY = top + 18;
+
+      // Draw black outline
+      this.ctx.strokeStyle = "black";
+      this.ctx.lineWidth = 3;
+      this.ctx.strokeText(labelText, labelX, labelY);
+
+      // Draw white text
+      this.ctx.fillStyle = "white";
+      this.ctx.fillText(labelText, labelX, labelY);
       this.ctx.restore();
     }
 

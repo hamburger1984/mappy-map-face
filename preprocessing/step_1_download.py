@@ -34,8 +34,7 @@ OSM_SOURCES = {
     "mecklenburg-vorpommern": "https://download.geofabrik.de/europe/germany/mecklenburg-vorpommern-latest.osm.pbf",
     "niedersachsen": "https://download.geofabrik.de/europe/germany/niedersachsen-latest.osm.pbf",
     "nordrhein-westfalen": "https://download.geofabrik.de/europe/germany/nordrhein-westfalen-latest.osm.pbf",
-    # Temporarily skipped:
-    # "denmark": "https://download.geofabrik.de/europe/denmark-latest.osm.pbf",
+    "denmark": "https://download.geofabrik.de/europe/denmark-latest.osm.pbf",
 }
 
 
