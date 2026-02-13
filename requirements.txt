@@ -9,3 +9,6 @@ tqdm>=4.66.0
 
 # shapely - Geometry processing and simplification
 shapely>=2.0.0
+
+# PyYAML - YAML configuration file parsing
+PyYAML>=6.0

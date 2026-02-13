@@ -1,0 +1,67 @@
+{
+  "tilesets": [
+    {
+      "id": "t1",
+      "name": "Street Level",
+      "view_range_meters": [
+        100,
+        1000
+      ],
+      "tile_size_meters": 200
+    },
+    {
+      "id": "t2",
+      "name": "Neighborhood",
+      "view_range_meters": [
+        1500,
+        2000
+      ],
+      "tile_size_meters": 750
+    },
+    {
+      "id": "t3",
+      "name": "District",
+      "view_range_meters": [
+        3000,
+        7000
+      ],
+      "tile_size_meters": 2000
+    },
+    {
+      "id": "t4",
+      "name": "City Fine",
+      "view_range_meters": [
+        10000,
+        15000
+      ],
+      "tile_size_meters": 5000
+    },
+    {
+      "id": "t5",
+      "name": "City Wide",
+      "view_range_meters": [
+        20000,
+        70000
+      ],
+      "tile_size_meters": 15000
+    },
+    {
+      "id": "t6",
+      "name": "Regional",
+      "view_range_meters": [
+        100000,
+        150000
+      ],
+      "tile_size_meters": 50000
+    },
+    {
+      "id": "t7",
+      "name": "Continental",
+      "view_range_meters": [
+        200000,
+        1000000
+      ],
+      "tile_size_meters": 100000
+    }
+  ]
+}
