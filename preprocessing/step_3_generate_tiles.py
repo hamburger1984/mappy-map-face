@@ -613,6 +613,14 @@ def feature_matches_tileset(feature, tileset_config, props, geom_type):
             if prop_value:
                 # Handle wildcard "*" or specific values
                 if tag_values == ["*"] or prop_value in tag_values:
+                    if prop_value == "construction":
+                        # and feature_def.get("name") not in [
+                        #    "construction",
+                        #    "buildings",
+                        # ]:
+                        print(
+                            "+++ Construction matches", props, feature_def.get("name")
+                        )
                     matches = True
                     break
 
@@ -626,6 +634,8 @@ def feature_matches_tileset(feature, tileset_config, props, geom_type):
             prop_value = props.get(tag_key)
             if prop_value and prop_value in tag_values:
                 excluded = True
+                if prop_value == "construction":
+                    print("xxx Construction excluded", props)
                 break
 
         if excluded:
@@ -1856,9 +1866,11 @@ def split_geojson_into_tiles(
                         )
                     ):
                         has_land_features = True
-                        print(f"got land features for {cx},{cy}\n")
                 except:
                     pass
+
+            if "construction" in all_features:
+                print("!!! Construction in all_features -> ", tile_file)
 
             # Write tile with metadata
             with open(tile_file, "w", encoding="utf-8") as f:
