@@ -2073,6 +2073,33 @@ class MapRenderer {
     return null;
   }
 
+  parseMeters(value) {
+    if (value) {
+      let valueMeters = parseFloat(value);
+      if (!isNaN(valueMeters)) {
+        // Check for unit suffixes and convert to meters
+        const valueStr = value.toString().trim().toLowerCase();
+        if (valueStr.includes("cm") || valueStr.includes("centimeter")) {
+          valueMeters = valueMeters / 100; // Convert cm to m
+        } else if (valueStr.includes("mm") || valueStr.includes("millimeter")) {
+          valueMeters = valueMeters / 1000; // Convert mm to m
+        } else if (valueStr.includes("km") || valueStr.includes("kilometer")) {
+          valueMeters = valueMeters * 1000; // Convert km to m
+        } else if (
+          valueStr.includes("ft") ||
+          valueStr.includes("feet") ||
+          valueStr.includes("'")
+        ) {
+          valueMeters = valueMeters * 0.3048; // Convert feet to m
+        }
+        // else assume meters (or already parsed as meters)
+
+        return valueMeters;
+      }
+    }
+    return null;
+  }
+
   classifyFeature(props, type) {
     // Classify feature and determine: color, layer, minLOD (minimum zoom to show), fill
     // minLOD: 0=always show, 1=medium zoom, 2=high zoom, 3=very high zoom
@@ -2374,6 +2401,7 @@ class MapRenderer {
         "motorway_junction",
         "bus_stop",
       ];
+      // TODO: find a good way to draw bus_stops (maybe introduce a toggle)
       if (skipTypes.includes(props.highway)) {
         return { layer: null, minLOD: 999, fill: false };
       }
@@ -2512,6 +2540,9 @@ class MapRenderer {
           isConstruction,
         };
       } else {
+        //if (isBridge) {
+        //  console.log("Bridge road detected", props);
+        //}
         return {
           layer: "surface_roads",
           color,
