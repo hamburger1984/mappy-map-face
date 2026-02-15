@@ -1234,7 +1234,6 @@ class MapRenderer {
   analyzeTileContent(tileData) {
     // Use pre-computed metadata if available (optimization)
     if (tileData && tileData._meta) {
-      console.log(`using metadata`, tileData._meta);
       return {
         hasCoastline: tileData._meta.hasCoastline,
         hasLandFeatures: tileData._meta.hasLandFeatures,
@@ -1247,7 +1246,6 @@ class MapRenderer {
 
     // Fallback: analyze tile features (for tiles without metadata)
     if (!tileData || !tileData.features || tileData.features.length === 0) {
-      console.log(`no features found`);
       return { hasCoastline: false, hasLandFeatures: false, isEmpty: true };
     }
 
@@ -1260,7 +1258,6 @@ class MapRenderer {
       // Check for coastline
       if (props.natural === "coastline") {
         hasCoastline = true;
-        console.log(`got coastline`, feature);
       }
 
       // Check for land-specific features
@@ -2428,44 +2425,58 @@ class MapRenderer {
 
       let color;
       let minLOD;
-      let realWidthMeters; // Real-world width in meters
+      let realWidthMeters = this.parseMeters(props.width); // Real-world width in meters
 
       let roadPriority; // Lower = drawn first (underneath), higher = drawn on top
+      let lanes = props.lanes;
+      let laneWidth;
 
       if (effectiveHighway === "motorway" || effectiveHighway === "trunk") {
+        // was: 14m, 4 lanes
         color = { r: 233, g: 115, b: 103, a: 255 }; // OSM motorway orange
-        realWidthMeters = 14; // ~4 lanes
+        laneWidth = 3.5;
+        lanes = lanes || 4;
         minLOD = 0;
         roadPriority = 7;
       } else if (effectiveHighway === "primary") {
+        // was: 7m, 2 lanes
         color = { r: 249, g: 207, b: 144, a: 255 }; // OSM primary yellow
-        realWidthMeters = 7; // ~2 lanes
+        laneWidth = 3.5;
+        lanes = lanes || 2;
         minLOD = 0; // Show at all zoom levels (including 25km)
         roadPriority = 6;
       } else if (effectiveHighway === "secondary") {
+        // was: 7m, 2 lanes
         color = { r: 248, g: 234, b: 164, a: 255 }; // OSM secondary light yellow
-        realWidthMeters = 7; // ~2 lanes
+        laneWidth = 3.5;
+        lanes = lanes || 2;
         minLOD = 1;
         roadPriority = 5;
       } else if (effectiveHighway === "tertiary") {
+        // was: 6m, 2 lanes
         color = { r: 255, g: 255, b: 255, a: 255 }; // OSM tertiary white
-        realWidthMeters = 6; // ~1.5 lanes
+        laneWidth = 3;
+        lanes = lanes || 2;
         minLOD = 1;
         roadPriority = 4;
       } else if (
         effectiveHighway === "residential" ||
         effectiveHighway === "unclassified"
       ) {
+        // was: 5m, 1-2 lanes
         color = { r: 255, g: 255, b: 255, a: 255 }; // OSM residential white
-        realWidthMeters = 5; // ~1-2 lanes
+        laneWidth = 3;
+        lanes = lanes || 1.666; // 1-2?
         minLOD = 1;
         roadPriority = 3;
       } else if (
         effectiveHighway === "service" ||
         effectiveHighway === "track"
       ) {
+        // was: 3.5m, 1 lane
         color = { r: 255, g: 255, b: 255, a: 255 }; // OSM service white
-        realWidthMeters = 3.5; // 1 lane
+        laneWidth = 2.8;
+        lanes = lanes || 1.1;
         minLOD = 4;
         roadPriority = 2;
       } else if (
@@ -2474,13 +2485,17 @@ class MapRenderer {
         effectiveHighway === "pedestrian" ||
         effectiveHighway === "steps"
       ) {
+        // was: 2m
         color = { r: 250, g: 190, b: 165, a: 255 }; // OSM footway salmon/pink
-        realWidthMeters = 2; // Footpaths
+        laneWidth = 2;
+        lanes = lanes || 1;
         minLOD = 1;
         roadPriority = 0;
       } else if (effectiveHighway === "cycleway") {
+        // was: 2m
         color = { r: 120, g: 150, b: 255, a: 255 }; // OSM cycleway blue
-        realWidthMeters = 2; // Cycle paths
+        laneWidth = 2;
+        lanes = lanes || 1;
         minLOD = 4;
         roadPriority = 1;
       } else {
@@ -2488,44 +2503,23 @@ class MapRenderer {
         return { layer: null, minLOD: 999, fill: false };
       }
 
+      if (realWidthMeters) {
+        console.log(
+          "Real Meters",
+          realWidthMeters,
+          "Lanes X Width",
+          lanes * laneWidth,
+          props,
+        );
+      }
+      realWidthMeters = realWidthMeters || lanes * laneWidth;
+
       // Calculate width based on view and real-world size
       // Width should scale: 1px minimum, real width when zoomed in enough
       const metersPerPixel = this.viewWidthMeters / this.canvasWidth;
       const calculatedWidth = realWidthMeters / metersPerPixel;
+      // TODO: allow higher max width in more zoomed in views.
       let width = Math.max(1, Math.min(10, calculatedWidth)); // Clamp between 1-10px
-
-      // Use actual width from OSM if available (may have units like "100 cm", "3.5 m")
-      if (props.width) {
-        let widthMeters = parseFloat(props.width);
-        if (!isNaN(widthMeters)) {
-          // Check for unit suffixes and convert to meters
-          const widthStr = props.width.toString().trim().toLowerCase();
-          if (widthStr.includes("cm") || widthStr.includes("centimeter")) {
-            widthMeters = widthMeters / 100; // Convert cm to m
-          } else if (
-            widthStr.includes("mm") ||
-            widthStr.includes("millimeter")
-          ) {
-            widthMeters = widthMeters / 1000; // Convert mm to m
-          } else if (
-            widthStr.includes("km") ||
-            widthStr.includes("kilometer")
-          ) {
-            widthMeters = widthMeters * 1000; // Convert km to m
-          } else if (
-            widthStr.includes("ft") ||
-            widthStr.includes("feet") ||
-            widthStr.includes("'")
-          ) {
-            widthMeters = widthMeters * 0.3048; // Convert feet to m
-          }
-          // else assume meters (or already parsed as meters)
-
-          // Scale width based on actual OSM width
-          const osmCalculatedWidth = widthMeters / metersPerPixel;
-          width = Math.max(1, Math.min(10, osmCalculatedWidth));
-        }
-      }
 
       // Assign to appropriate layer based on vertical position
       if (isTunnel) {
