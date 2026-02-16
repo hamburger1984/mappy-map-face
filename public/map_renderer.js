@@ -1759,6 +1759,7 @@ class MapRenderer {
         natural_background: [],
         forests: [],
         water_areas: [],
+        islands: [],
         landuse_areas: [],
         buildings: [],
         tunnels: [],
@@ -1877,15 +1878,20 @@ class MapRenderer {
     this.renderLayer(layers.forests, adjustedBounds, true);
     layerTimings.forests = performance.now() - layerStart;
 
-    // 2. Water areas (lakes, rivers)
+    // 2. Landuse areas (commercial, industrial, residential)
+    layerStart = performance.now();
+    this.renderLayer(layers.landuse_areas, adjustedBounds, true);
+    layerTimings.landuse = performance.now() - layerStart;
+
+    // 3. Water areas (lakes, rivers)
     layerStart = performance.now();
     this.renderLayer(layers.water_areas, adjustedBounds, true);
     layerTimings.water = performance.now() - layerStart;
 
-    // 3. Landuse areas (commercial, industrial, residential)
+    // 3b. Islands
     layerStart = performance.now();
-    this.renderLayer(layers.landuse_areas, adjustedBounds, true);
-    layerTimings.landuse = performance.now() - layerStart;
+    this.renderLayer(layers.islands, adjustedBounds, true);
+    layerTimings.islands = performance.now() - layerStart;
 
     // 4. Buildings
     layerStart = performance.now();
@@ -2111,41 +2117,10 @@ class MapRenderer {
       props.bridge === "true" ||
       (props.layer && parseInt(props.layer) > 0 && !isTunnel);
 
-    // === FILLED AREAS (polygons) ===
+    // Detect islands - landusage or forrestes to be drawn on top of water
+    const isIsland = props.place === "islet" || props.place === "island";
 
-    // Natural background: parks, forests, farmland
-    if (
-      props.leisure === "park" ||
-      props.landuse === "grass" ||
-      props.landuse === "meadow" ||
-      props.landuse === "farmland" ||
-      props.landuse === "orchard" ||
-      props.landuse === "vineyard" ||
-      props.landuse === "forest" ||
-      props.natural === "wood"
-    ) {
-      const isForest = props.landuse === "forest" || props.natural === "wood";
-      if (isForest) {
-        return {
-          layer: "forests",
-          color: { r: 173, g: 209, b: 158, a: 255 }, // Dark green
-          minLOD: 0,
-          fill: true,
-        };
-      }
-      const color =
-        props.leisure === "park" ||
-        props.landuse === "grass" ||
-        props.landuse === "meadow"
-          ? { r: 200, g: 230, b: 180, a: 255 } // Light green for parks
-          : { r: 238, g: 240, b: 213, a: 255 }; // Beige for farmland
-      return {
-        layer: "natural_background",
-        color: color,
-        minLOD: 1,
-        fill: true,
-      };
-    }
+    // === FILLED AREAS (polygons) ===
 
     // Water areas (filled polygons)
     // Note: coastline is handled separately as a LineString with direction arrows
@@ -2160,6 +2135,43 @@ class MapRenderer {
         layer: "water_areas",
         color: { r: 170, g: 211, b: 223, a: 255 },
         minLOD: 0,
+        fill: true,
+      };
+    }
+
+    // Natural background: parks, forests, farmland
+    if (
+      props.leisure === "park" ||
+      props.landuse === "grass" ||
+      props.landuse === "meadow" ||
+      props.landuse === "farmland" ||
+      props.landuse === "orchard" ||
+      props.landuse === "vineyard" ||
+      props.landuse === "forest" ||
+      props.natural === "wood"
+    ) {
+      const isForest = props.landuse === "forest" || props.natural === "wood";
+      if (isForest) {
+        if (props.natural) {
+          console.log("Natural forest detected", props);
+        }
+        return {
+          layer: isIsland ? "islands" : "forests",
+          color: { r: 173, g: 209, b: 158, a: 255 }, // Dark green
+          minLOD: 0,
+          fill: true,
+        };
+      }
+      const color =
+        props.leisure === "park" ||
+        props.landuse === "grass" ||
+        props.landuse === "meadow"
+          ? { r: 200, g: 230, b: 180, a: 255 } // Light green for parks
+          : { r: 238, g: 240, b: 213, a: 255 }; // Beige for farmland
+      return {
+        layer: isIsland ? "islands" : "natural_background",
+        color: color,
+        minLOD: 1,
         fill: true,
       };
     }
@@ -2431,28 +2443,42 @@ class MapRenderer {
       let lanes = props.lanes;
       let laneWidth;
 
-      if (effectiveHighway === "motorway" || effectiveHighway === "trunk") {
+      if (
+        effectiveHighway === "motorway" ||
+        effectiveHighway === "trunk" ||
+        effectiveHighway === "motorway_link" ||
+        effectiveHighway === "trunk_link"
+      ) {
         // was: 14m, 4 lanes
         color = { r: 233, g: 115, b: 103, a: 255 }; // OSM motorway orange
         laneWidth = 3.5;
         lanes = lanes || 4;
         minLOD = 0;
         roadPriority = 7;
-      } else if (effectiveHighway === "primary") {
+      } else if (
+        effectiveHighway === "primary" ||
+        effectiveHighway === "primary_link"
+      ) {
         // was: 7m, 2 lanes
         color = { r: 249, g: 207, b: 144, a: 255 }; // OSM primary yellow
         laneWidth = 3.5;
         lanes = lanes || 2;
         minLOD = 0; // Show at all zoom levels (including 25km)
         roadPriority = 6;
-      } else if (effectiveHighway === "secondary") {
+      } else if (
+        effectiveHighway === "secondary" ||
+        effectiveHighway === "secondary_link"
+      ) {
         // was: 7m, 2 lanes
         color = { r: 248, g: 234, b: 164, a: 255 }; // OSM secondary light yellow
         laneWidth = 3.5;
         lanes = lanes || 2;
         minLOD = 1;
         roadPriority = 5;
-      } else if (effectiveHighway === "tertiary") {
+      } else if (
+        effectiveHighway === "tertiary" ||
+        effectiveHighway === "ternary_link"
+      ) {
         // was: 6m, 2 lanes
         color = { r: 255, g: 255, b: 255, a: 255 }; // OSM tertiary white
         laneWidth = 3;
@@ -2467,7 +2493,7 @@ class MapRenderer {
         color = { r: 255, g: 255, b: 255, a: 255 }; // OSM residential white
         laneWidth = 3;
         lanes = lanes || 1.666; // 1-2?
-        minLOD = 1;
+        minLOD = 2;
         roadPriority = 3;
       } else if (
         effectiveHighway === "service" ||
@@ -2477,7 +2503,7 @@ class MapRenderer {
         color = { r: 255, g: 255, b: 255, a: 255 }; // OSM service white
         laneWidth = 2.8;
         lanes = lanes || 1.1;
-        minLOD = 4;
+        minLOD = 2;
         roadPriority = 2;
       } else if (
         effectiveHighway === "footway" ||
@@ -2489,29 +2515,30 @@ class MapRenderer {
         color = { r: 250, g: 190, b: 165, a: 255 }; // OSM footway salmon/pink
         laneWidth = 2;
         lanes = lanes || 1;
-        minLOD = 1;
+        minLOD = 2;
         roadPriority = 0;
       } else if (effectiveHighway === "cycleway") {
         // was: 2m
         color = { r: 120, g: 150, b: 255, a: 255 }; // OSM cycleway blue
         laneWidth = 2;
         lanes = lanes || 1;
-        minLOD = 4;
+        minLOD = 2;
         roadPriority = 1;
       } else {
+        console.log("Unknown highway", props);
         // Unknown highway type - skip it to avoid rendering unexpected features
         return { layer: null, minLOD: 999, fill: false };
       }
 
-      if (realWidthMeters) {
-        console.log(
-          "Real Meters",
-          realWidthMeters,
-          "Lanes X Width",
-          lanes * laneWidth,
-          props,
-        );
-      }
+      //if (realWidthMeters) {
+      //  console.log(
+      //    "Real Meters",
+      //    realWidthMeters,
+      //    "Lanes X Width",
+      //    lanes * laneWidth,
+      //    props,
+      //  );
+      //}
       realWidthMeters = realWidthMeters || lanes * laneWidth;
 
       // Calculate width based on view and real-world size
@@ -2534,9 +2561,9 @@ class MapRenderer {
           isConstruction,
         };
       } else {
-        //if (isBridge) {
-        //  console.log("Bridge road detected", props);
-        //}
+        if (isBridge) {
+          console.log("Bridge road detected", props);
+        }
         return {
           layer: "surface_roads",
           color,
@@ -2662,6 +2689,7 @@ class MapRenderer {
           placePriority = 8;
           fontSize = 11;
         } else {
+          console.log("Unhandled place type:", placeType, props);
           minLOD = 3;
           placePriority = 9;
           fontSize = 12;
@@ -2859,7 +2887,6 @@ class MapRenderer {
       }
 
       // Construction roads: borders only in pass 1
-      console.log("Construction roads", constructionFlats.length);
       if (constructionFlats.length > 0) {
         for (const cf of constructionFlats) {
           const t = Math.min(1, Math.max(0, (cf.width - 1) / 5));
