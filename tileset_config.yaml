@@ -64,7 +64,6 @@ tilesets:
         render:
           layer: "waterways"
           color: [170, 211, 223, 255]
-          use_width_tag: true
         simplification:
           disabled: true
 
@@ -76,11 +75,47 @@ tilesets:
         render:
           layer: "waterways"
           color: [170, 211, 223, 255]
-          use_width_tag: true
         simplification:
           disabled: true
 
-      # Forest features
+      # Natural area features
+      - name: "scrub_heath"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["scrub", "heath"]
+        render:
+          layer: "natural_background"
+          color: [200, 215, 175, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "wetland"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["wetland"]
+        render:
+          layer: "natural_background"
+          color: [200, 225, 210, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "beach"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["beach"]
+        render:
+          layer: "natural_background"
+          color: [255, 241, 186, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      # Forest features (preserve leaf_type tag for pattern rendering)
       - name: "forests_all"
         osm_match:
           geometry: ["Polygon", "MultiPolygon"]
@@ -88,6 +123,8 @@ tilesets:
             landuse: ["forest"]
             natural: ["wood"]
           # No area filter - include all sizes
+          # Preserve leaf_type tag: broadleaved, needleleaved, mixed
+          preserve_tags: ["leaf_type"]
         render:
           layer: "forests"
           color: [173, 209, 158, 255]
@@ -105,7 +142,6 @@ tilesets:
         render:
           layer: "major_roads"
           color: [233, 115, 103, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 1
         simplification:
@@ -120,7 +156,6 @@ tilesets:
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 2
         simplification:
@@ -135,7 +170,6 @@ tilesets:
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 3
         simplification:
@@ -150,7 +184,6 @@ tilesets:
         render:
           layer: "roads"
           color: [255, 255, 255, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 4
         simplification:
@@ -165,7 +198,6 @@ tilesets:
         render:
           layer: "roads"
           color: [255, 255, 255, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 5
         simplification:
@@ -200,7 +232,6 @@ tilesets:
         render:
           layer: "roads"
           color: [220, 220, 220, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 6
         simplification:
@@ -414,6 +445,107 @@ tilesets:
         simplification:
           disabled: true
 
+      - name: "port"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["port"]
+        render:
+          layer: "landuse"
+          color: [230, 225, 240, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "institutional"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["institutional"]
+        render:
+          layer: "landuse"
+          color: [240, 235, 230, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "flowerbed"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["flowerbed"]
+        render:
+          layer: "landuse"
+          color: [255, 230, 230, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      # Leisure and recreation features
+      - name: "playground"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            leisure: ["playground"]
+        render:
+          layer: "recreation"
+          color: [220, 240, 200, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "swimming_pool"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            leisure: ["swimming_pool", "swimming_area"]
+            amenity: ["public_bath"]
+        render:
+          layer: "recreation"
+          color: [170, 211, 255, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "picnic_site"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon", "Point"]
+          tags:
+            leisure: ["picnic_table"]
+            tourism: ["picnic_site"]
+        render:
+          layer: "recreation"
+          color: [200, 230, 180, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "table_tennis"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            leisure: ["pitch"]
+            sport: ["table_tennis"]
+        render:
+          layer: "recreation"
+          color: [180, 220, 160, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      - name: "beach_volleyball"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            leisure: ["pitch"]
+            sport: ["beachvolleyball"]
+        render:
+          layer: "recreation"
+          color: [255, 241, 186, 255]
+          fill: true
+        simplification:
+          disabled: true
+
       # Buildings
       - name: "buildings"
         osm_match:
@@ -605,7 +737,6 @@ tilesets:
         render:
           layer: "waterways"
           color: [170, 211, 223, 255]
-          use_width_tag: true
         simplification:
           epsilon_m: 2
 
@@ -617,7 +748,42 @@ tilesets:
         render:
           layer: "waterways"
           color: [170, 211, 223, 255]
-          use_width_tag: true
+        simplification:
+          epsilon_m: 2
+
+      - name: "scrub_heath"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["scrub", "heath"]
+        render:
+          layer: "natural_background"
+          color: [200, 215, 175, 255]
+          fill: true
+        simplification:
+          epsilon_m: 2
+
+      - name: "wetland"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["wetland"]
+        render:
+          layer: "natural_background"
+          color: [200, 225, 210, 255]
+          fill: true
+        simplification:
+          epsilon_m: 2
+
+      - name: "beach"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["beach"]
+        render:
+          layer: "natural_background"
+          color: [255, 241, 186, 255]
+          fill: true
         simplification:
           epsilon_m: 2
 
@@ -627,6 +793,7 @@ tilesets:
           tags:
             landuse: ["forest"]
             natural: ["wood"]
+          preserve_tags: ["leaf_type"]
         render:
           layer: "forests"
           color: [173, 209, 158, 255]
@@ -643,7 +810,6 @@ tilesets:
         render:
           layer: "major_roads"
           color: [233, 115, 103, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 1
         simplification:
@@ -658,7 +824,6 @@ tilesets:
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 2
         simplification:
@@ -673,7 +838,6 @@ tilesets:
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 3
         simplification:
@@ -688,7 +852,6 @@ tilesets:
         render:
           layer: "roads"
           color: [255, 255, 255, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 4
         simplification:
@@ -703,7 +866,6 @@ tilesets:
         render:
           layer: "roads"
           color: [255, 255, 255, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 5
         simplification:
@@ -738,7 +900,6 @@ tilesets:
         render:
           layer: "roads"
           color: [220, 220, 220, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 6
         simplification:
@@ -950,6 +1111,106 @@ tilesets:
         simplification:
           epsilon_m: 2
 
+      - name: "port"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["port"]
+        render:
+          layer: "landuse"
+          color: [230, 225, 240, 255]
+          fill: true
+        simplification:
+          epsilon_m: 2
+
+      - name: "institutional"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["institutional"]
+        render:
+          layer: "landuse"
+          color: [240, 235, 230, 255]
+          fill: true
+        simplification:
+          epsilon_m: 2
+
+      - name: "flowerbed"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["flowerbed"]
+        render:
+          layer: "landuse"
+          color: [255, 230, 230, 255]
+          fill: true
+        simplification:
+          epsilon_m: 2
+
+      - name: "playground"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            leisure: ["playground"]
+        render:
+          layer: "recreation"
+          color: [220, 240, 200, 255]
+          fill: true
+        simplification:
+          epsilon_m: 2
+
+      - name: "swimming_pool"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            leisure: ["swimming_pool", "swimming_area"]
+            amenity: ["public_bath"]
+        render:
+          layer: "recreation"
+          color: [170, 211, 255, 255]
+          fill: true
+        simplification:
+          epsilon_m: 2
+
+      - name: "picnic_site"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon", "Point"]
+          tags:
+            leisure: ["picnic_table"]
+            tourism: ["picnic_site"]
+        render:
+          layer: "recreation"
+          color: [200, 230, 180, 255]
+          fill: true
+        simplification:
+          epsilon_m: 2
+
+      - name: "table_tennis"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            leisure: ["pitch"]
+            sport: ["table_tennis"]
+        render:
+          layer: "recreation"
+          color: [180, 220, 160, 255]
+          fill: true
+        simplification:
+          epsilon_m: 2
+
+      - name: "beach_volleyball"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            leisure: ["pitch"]
+            sport: ["beachvolleyball"]
+        render:
+          layer: "recreation"
+          color: [255, 241, 186, 255]
+          fill: true
+        simplification:
+          epsilon_m: 2
+
       - name: "buildings"
         osm_match:
           geometry: ["Polygon", "MultiPolygon"]
@@ -1113,7 +1374,6 @@ tilesets:
         render:
           layer: "waterways"
           color: [170, 211, 223, 255]
-          use_width_tag: true
         simplification:
           epsilon_m: 5
 
@@ -1125,7 +1385,42 @@ tilesets:
         render:
           layer: "waterways"
           color: [170, 211, 223, 255]
-          use_width_tag: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "scrub_heath"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["scrub", "heath"]
+        render:
+          layer: "natural_background"
+          color: [200, 215, 175, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "wetland"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["wetland"]
+        render:
+          layer: "natural_background"
+          color: [200, 225, 210, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "beach"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["beach"]
+        render:
+          layer: "natural_background"
+          color: [255, 241, 186, 255]
+          fill: true
         simplification:
           epsilon_m: 5
 
@@ -1135,6 +1430,7 @@ tilesets:
           tags:
             landuse: ["forest"]
             natural: ["wood"]
+          preserve_tags: ["leaf_type"]
         render:
           layer: "forests"
           color: [173, 209, 158, 255]
@@ -1151,7 +1447,6 @@ tilesets:
         render:
           layer: "major_roads"
           color: [233, 115, 103, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 1
         simplification:
@@ -1166,7 +1461,6 @@ tilesets:
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 2
         simplification:
@@ -1181,7 +1475,6 @@ tilesets:
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 3
         simplification:
@@ -1196,7 +1489,6 @@ tilesets:
         render:
           layer: "roads"
           color: [255, 255, 255, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 4
         simplification:
@@ -1211,12 +1503,45 @@ tilesets:
         render:
           layer: "roads"
           color: [255, 255, 255, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 5
         simplification:
           epsilon_m: 5
       # NO minor_roads (LOD 3+ only)
+
+      - name: "minor_roads"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            highway:
+              [
+                "service",
+                "track",
+                "path",
+                "footway",
+                "cycleway",
+                "bridleway",
+                "pedestrian",
+                "steps",
+              ]
+            construction:
+              [
+                "service",
+                "track",
+                "path",
+                "footway",
+                "cycleway",
+                "bridleway",
+                "pedestrian",
+                "steps",
+              ]
+        render:
+          layer: "roads"
+          color: [220, 220, 220, 255]
+          show_name: true
+          name_priority: 6
+        simplification:
+          epsilon_m: 5
 
       - name: "major_rail"
         osm_match:
@@ -1424,6 +1749,106 @@ tilesets:
         simplification:
           epsilon_m: 5
 
+      - name: "port"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["port"]
+        render:
+          layer: "landuse"
+          color: [230, 225, 240, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "institutional"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["institutional"]
+        render:
+          layer: "landuse"
+          color: [240, 235, 230, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "flowerbed"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["flowerbed"]
+        render:
+          layer: "landuse"
+          color: [255, 230, 230, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "playground"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            leisure: ["playground"]
+        render:
+          layer: "recreation"
+          color: [220, 240, 200, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "swimming_pool"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            leisure: ["swimming_pool", "swimming_area"]
+            amenity: ["public_bath"]
+        render:
+          layer: "recreation"
+          color: [170, 211, 255, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "picnic_site"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon", "Point"]
+          tags:
+            leisure: ["picnic_table"]
+            tourism: ["picnic_site"]
+        render:
+          layer: "recreation"
+          color: [200, 230, 180, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "table_tennis"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            leisure: ["pitch"]
+            sport: ["table_tennis"]
+        render:
+          layer: "recreation"
+          color: [180, 220, 160, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      - name: "beach_volleyball"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            leisure: ["pitch"]
+            sport: ["beachvolleyball"]
+        render:
+          layer: "recreation"
+          color: [255, 241, 186, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
       - name: "buildings"
         osm_match:
           geometry: ["Polygon", "MultiPolygon"]
@@ -1577,10 +2002,48 @@ tilesets:
         render:
           layer: "waterways"
           color: [170, 211, 223, 255]
-          use_width_tag: true
         simplification:
           epsilon_m: 20
       # NO minor_waterways (LOD 2+)
+
+      - name: "scrub_heath_medium_large"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["scrub", "heath"]
+          min_area_km2: 0.05
+        render:
+          layer: "natural_background"
+          color: [200, 215, 175, 255]
+          fill: true
+        simplification:
+          epsilon_m: 20
+
+      - name: "wetland_medium_large"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["wetland"]
+          min_area_km2: 0.05
+        render:
+          layer: "natural_background"
+          color: [200, 225, 210, 255]
+          fill: true
+        simplification:
+          epsilon_m: 20
+
+      - name: "beach_medium_large"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["beach"]
+          min_area_km2: 0.02
+        render:
+          layer: "natural_background"
+          color: [255, 241, 186, 255]
+          fill: true
+        simplification:
+          epsilon_m: 20
 
       - name: "forests_medium_large"
         osm_match:
@@ -1589,6 +2052,7 @@ tilesets:
             landuse: ["forest"]
             natural: ["wood"]
           min_area_km2: 0.01 # Only medium and large
+          preserve_tags: ["leaf_type"]
         render:
           layer: "forests"
           color: [173, 209, 158, 255]
@@ -1605,7 +2069,6 @@ tilesets:
         render:
           layer: "major_roads"
           color: [233, 115, 103, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 1
         simplification:
@@ -1620,7 +2083,6 @@ tilesets:
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 2
         simplification:
@@ -1635,7 +2097,6 @@ tilesets:
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 3
         simplification:
@@ -1899,7 +2360,45 @@ tilesets:
         render:
           layer: "waterways"
           color: [170, 211, 223, 255]
-          use_width_tag: true
+        simplification:
+          epsilon_m: 30
+
+      - name: "scrub_heath_medium_large"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["scrub", "heath"]
+          min_area_km2: 0.1
+        render:
+          layer: "natural_background"
+          color: [200, 215, 175, 255]
+          fill: true
+        simplification:
+          epsilon_m: 30
+
+      - name: "wetland_medium_large"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["wetland"]
+          min_area_km2: 0.1
+        render:
+          layer: "natural_background"
+          color: [200, 225, 210, 255]
+          fill: true
+        simplification:
+          epsilon_m: 30
+
+      - name: "beach_medium_large"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["beach"]
+          min_area_km2: 0.05
+        render:
+          layer: "natural_background"
+          color: [255, 241, 186, 255]
+          fill: true
         simplification:
           epsilon_m: 30
 
@@ -1910,6 +2409,7 @@ tilesets:
             landuse: ["forest"]
             natural: ["wood"]
           min_area_km2: 0.01
+          preserve_tags: ["leaf_type"]
         render:
           layer: "forests"
           color: [173, 209, 158, 255]
@@ -1926,7 +2426,6 @@ tilesets:
         render:
           layer: "major_roads"
           color: [233, 115, 103, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 1
         simplification:
@@ -1941,7 +2440,6 @@ tilesets:
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 2
         simplification:
@@ -1956,7 +2454,6 @@ tilesets:
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 3
         simplification:
@@ -2205,6 +2702,7 @@ tilesets:
             landuse: ["forest"]
             natural: ["wood"]
           min_area_km2: 1.0 # Only large
+          preserve_tags: ["leaf_type"]
         render:
           layer: "forests"
           color: [173, 209, 158, 255]
@@ -2221,7 +2719,6 @@ tilesets:
         render:
           layer: "major_roads"
           color: [233, 115, 103, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 1
         simplification:
@@ -2236,7 +2733,6 @@ tilesets:
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 2
         simplification:
@@ -2342,6 +2838,7 @@ tilesets:
             landuse: ["forest"]
             natural: ["wood"]
           min_area_km2: 1.0
+          preserve_tags: ["leaf_type"]
         render:
           layer: "forests"
           color: [173, 209, 158, 255]
@@ -2358,7 +2855,6 @@ tilesets:
         render:
           layer: "major_roads"
           color: [233, 115, 103, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 1
         simplification:
@@ -2373,7 +2869,6 @@ tilesets:
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
-          use_width_tag: true
           show_name: true
           name_priority: 2
         simplification:

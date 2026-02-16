@@ -1,11 +1,14 @@
 // Hamburg Map Renderer - Canvas2D with Zoom/Pan/Tooltips
 // VERSION: 2024-POI-CATEGORIES
 
+// Import theme system
+import { getColor, toRGBA, toRGB } from "./map_theme.js";
+
 // POI category definitions with tag mappings
 const POI_CATEGORIES = {
   food_drink: {
     label: "Food & Drink",
-    color: { r: 231, g: 76, b: 60 },
+    color: getColor("poi", "foodDrink"),
     amenity: new Set([
       "restaurant",
       "fast_food",
@@ -31,7 +34,7 @@ const POI_CATEGORIES = {
   },
   shopping: {
     label: "Shopping",
-    color: { r: 155, g: 89, b: 182 },
+    color: getColor("poi", "shopping"),
     shop: new Set([
       "hairdresser",
       "clothes",
@@ -79,7 +82,7 @@ const POI_CATEGORIES = {
   },
   health: {
     label: "Health",
-    color: { r: 46, g: 204, b: 113 },
+    color: getColor("poi", "health"),
     amenity: new Set([
       "doctors",
       "dentist",
@@ -92,7 +95,7 @@ const POI_CATEGORIES = {
   },
   tourism: {
     label: "Tourism",
-    color: { r: 230, g: 126, b: 34 },
+    color: getColor("poi", "tourism"),
     tourism: new Set([
       "artwork",
       "hotel",
@@ -113,7 +116,7 @@ const POI_CATEGORIES = {
   },
   historic: {
     label: "Historic",
-    color: { r: 139, g: 69, b: 19 },
+    color: getColor("poi", "historic"),
     historic: new Set([
       "memorial",
       "boundary_stone",
@@ -136,7 +139,7 @@ const POI_CATEGORIES = {
   },
   services: {
     label: "Services",
-    color: { r: 52, g: 152, b: 219 },
+    color: getColor("poi", "services"),
     amenity: new Set([
       "bank",
       "post_office",
@@ -164,7 +167,7 @@ const POI_CATEGORIES = {
   },
   transport: {
     label: "Transport",
-    color: { r: 26, g: 188, b: 156 },
+    color: getColor("poi", "transport"),
     amenity: new Set([
       "bicycle_rental",
       "parking",
@@ -181,7 +184,7 @@ const POI_CATEGORIES = {
   },
   education: {
     label: "Education",
-    color: { r: 243, g: 156, b: 18 },
+    color: getColor("poi", "education"),
     amenity: new Set([
       "kindergarten",
       "school",
@@ -194,7 +197,7 @@ const POI_CATEGORIES = {
   },
   nightlife: {
     label: "Nightlife",
-    color: { r: 233, g: 30, b: 144 },
+    color: getColor("poi", "nightlife"),
     amenity: new Set([
       "bar",
       "pub",
@@ -287,6 +290,9 @@ class MapRenderer {
     }
     this._poiRenderQueue = [];
 
+    // Pattern cache for textures (scrub, wetland, etc.)
+    this.patternCache = {}; // patternId -> CanvasPattern
+
     // Performance optimizations
     this.renderTimeout = null;
     this.renderDelay = 50; // ms delay for debouncing
@@ -341,6 +347,7 @@ class MapRenderer {
 
       // Pre-render POI glyph sprites and create toggle buttons
       this.initGlyphCache();
+      this.initPatternCache();
       this.initPOIToggles();
 
       return true;
@@ -360,6 +367,575 @@ class MapRenderer {
       this.drawGlyph(ctx, catId, catDef.color, glyphSize);
       this.glyphCache[catId] = { canvas: offscreen, size: glyphSize };
     }
+  }
+
+  initPatternCache() {
+    // Create pattern canvases for natural features
+    const patterns = {
+      scrub: this.createScrubPattern(),
+      wetland: this.createWetlandPattern(),
+      broadleaf_forest: this.createBroadleafForestPattern(),
+      needleleaf_forest: this.createNeedleleafForestPattern(),
+      mixed_forest: this.createMixedForestPattern(),
+      playground: this.createPlaygroundPattern(),
+      swimming_pool: this.createSwimmingPoolPattern(),
+      beach: this.createBeachPattern(),
+      beach_volleyball: this.createBeachVolleyballPattern(),
+      picnic_site: this.createPicnicSitePattern(),
+      table_tennis: this.createTableTennisPattern(),
+    };
+
+    // Convert canvases to CanvasPattern objects
+    for (const [patternId, canvas] of Object.entries(patterns)) {
+      this.patternCache[patternId] = this.ctx.createPattern(canvas, "repeat");
+    }
+  }
+
+  createScrubPattern() {
+    // Create a subtle pattern for scrubland (small bush/shrub symbols)
+    const size = 16;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+
+    // Draw small random bush symbols
+    ctx.fillStyle = toRGBA(getColor("patterns", "scrubBush")); // Dark green, semi-transparent
+    ctx.strokeStyle = toRGBA(getColor("patterns", "scrubStem"));
+    ctx.lineWidth = 0.5;
+
+    // Draw 3-4 small bush clusters in pattern
+    const bushes = [
+      { x: 3, y: 3, r: 1.5 },
+      { x: 11, y: 7, r: 1.2 },
+      { x: 7, y: 12, r: 1.3 },
+      { x: 13, y: 14, r: 1.1 },
+    ];
+
+    for (const bush of bushes) {
+      // Draw as small irregular circles
+      ctx.beginPath();
+      ctx.arc(bush.x, bush.y, bush.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Add small stems
+      ctx.beginPath();
+      ctx.moveTo(bush.x, bush.y + bush.r);
+      ctx.lineTo(bush.x, bush.y + bush.r + 1);
+      ctx.stroke();
+    }
+
+    return canvas;
+  }
+
+  createWetlandPattern() {
+    // Create a subtle pattern for wetlands (water + grass symbols)
+    const size = 16;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+
+    // Draw subtle wavy lines (water)
+    ctx.strokeStyle = toRGBA(getColor("patterns", "wetlandWater")); // Light blue, very transparent
+    ctx.lineWidth = 0.8;
+
+    // Horizontal wavy lines
+    for (let y = 2; y < size; y += 6) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      for (let x = 0; x <= size; x += 2) {
+        const wave = Math.sin((x / size) * Math.PI * 2) * 0.5;
+        ctx.lineTo(x, y + wave);
+      }
+      ctx.stroke();
+    }
+
+    // Add small grass tufts
+    ctx.strokeStyle = toRGBA(getColor("patterns", "wetlandGrass")); // Green, semi-transparent
+    ctx.lineWidth = 0.6;
+
+    const tufts = [
+      { x: 4, y: 4 },
+      { x: 12, y: 8 },
+      { x: 8, y: 14 },
+    ];
+
+    for (const tuft of tufts) {
+      // Draw vertical grass blades
+      for (let i = -1; i <= 1; i++) {
+        ctx.beginPath();
+        ctx.moveTo(tuft.x + i * 0.5, tuft.y + 1);
+        ctx.lineTo(tuft.x + i * 0.5, tuft.y - 2);
+        ctx.stroke();
+      }
+    }
+
+    return canvas;
+  }
+
+  createBroadleafForestPattern() {
+    // Pattern for deciduous/broadleaf forest (leaf shapes)
+    const size = 20;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+
+    const color = getColor("patterns", "broadleafForest");
+    ctx.fillStyle = toRGBA(color); // Medium green, semi-transparent
+    ctx.strokeStyle = toRGBA(color);
+    ctx.lineWidth = 0.5;
+
+    // Draw leaf shapes at various positions
+    const leaves = [
+      { x: 4, y: 5, r: 2.5, angle: 0.3 },
+      { x: 14, y: 3, r: 2, angle: -0.2 },
+      { x: 10, y: 11, r: 2.3, angle: 0.5 },
+      { x: 6, y: 16, r: 2.2, angle: -0.4 },
+      { x: 16, y: 15, r: 2.4, angle: 0.1 },
+    ];
+
+    for (const leaf of leaves) {
+      ctx.save();
+      ctx.translate(leaf.x, leaf.y);
+      ctx.rotate(leaf.angle);
+
+      // Draw oval leaf shape
+      ctx.beginPath();
+      ctx.ellipse(0, 0, leaf.r * 0.6, leaf.r, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    return canvas;
+  }
+
+  createNeedleleafForestPattern() {
+    // Pattern for coniferous/needleleaf forest (small triangular trees)
+    const size = 20;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+
+    ctx.fillStyle = toRGBA(getColor("patterns", "needleleafForest")); // Darker green for conifers
+    ctx.strokeStyle = toRGBA(getColor("patterns", "needleleafForest"));
+    ctx.lineWidth = 0.6;
+
+    // Draw small pine tree shapes
+    const trees = [
+      { x: 5, y: 6, h: 5 },
+      { x: 15, y: 4, h: 4.5 },
+      { x: 10, y: 13, h: 5.5 },
+      { x: 17, y: 16, h: 4 },
+    ];
+
+    for (const tree of trees) {
+      // Draw simple triangle for pine tree
+      ctx.beginPath();
+      ctx.moveTo(tree.x, tree.y - tree.h / 2); // Top
+      ctx.lineTo(tree.x - tree.h / 2.5, tree.y + tree.h / 2); // Bottom left
+      ctx.lineTo(tree.x + tree.h / 2.5, tree.y + tree.h / 2); // Bottom right
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Small trunk
+      ctx.fillStyle = toRGBA(getColor("patterns", "needleleafTrunk"));
+      ctx.fillRect(tree.x - 0.5, tree.y + tree.h / 2, 1, 1.5);
+      ctx.fillStyle = toRGBA(getColor("patterns", "needleleafForest"));
+    }
+
+    return canvas;
+  }
+
+  createMixedForestPattern() {
+    // Pattern for mixed forest (combination of leaves and triangles)
+    const size = 20;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+
+    // Draw some broadleaf shapes
+    ctx.fillStyle = toRGBA(getColor("patterns", "mixedForestLeaf"));
+    ctx.strokeStyle = toRGBA(getColor("patterns", "mixedForestLeaf"));
+    ctx.lineWidth = 0.5;
+
+    const leaves = [
+      { x: 4, y: 5, r: 2.2 },
+      { x: 15, y: 14, r: 2 },
+    ];
+
+    for (const leaf of leaves) {
+      ctx.beginPath();
+      ctx.ellipse(leaf.x, leaf.y, leaf.r * 0.6, leaf.r, 0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // Draw some conifer shapes
+    ctx.fillStyle = toRGBA(getColor("patterns", "mixedForestNeedle"));
+    ctx.strokeStyle = toRGBA(getColor("patterns", "mixedForestNeedle"));
+    ctx.lineWidth = 0.6;
+
+    const trees = [
+      { x: 11, y: 4, h: 4.5 },
+      { x: 7, y: 15, h: 5 },
+      { x: 17, y: 8, h: 4 },
+    ];
+
+    for (const tree of trees) {
+      ctx.beginPath();
+      ctx.moveTo(tree.x, tree.y - tree.h / 2);
+      ctx.lineTo(tree.x - tree.h / 2.5, tree.y + tree.h / 2);
+      ctx.lineTo(tree.x + tree.h / 2.5, tree.y + tree.h / 2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    return canvas;
+  }
+
+  createPlaygroundPattern() {
+    // Pattern for playgrounds (colorful playful shapes)
+    const size = 18;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+
+    // Draw colorful shapes representing play equipment
+    const shapes = [
+      {
+        x: 4,
+        y: 4,
+        r: 2,
+        color: toRGBA(getColor("patterns", "playgroundRed")),
+      }, // Red circle (ball)
+      {
+        x: 13,
+        y: 5,
+        r: 1.8,
+        color: toRGBA(getColor("patterns", "playgroundBlue")),
+      }, // Blue circle
+      {
+        x: 8,
+        y: 13,
+        r: 2.2,
+        color: toRGBA(getColor("patterns", "playgroundOrange")),
+      }, // Orange circle
+      {
+        x: 15,
+        y: 15,
+        r: 1.5,
+        color: toRGBA(getColor("patterns", "playgroundPurple")),
+      }, // Purple circle
+    ];
+
+    for (const shape of shapes) {
+      ctx.fillStyle = shape.color;
+      ctx.beginPath();
+      ctx.arc(shape.x, shape.y, shape.r, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Add outline
+      ctx.strokeStyle = shape.color;
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+    }
+
+    // Add small swing shape
+    ctx.strokeStyle = toRGBA(getColor("patterns", "playgroundSwing"));
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(3, 10);
+    ctx.lineTo(3, 7);
+    ctx.moveTo(6, 10);
+    ctx.lineTo(6, 7);
+    ctx.stroke();
+    ctx.fillStyle = toRGBA(getColor("patterns", "playgroundSwingSeat"));
+    ctx.fillRect(2.5, 10, 4, 1.5);
+
+    return canvas;
+  }
+
+  createSwimmingPoolPattern() {
+    // Pattern for swimming pools/public baths (water with tile lines)
+    const size = 16;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+
+    // Draw subtle wave pattern
+    ctx.strokeStyle = toRGBA(getColor("patterns", "swimmingPoolWave"));
+    ctx.lineWidth = 0.8;
+
+    for (let y = 2; y < size; y += 5) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      for (let x = 0; x <= size; x += 2) {
+        const wave = Math.sin((x / size) * Math.PI * 3) * 0.8;
+        ctx.lineTo(x, y + wave);
+      }
+      ctx.stroke();
+    }
+
+    // Add tile grid lines (like pool tiles)
+    ctx.strokeStyle = toRGBA(getColor("patterns", "swimmingPoolTile"));
+    ctx.lineWidth = 0.5;
+
+    // Vertical lines
+    for (let x = 0; x <= size; x += 8) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, size);
+      ctx.stroke();
+    }
+
+    // Horizontal lines
+    for (let y = 0; y <= size; y += 8) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(size, y);
+      ctx.stroke();
+    }
+
+    return canvas;
+  }
+
+  createBeachPattern() {
+    // Pattern for beach/sand (stipple/dots for sandy texture)
+    const size = 16;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+
+    // Draw random dots for sand grains
+    ctx.fillStyle = toRGBA(getColor("patterns", "beachSand")); // Sandy color
+
+    // Create random but deterministic pattern
+    const dots = [];
+    for (let i = 0; i < 30; i++) {
+      // Use deterministic pseudo-random based on i
+      const x = (i * 7) % 16;
+      const y = (i * 11) % 16;
+      const r = 0.4 + ((i * 3) % 5) * 0.1;
+      dots.push({ x, y, r });
+    }
+
+    for (const dot of dots) {
+      ctx.beginPath();
+      ctx.arc(dot.x, dot.y, dot.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Add a few larger sand particles
+    ctx.fillStyle = toRGBA(getColor("patterns", "beachSandLarge"));
+    const largeDots = [
+      { x: 4, y: 6, r: 0.8 },
+      { x: 11, y: 3, r: 0.7 },
+      { x: 8, y: 13, r: 0.9 },
+      { x: 14, y: 10, r: 0.6 },
+    ];
+
+    for (const dot of largeDots) {
+      ctx.beginPath();
+      ctx.arc(dot.x, dot.y, dot.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    return canvas;
+  }
+
+  createBeachVolleyballPattern() {
+    // Pattern for beach volleyball courts (sand with net line)
+    const size = 20;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+
+    // Sand texture (lighter, similar to beach but less dense)
+    ctx.fillStyle = toRGBA(getColor("patterns", "beachVolleyballSand"));
+    const dots = [
+      { x: 3, y: 4, r: 0.5 },
+      { x: 8, y: 2, r: 0.4 },
+      { x: 14, y: 5, r: 0.6 },
+      { x: 6, y: 9, r: 0.5 },
+      { x: 16, y: 11, r: 0.4 },
+      { x: 10, y: 15, r: 0.5 },
+      { x: 4, y: 17, r: 0.6 },
+    ];
+
+    for (const dot of dots) {
+      ctx.beginPath();
+      ctx.arc(dot.x, dot.y, dot.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Draw net line across middle
+    ctx.strokeStyle = toRGBA(getColor("patterns", "beachVolleyballNet"));
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(0, size / 2);
+    ctx.lineTo(size, size / 2);
+    ctx.stroke();
+
+    // Net mesh pattern
+    ctx.strokeStyle = toRGBA(getColor("patterns", "beachVolleyballMesh"));
+    ctx.lineWidth = 0.4;
+    for (let i = -2; i <= 2; i++) {
+      if (i === 0) continue;
+      ctx.beginPath();
+      ctx.moveTo(0, size / 2 + i * 1.5);
+      ctx.lineTo(size, size / 2 + i * 1.5);
+      ctx.stroke();
+    }
+
+    return canvas;
+  }
+
+  createPicnicSitePattern() {
+    // Pattern for picnic sites/shelters (table symbols)
+    const size = 18;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+
+    ctx.fillStyle = toRGBA(getColor("patterns", "picnicWood")); // Brown for wood
+    ctx.strokeStyle = toRGBA(getColor("patterns", "picnicWoodStroke"));
+    ctx.lineWidth = 0.8;
+
+    // Draw picnic table symbols
+    const tables = [
+      { x: 5, y: 5 },
+      { x: 13, y: 13 },
+    ];
+
+    for (const table of tables) {
+      // Table top (rectangle)
+      ctx.fillRect(table.x - 2.5, table.y - 0.5, 5, 1);
+      ctx.strokeRect(table.x - 2.5, table.y - 0.5, 5, 1);
+
+      // Bench seats (smaller rectangles on sides)
+      ctx.fillRect(table.x - 2.5, table.y - 2.5, 5, 0.6);
+      ctx.strokeRect(table.x - 2.5, table.y - 2.5, 5, 0.6);
+      ctx.fillRect(table.x - 2.5, table.y + 1.9, 5, 0.6);
+      ctx.strokeRect(table.x - 2.5, table.y + 1.9, 5, 0.6);
+
+      // Table legs
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(table.x - 1.5, table.y - 0.5);
+      ctx.lineTo(table.x - 1.5, table.y + 1.5);
+      ctx.moveTo(table.x + 1.5, table.y - 0.5);
+      ctx.lineTo(table.x + 1.5, table.y + 1.5);
+      ctx.stroke();
+      ctx.lineWidth = 0.8;
+    }
+
+    return canvas;
+  }
+
+  createTableTennisPattern() {
+    // Pattern for table tennis/ping pong tables
+    const size = 20;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+
+    // Draw table tennis tables (top-down view)
+    const tables = [{ x: 10, y: 10 }];
+
+    for (const table of tables) {
+      // Table surface (dark green)
+      ctx.fillStyle = toRGBA(getColor("patterns", "tableTennisTable"));
+      ctx.strokeStyle = toRGBA(getColor("patterns", "tableTennisTableStroke"));
+      ctx.lineWidth = 0.8;
+
+      // Table rectangle (wider than tall for typical orientation)
+      const tableW = 12;
+      const tableH = 7;
+      ctx.fillRect(table.x - tableW / 2, table.y - tableH / 2, tableW, tableH);
+      ctx.strokeRect(
+        table.x - tableW / 2,
+        table.y - tableH / 2,
+        tableW,
+        tableH,
+      );
+
+      // Center line (white)
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(table.x - tableW / 2, table.y);
+      ctx.lineTo(table.x + tableW / 2, table.y);
+      ctx.stroke();
+
+      // Net (gray, slightly thicker in middle)
+      ctx.strokeStyle = toRGBA(getColor("patterns", "tableTennisNet"));
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(table.x, table.y - tableH / 2);
+      ctx.lineTo(table.x, table.y + tableH / 2);
+      ctx.stroke();
+
+      // Net mesh (subtle)
+      ctx.strokeStyle = toRGBA(getColor("patterns", "tableTennisNetMesh"));
+      ctx.lineWidth = 0.3;
+      for (let i = -2; i <= 2; i++) {
+        if (i === 0) continue;
+        ctx.beginPath();
+        ctx.moveTo(table.x + i * 1.2, table.y - tableH / 2);
+        ctx.lineTo(table.x + i * 1.2, table.y + tableH / 2);
+        ctx.stroke();
+      }
+
+      // Optional: add small paddles on sides
+      ctx.fillStyle = toRGBA(getColor("patterns", "tableTennisPaddle"));
+      ctx.strokeStyle = toRGBA(getColor("patterns", "tableTennisPaddleStroke"));
+      ctx.lineWidth = 0.5;
+
+      // Left paddle
+      ctx.beginPath();
+      ctx.ellipse(
+        table.x - tableW / 2 - 2,
+        table.y - 2,
+        1.5,
+        1.8,
+        0.3,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+      ctx.stroke();
+
+      // Right paddle
+      ctx.beginPath();
+      ctx.ellipse(
+        table.x + tableW / 2 + 2,
+        table.y + 2,
+        1.5,
+        1.8,
+        -0.3,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    return canvas;
   }
 
   drawGlyph(ctx, categoryId, color, size) {
@@ -976,8 +1552,8 @@ class MapRenderer {
 
     // Highlight color: yellow for hover, orange for selected
     const highlightColor = isSelected
-      ? "rgba(255, 140, 0, 0.8)" // Orange for selected
-      : "rgba(255, 255, 0, 0.6)"; // Yellow for hover
+      ? toRGBA(getColor("highlight", "selected")) // Orange for selected
+      : toRGBA(getColor("highlight", "hovered")); // Yellow for hover
 
     const highlightWidth = isSelected ? 6 : 4;
 
@@ -986,8 +1562,8 @@ class MapRenderer {
       this.ctx.strokeStyle = highlightColor;
       this.ctx.lineWidth = highlightWidth;
       this.ctx.fillStyle = isSelected
-        ? "rgba(255, 140, 0, 0.3)"
-        : "rgba(255, 255, 0, 0.2)";
+        ? toRGBA(getColor("highlight", "selectedFill"))
+        : toRGBA(getColor("highlight", "hoveredFill"));
       this.ctx.beginPath();
       this.ctx.arc(feature.screenX, feature.screenY, 8, 0, Math.PI * 2);
       this.ctx.fill();
@@ -1014,8 +1590,8 @@ class MapRenderer {
       this.ctx.strokeStyle = highlightColor;
       this.ctx.lineWidth = highlightWidth;
       this.ctx.fillStyle = isSelected
-        ? "rgba(255, 140, 0, 0.15)"
-        : "rgba(255, 255, 0, 0.1)";
+        ? toRGBA(getColor("highlight", "selectedFill"))
+        : toRGBA(getColor("highlight", "hoveredFill"));
       this.ctx.lineCap = "round";
       this.ctx.lineJoin = "round";
       this.ctx.beginPath();
@@ -1290,10 +1866,10 @@ class MapRenderer {
   }
 
   renderTileBackgrounds(visibleTiles, bounds) {
-    // Colors
-    const OCEAN_COLOR = "rgb(170, 211, 223)"; // Water blue
-    const LAND_COLOR = "rgb(242, 239, 233)"; // Light tan/beige
-    const COASTLINE_COLOR = "rgb(220, 235, 240)"; // Very light variant of ocean/water color
+    // Colors from theme
+    const OCEAN_COLOR = toRGB(getColor("background", "ocean"));
+    const LAND_COLOR = toRGB(getColor("background", "land"));
+    const COASTLINE_COLOR = toRGB(getColor("background", "coastline"));
 
     // Analyze tiles
     const tileAnalyses = new Map();
@@ -1770,6 +2346,8 @@ class MapRenderer {
         coastline: [], // Coastline visualization (magenta with arrows)
         points: [],
         place_labels: [], // City/town/village names
+        water_labels: [], // Lake/pond/canal/river names
+        building_labels: [], // House numbers
       };
     }
     const layers = this._layers;
@@ -1839,6 +2417,8 @@ class MapRenderer {
           color: featureInfo.color,
           fill: featureInfo.fill,
           width: featureInfo.width,
+          borderWidth: featureInfo.borderWidth,
+          borderColor: featureInfo.borderColor,
           isRailway: featureInfo.isRailway,
           roadPriority: featureInfo.roadPriority,
           isConstruction: featureInfo.isConstruction,
@@ -1849,7 +2429,30 @@ class MapRenderer {
           _lineKey: featureInfo._lineKey,
           _fillKey: featureInfo._fillKey,
           showDirection: featureInfo.showDirection,
+          pattern: featureInfo.pattern,
         });
+
+        // Add water labels
+        if (featureInfo.waterLabel) {
+          layers.water_labels.push({
+            feature,
+            props,
+            type,
+            name: featureInfo.waterLabel.name,
+            waterType: featureInfo.waterLabel.waterType,
+          });
+        }
+
+        // Add building labels (house numbers)
+        if (featureInfo.houseNumber) {
+          layers.building_labels.push({
+            feature,
+            props,
+            type,
+            number: featureInfo.houseNumber.number,
+            street: featureInfo.houseNumber.street,
+          });
+        }
       }
     }
 
@@ -1942,6 +2545,16 @@ class MapRenderer {
     layerStart = performance.now();
     this.renderPlaceLabels(layers.place_labels, adjustedBounds);
     layerTimings.placeLabels = performance.now() - layerStart;
+
+    // 10c. Water labels (lake/pond/canal/river names)
+    layerStart = performance.now();
+    this.renderWaterLabels(layers.water_labels, adjustedBounds);
+    layerTimings.waterLabels = performance.now() - layerStart;
+
+    // 10d. Building labels (house numbers, only at very high zoom)
+    layerStart = performance.now();
+    this.renderBuildingLabels(layers.building_labels, adjustedBounds);
+    layerTimings.buildingLabels = performance.now() - layerStart;
 
     // 11. Highlight hovered or selected feature on top of everything
     layerStart = performance.now();
@@ -2131,47 +2744,158 @@ class MapRenderer {
       props.landuse === "basin" ||
       props.landuse === "reservoir"
     ) {
-      return {
+      const result = {
         layer: "water_areas",
-        color: { r: 170, g: 211, b: 223, a: 255 },
+        color: getColor("water", "area"),
         minLOD: 0,
+        fill: true,
+      };
+
+      // If water body has a name, also add to water_labels layer
+      if (props.name && type === "Polygon") {
+        result.waterLabel = {
+          name: props.name,
+          waterType: props.water || props.natural || "water",
+        };
+      }
+
+      return result;
+    }
+
+    // Beach (sandy areas)
+    if (props.natural === "beach") {
+      return {
+        layer: "natural_background",
+        color: getColor("natural", "beach"),
+        minLOD: 1,
+        fill: true,
+        pattern: "beach",
+      };
+    }
+
+    // Scrubland (bushy vegetation)
+    if (props.natural === "scrub" || props.natural === "heath") {
+      return {
+        layer: isIsland ? "islands" : "natural_background",
+        color: getColor("natural", "scrub"),
+        minLOD: 1,
+        fill: true,
+        pattern: "scrub", // Draw scrub pattern
+      };
+    }
+
+    // Wetlands (marshes, swamps, bogs)
+    if (props.natural === "wetland") {
+      const wetlandType = props.wetland; // marsh, swamp, bog, etc.
+      return {
+        layer: "natural_background",
+        color: getColor("natural", "wetland"),
+        minLOD: 1,
+        fill: true,
+        pattern: "wetland", // Draw wetland pattern
+      };
+    }
+
+    // Forests (managed woodland)
+    if (props.landuse === "forest" || props.natural === "wood") {
+      // Check for forest type (leaf_type tag)
+      const leafType = props.leaf_type;
+      let pattern = null;
+
+      if (leafType === "broadleaved") {
+        pattern = "broadleaf_forest";
+      } else if (leafType === "needleleaved") {
+        pattern = "needleleaf_forest";
+      } else if (leafType === "mixed") {
+        pattern = "mixed_forest";
+      }
+      // If no leaf_type tag, use default (no pattern, solid color)
+
+      return {
+        layer: isIsland ? "islands" : "forests",
+        color: getColor("natural", "forest"),
+        minLOD: 0,
+        fill: true,
+        pattern: pattern,
+      };
+    }
+
+    // Parks (leisure areas with facilities)
+    if (props.leisure === "park") {
+      return {
+        layer: isIsland ? "islands" : "natural_background",
+        color: getColor("natural", "park"),
+        minLOD: 1,
         fill: true,
       };
     }
 
-    // Natural background: parks, forests, farmland
-    if (
-      props.leisure === "park" ||
-      props.landuse === "grass" ||
-      props.landuse === "meadow" ||
-      props.landuse === "farmland" ||
-      props.landuse === "orchard" ||
-      props.landuse === "vineyard" ||
-      props.landuse === "forest" ||
-      props.natural === "wood"
-    ) {
-      const isForest = props.landuse === "forest" || props.natural === "wood";
-      if (isForest) {
-        if (props.natural) {
-          console.log("Natural forest detected", props);
-        }
-        return {
-          layer: isIsland ? "islands" : "forests",
-          color: { r: 173, g: 209, b: 158, a: 255 }, // Dark green
-          minLOD: 0,
-          fill: true,
-        };
-      }
-      const color =
-        props.leisure === "park" ||
-        props.landuse === "grass" ||
-        props.landuse === "meadow"
-          ? { r: 200, g: 230, b: 180, a: 255 } // Light green for parks
-          : { r: 238, g: 240, b: 213, a: 255 }; // Beige for farmland
+    // Grass areas (mowed/maintained grass)
+    if (props.landuse === "grass") {
       return {
         layer: isIsland ? "islands" : "natural_background",
-        color: color,
+        color: getColor("natural", "grass"),
         minLOD: 1,
+        fill: true,
+      };
+    }
+
+    // Village greens (community grass areas)
+    if (props.landuse === "village_green") {
+      return {
+        layer: isIsland ? "islands" : "natural_background",
+        color: getColor("natural", "park"),
+        minLOD: 1,
+        fill: true,
+      };
+    }
+
+    // Meadows (natural grassland)
+    if (props.landuse === "meadow") {
+      return {
+        layer: isIsland ? "islands" : "natural_background",
+        color: getColor("natural", "meadow"),
+        minLOD: 1,
+        fill: true,
+      };
+    }
+
+    // Farmland (crop fields)
+    if (props.landuse === "farmland") {
+      return {
+        layer: isIsland ? "islands" : "natural_background",
+        color: getColor("agriculture", "farmland"),
+        minLOD: 1,
+        fill: true,
+      };
+    }
+
+    // Orchards (fruit trees)
+    if (props.landuse === "orchard") {
+      return {
+        layer: isIsland ? "islands" : "natural_background",
+        color: getColor("agriculture", "orchard"),
+        minLOD: 1,
+        fill: true,
+      };
+    }
+
+    // Vineyards (grape cultivation)
+    if (props.landuse === "vineyard") {
+      return {
+        layer: isIsland ? "islands" : "natural_background",
+        color: getColor("agriculture", "vineyard"),
+        minLOD: 1,
+        fill: true,
+      };
+    }
+
+    // Flowerbeds (decorative planting)
+    if (props.landuse === "flowerbed") {
+      return {
+        layer: "natural_background",
+        color: getColor("agriculture", "flowerbed"),
+        minLOD: 2,
         fill: true,
       };
     }
@@ -2180,7 +2904,7 @@ class MapRenderer {
     if (props.landuse === "residential") {
       return {
         layer: "landuse_areas",
-        color: { r: 224, g: 224, b: 224, a: 255 }, // Light gray
+        color: getColor("landuse", "residential"),
         minLOD: 1,
         fill: true,
       };
@@ -2190,7 +2914,10 @@ class MapRenderer {
     if (props.landuse === "commercial" || props.landuse === "retail") {
       return {
         layer: "landuse_areas",
-        color: { r: 243, g: 233, b: 234, a: 255 }, // Very subtle pink/rose
+        color: getColor(
+          "landuse",
+          props.landuse === "retail" ? "retail" : "commercial",
+        ),
         minLOD: 1,
         fill: true,
       };
@@ -2200,7 +2927,7 @@ class MapRenderer {
     if (props.landuse === "industrial") {
       return {
         layer: "landuse_areas",
-        color: { r: 240, g: 233, b: 240, a: 255 }, // Very subtle purple
+        color: getColor("landuse", "industrial"),
         minLOD: 1,
         fill: true,
       };
@@ -2210,7 +2937,7 @@ class MapRenderer {
     if (props.landuse === "cemetery") {
       return {
         layer: "landuse_areas",
-        color: { r: 205, g: 220, b: 200, a: 255 },
+        color: getColor("specialPurpose", "cemetery"),
         minLOD: 1,
         fill: true,
       };
@@ -2220,7 +2947,7 @@ class MapRenderer {
     if (props.landuse === "allotments") {
       return {
         layer: "landuse_areas",
-        color: { r: 220, g: 235, b: 210, a: 255 },
+        color: getColor("agriculture", "allotments"),
         minLOD: 2,
         fill: true,
       };
@@ -2230,7 +2957,7 @@ class MapRenderer {
     if (props.landuse === "railway") {
       return {
         layer: "landuse_areas",
-        color: { r: 210, g: 205, b: 210, a: 255 }, // Light purple-gray
+        color: getColor("specialPurpose", "railway"),
         minLOD: 1,
         fill: true,
       };
@@ -2244,7 +2971,7 @@ class MapRenderer {
     ) {
       return {
         layer: "landuse_areas",
-        color: { r: 235, g: 220, b: 200, a: 255 }, // Orange-brown tint
+        color: getColor("landuse", "construction"),
         minLOD: 2,
         fill: true,
       };
@@ -2254,7 +2981,7 @@ class MapRenderer {
     if (props.landuse === "military") {
       return {
         layer: "landuse_areas",
-        color: { r: 235, g: 215, b: 215, a: 255 }, // Light red-brown
+        color: getColor("landuse", "military"),
         minLOD: 1,
         fill: true,
       };
@@ -2264,7 +2991,7 @@ class MapRenderer {
     if (props.landuse === "education") {
       return {
         layer: "landuse_areas",
-        color: { r: 245, g: 235, b: 210, a: 255 }, // Yellow-tan
+        color: getColor("specialPurpose", "education"),
         minLOD: 2,
         fill: true,
       };
@@ -2274,8 +3001,18 @@ class MapRenderer {
     if (props.landuse === "religious") {
       return {
         layer: "landuse_areas",
-        color: { r: 225, g: 220, b: 230, a: 255 }, // Light purple
+        color: getColor("specialPurpose", "religious"),
         minLOD: 2,
+        fill: true,
+      };
+    }
+
+    // Landuse areas - institutional (government, universities, hospitals)
+    if (props.landuse === "institutional") {
+      return {
+        layer: "landuse_areas",
+        color: getColor("landuse", "institutional"),
+        minLOD: 1,
         fill: true,
       };
     }
@@ -2284,23 +3021,91 @@ class MapRenderer {
     if (props.landuse === "quarry" || props.landuse === "landfill") {
       return {
         layer: "landuse_areas",
-        color: { r: 210, g: 200, b: 190, a: 255 }, // Gray-brown
+        color: getColor("specialPurpose", "quarry"),
         minLOD: 2,
         fill: true,
       };
     }
 
-    // Leisure areas - recreation grounds, gardens, playgrounds, sports
+    // Landuse areas - port (harbor/dock areas)
+    if (props.landuse === "port") {
+      return {
+        layer: "landuse_areas",
+        color: getColor("landuse", "port"),
+        minLOD: 1,
+        fill: true,
+      };
+    }
+
+    // Playgrounds (with colorful pattern)
+    if (props.leisure === "playground") {
+      return {
+        layer: "landuse_areas",
+        color: getColor("recreation", "playground"),
+        minLOD: 1,
+        fill: true,
+        pattern: "playground",
+      };
+    }
+
+    // Beach volleyball courts
+    if (props.leisure === "pitch" && props.sport === "beachvolleyball") {
+      return {
+        layer: "landuse_areas",
+        color: getColor("recreation", "beachVolleyball"),
+        minLOD: 2,
+        fill: true,
+        pattern: "beach_volleyball",
+      };
+    }
+
+    // Table tennis / ping pong tables
+    if (props.leisure === "pitch" && props.sport === "table_tennis") {
+      return {
+        layer: "landuse_areas",
+        color: getColor("recreation", "tableTennis"),
+        minLOD: 3,
+        fill: true,
+        pattern: "table_tennis",
+      };
+    }
+
+    // Swimming pools and public baths
+    if (props.leisure === "swimming_pool" || props.amenity === "public_bath") {
+      return {
+        layer: "landuse_areas",
+        color: getColor("recreation", "swimmingPool"),
+        minLOD: 2,
+        fill: true,
+        pattern: "swimming_pool",
+      };
+    }
+
+    // Picnic sites and shelters
+    if (
+      props.tourism === "picnic_site" ||
+      props.amenity === "picnic_table" ||
+      props.amenity === "shelter"
+    ) {
+      return {
+        layer: "landuse_areas",
+        color: getColor("recreation", "picnicSite"),
+        minLOD: 2,
+        fill: true,
+        pattern: "picnic_site",
+      };
+    }
+
+    // Leisure areas - recreation grounds, gardens, sports (without specific patterns)
     if (
       props.landuse === "recreation_ground" ||
       props.leisure === "garden" ||
-      props.leisure === "playground" ||
       props.leisure === "pitch" ||
       props.leisure === "sports_centre"
     ) {
       return {
         layer: "landuse_areas",
-        color: { r: 218, g: 238, b: 205, a: 255 }, // Very subtle green
+        color: getColor("specialPurpose", "recreation"),
         minLOD: 1,
         fill: true,
       };
@@ -2317,11 +3122,11 @@ class MapRenderer {
         buildingType === "retail" ||
         buildingType === "supermarket"
       ) {
-        buildingColor = { r: 238, g: 210, b: 210, a: 255 }; // Light red/pink
+        buildingColor = getColor("buildings", "commercial");
       }
       // Industrial buildings - purple-gray
       else if (buildingType === "industrial" || buildingType === "warehouse") {
-        buildingColor = { r: 215, g: 205, b: 220, a: 255 }; // Light purple
+        buildingColor = getColor("buildings", "industrial");
       }
       // Public/civic buildings - blue-gray
       else if (
@@ -2329,7 +3134,7 @@ class MapRenderer {
         buildingType === "civic" ||
         buildingType === "government"
       ) {
-        buildingColor = { r: 210, g: 220, b: 235, a: 255 }; // Light blue
+        buildingColor = getColor("buildings", "public");
       }
       // Religious buildings - darker tan
       else if (
@@ -2339,7 +3144,7 @@ class MapRenderer {
         buildingType === "temple" ||
         buildingType === "synagogue"
       ) {
-        buildingColor = { r: 205, g: 190, b: 175, a: 255 }; // Darker tan
+        buildingColor = getColor("buildings", "religious");
       }
       // Schools/universities - yellow-tan
       else if (
@@ -2348,22 +3153,32 @@ class MapRenderer {
         buildingType === "college" ||
         buildingType === "kindergarten"
       ) {
-        buildingColor = { r: 235, g: 225, b: 200, a: 255 }; // Light yellow-tan
+        buildingColor = getColor("buildings", "education");
       }
       // Residential buildings - default beige
       else {
-        buildingColor = { r: 218, g: 208, b: 200, a: 255 }; // Default beige
+        buildingColor = getColor("buildings", "default");
       }
 
-      return {
+      const result = {
         layer: "buildings",
         color: buildingColor,
         minLOD: 2,
         fill: true,
         stroke: true,
-        strokeColor: { r: 160, g: 140, b: 120, a: 255 },
+        strokeColor: getColor("buildings", "border"),
         strokeWidth: 1.0,
       };
+
+      // Add house number label if available (addr:housenumber)
+      if (props["addr:housenumber"]) {
+        result.houseNumber = {
+          number: props["addr:housenumber"],
+          street: props["addr:street"],
+        };
+      }
+
+      return result;
     }
 
     // === LINEAR FEATURES (lines) ===
@@ -2376,7 +3191,7 @@ class MapRenderer {
     ) {
       return {
         layer: "coastline",
-        color: { r: 255, g: 0, b: 255, a: 255 }, // Magenta
+        color: getColor("boundaries", "coastline"),
         minLOD: 0,
         fill: false,
         width: 3,
@@ -2384,15 +3199,56 @@ class MapRenderer {
       };
     }
 
-    // Waterways (rivers, streams as lines)
+    // Waterways (rivers, streams, ditches as lines)
     if (props.waterway && props.waterway !== "riverbank") {
-      const importance = ["river", "canal"].includes(props.waterway) ? 0 : 1; // Rivers at all zoom levels
-      return {
+      // Classify by waterway type for importance and width
+      const waterwayType = props.waterway;
+      let importance, minWidth, borderWidth;
+
+      // Major waterways (always visible)
+      if (waterwayType === "river" || waterwayType === "canal") {
+        importance = 0; // Show at all zoom levels
+        minWidth = 3; // Rivers are wider
+        borderWidth = 0; // No border for wide rivers
+      }
+      // Medium waterways
+      else if (waterwayType === "stream") {
+        importance = 1; // Show at medium zoom
+        minWidth = 2; // Smaller than rivers
+        borderWidth = 0.5; // Slight border for definition
+      }
+      // Small waterways (ditches, drains)
+      else if (waterwayType === "ditch" || waterwayType === "drain") {
+        importance = 2; // Only when zoomed in
+        minWidth = 1.5; // Very narrow
+        borderWidth = 0.5; // Border to make them visible
+      }
+      // Other waterways (default)
+      else {
+        importance = 1;
+        minWidth = 2;
+        borderWidth = 0.5;
+      }
+
+      const result = {
         layer: "waterways",
-        color: { r: 170, g: 211, b: 223, a: 255 },
+        color: getColor("water", "line"),
         minLOD: importance,
         fill: false,
+        width: minWidth,
+        borderWidth: borderWidth,
+        borderColor: getColor("water", "border"),
       };
+
+      // If waterway has a name, add label info
+      if (props.name) {
+        result.waterLabel = {
+          name: props.name,
+          waterType: props.waterway,
+        };
+      }
+
+      return result;
     }
 
     // Roads - determine layer based on tunnel/bridge/surface
@@ -2450,7 +3306,7 @@ class MapRenderer {
         effectiveHighway === "trunk_link"
       ) {
         // was: 14m, 4 lanes
-        color = { r: 233, g: 115, b: 103, a: 255 }; // OSM motorway orange
+        color = getColor("roads", "motorway");
         laneWidth = 3.5;
         lanes = lanes || 4;
         minLOD = 0;
@@ -2460,7 +3316,7 @@ class MapRenderer {
         effectiveHighway === "primary_link"
       ) {
         // was: 7m, 2 lanes
-        color = { r: 249, g: 207, b: 144, a: 255 }; // OSM primary yellow
+        color = getColor("roads", "primary");
         laneWidth = 3.5;
         lanes = lanes || 2;
         minLOD = 0; // Show at all zoom levels (including 25km)
@@ -2470,7 +3326,7 @@ class MapRenderer {
         effectiveHighway === "secondary_link"
       ) {
         // was: 7m, 2 lanes
-        color = { r: 248, g: 234, b: 164, a: 255 }; // OSM secondary light yellow
+        color = getColor("roads", "secondary");
         laneWidth = 3.5;
         lanes = lanes || 2;
         minLOD = 1;
@@ -2480,7 +3336,7 @@ class MapRenderer {
         effectiveHighway === "ternary_link"
       ) {
         // was: 6m, 2 lanes
-        color = { r: 255, g: 255, b: 255, a: 255 }; // OSM tertiary white
+        color = getColor("roads", "tertiary");
         laneWidth = 3;
         lanes = lanes || 2;
         minLOD = 1;
@@ -2490,7 +3346,7 @@ class MapRenderer {
         effectiveHighway === "unclassified"
       ) {
         // was: 5m, 1-2 lanes
-        color = { r: 255, g: 255, b: 255, a: 255 }; // OSM residential white
+        color = getColor("roads", "residential");
         laneWidth = 3;
         lanes = lanes || 1.666; // 1-2?
         minLOD = 2;
@@ -2500,7 +3356,7 @@ class MapRenderer {
         effectiveHighway === "track"
       ) {
         // was: 3.5m, 1 lane
-        color = { r: 255, g: 255, b: 255, a: 255 }; // OSM service white
+        color = getColor("roads", "service");
         laneWidth = 2.8;
         lanes = lanes || 1.1;
         minLOD = 2;
@@ -2512,14 +3368,14 @@ class MapRenderer {
         effectiveHighway === "steps"
       ) {
         // was: 2m
-        color = { r: 250, g: 190, b: 165, a: 255 }; // OSM footway salmon/pink
+        color = getColor("roads", "footway");
         laneWidth = 2;
         lanes = lanes || 1;
         minLOD = 2;
         roadPriority = 0;
       } else if (effectiveHighway === "cycleway") {
         // was: 2m
-        color = { r: 120, g: 150, b: 255, a: 255 }; // OSM cycleway blue
+        color = getColor("roads", "cycleway");
         laneWidth = 2;
         lanes = lanes || 1;
         minLOD = 2;
@@ -2588,7 +3444,7 @@ class MapRenderer {
         "preserved",
       ];
       if (trackTypes.includes(props.railway) || !props.railway) {
-        let color = { r: 153, g: 153, b: 153, a: 255 };
+        let color = getColor("railways", "rail");
 
         // Railway width based on type (controls spacing between rails and tie length)
         let width = 8; // Standard railway (~5-6m wide including tracks and bed)
@@ -2697,7 +3553,7 @@ class MapRenderer {
 
         return {
           layer: "place_labels",
-          color: { r: 0, g: 0, b: 0, a: 255 },
+          color: getColor("text", "places"),
           minLOD,
           fill: false,
           placeType,
@@ -3238,12 +4094,14 @@ class MapRenderer {
         this.ctx.rotate(angle);
 
         // White outline
-        this.ctx.strokeStyle = "white";
+        const outlineColor = getColor("text", "outline");
+        this.ctx.strokeStyle = toRGB(outlineColor);
         this.ctx.lineWidth = 2.5;
         this.ctx.strokeText(char, 0, 0);
 
-        // Black text
-        this.ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
+        // Text color from theme
+        const textColor = getColor("text", "roads");
+        this.ctx.fillStyle = toRGBA({ ...textColor, a: 217 }); // 0.85 opacity = 217/255
         this.ctx.fillText(char, 0, 0);
 
         this.ctx.restore();
@@ -3512,12 +4370,14 @@ class MapRenderer {
       this.ctx.font = `bold ${place.fontSize}px Arial, sans-serif`;
 
       // White outline for readability
-      this.ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+      const outlineColor = getColor("text", "outline");
+      this.ctx.strokeStyle = toRGBA({ ...outlineColor, a: 230 }); // 0.9 opacity = 230/255
       this.ctx.lineWidth = 3;
       this.ctx.strokeText(place.name, place.x, place.y);
 
-      // Black text
-      this.ctx.fillStyle = "rgba(0, 0, 0, 0.9)";
+      // Text color from theme
+      const textColor = getColor("text", "places");
+      this.ctx.fillStyle = toRGBA({ ...textColor, a: 230 }); // 0.9 opacity = 230/255
       this.ctx.fillText(place.name, place.x, place.y);
 
       // Optional: render place type or population for debugging
@@ -3536,11 +4396,412 @@ class MapRenderer {
     );
   }
 
+  renderWaterLabels(layerFeatures, bounds) {
+    // Render water body names (lakes, ponds, rivers, canals)
+    if (!layerFeatures || layerFeatures.length === 0) return;
+
+    // Water labels can be shown at any zoom level (no LOD restriction)
+    // Instead, we check if the label fits within the polygon bounds
+
+    // Pre-compute bounds scaling
+    const lonRange = bounds.maxLon - bounds.minLon;
+    const latRange = bounds.maxLat - bounds.minLat;
+    const scaleX = this.canvasWidth / lonRange;
+    const scaleY = this.canvasHeight / latRange;
+    const minLon = bounds.minLon;
+    const minLat = bounds.minLat;
+    const canvasHeight = this.canvasHeight;
+    const toScreenX = (lon) => (lon - minLon) * scaleX;
+    const toScreenY = (lat) => canvasHeight - (lat - minLat) * scaleY;
+
+    const waterLabels = [];
+    const seenNames = new Map(); // Track names to avoid duplicates
+
+    // Set up canvas for text measurement
+    this.ctx.textAlign = "center";
+    this.ctx.textBaseline = "middle";
+
+    for (const item of layerFeatures) {
+      const { feature, name, waterType } = item;
+      const geom = feature.geometry;
+      if (!geom || !geom.coordinates || !name) continue;
+
+      // Calculate centroid and bounds for label placement
+      let centerX,
+        centerY,
+        angle = 0;
+      let minX = Infinity,
+        maxX = -Infinity,
+        minY = Infinity,
+        maxY = -Infinity;
+
+      if (geom.type === "Polygon") {
+        // For polygons (lakes, ponds), calculate centroid and bounds
+        const rings = geom.coordinates; // [outerRing, hole1, hole2, ...]
+        const outerRing = rings[0];
+        const holes = rings.slice(1);
+
+        let sumX = 0,
+          sumY = 0;
+
+        for (const coord of outerRing) {
+          const sx = toScreenX(coord[0]);
+          const sy = toScreenY(coord[1]);
+          sumX += sx;
+          sumY += sy;
+
+          // Track bounds
+          if (sx < minX) minX = sx;
+          if (sx > maxX) maxX = sx;
+          if (sy < minY) minY = sy;
+          if (sy > maxY) maxY = sy;
+        }
+
+        centerX = sumX / outerRing.length;
+        centerY = sumY / outerRing.length;
+
+        // Helper function: point-in-polygon test using ray casting
+        const isPointInPolygon = (px, py, ring) => {
+          let inside = false;
+          for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+            const xi = toScreenX(ring[i][0]);
+            const yi = toScreenY(ring[i][1]);
+            const xj = toScreenX(ring[j][0]);
+            const yj = toScreenY(ring[j][1]);
+
+            const intersect =
+              yi > py !== yj > py &&
+              px < ((xj - xi) * (py - yi)) / (yj - yi) + xi;
+            if (intersect) inside = !inside;
+          }
+          return inside;
+        };
+
+        // Check if centroid is inside a hole (island)
+        let centroidInHole = false;
+        for (const hole of holes) {
+          if (isPointInPolygon(centerX, centerY, hole)) {
+            centroidInHole = true;
+            break;
+          }
+        }
+
+        // If centroid is in a hole, try to find a better position
+        if (centroidInHole) {
+          // Try positions in a grid pattern within the bounding box
+          let foundPosition = false;
+          const gridSize = 5;
+          const stepX = (maxX - minX) / (gridSize + 1);
+          const stepY = (maxY - minY) / (gridSize + 1);
+
+          for (let gy = 1; gy <= gridSize && !foundPosition; gy++) {
+            for (let gx = 1; gx <= gridSize && !foundPosition; gx++) {
+              const testX = minX + gx * stepX;
+              const testY = minY + gy * stepY;
+
+              // Check if this point is in outer ring but not in any hole
+              if (isPointInPolygon(testX, testY, outerRing)) {
+                let inAnyHole = false;
+                for (const hole of holes) {
+                  if (isPointInPolygon(testX, testY, hole)) {
+                    inAnyHole = true;
+                    break;
+                  }
+                }
+                if (!inAnyHole) {
+                  centerX = testX;
+                  centerY = testY;
+                  foundPosition = true;
+                }
+              }
+            }
+          }
+
+          // If still couldn't find a good position, skip this label
+          if (!foundPosition) {
+            continue;
+          }
+        }
+
+        // Measure text to see if it fits within polygon bounds
+        const fontSize = 14;
+        this.ctx.font = `italic ${fontSize}px Arial, sans-serif`;
+        const textMetrics = this.ctx.measureText(name);
+        const textWidth = textMetrics.width;
+        const textHeight = fontSize * 1.2; // Approximate height with padding
+
+        // Check if text fits within polygon bounds (with small margin)
+        const margin = 10;
+        const polygonWidth = maxX - minX;
+        const polygonHeight = maxY - minY;
+
+        if (
+          textWidth > polygonWidth - margin ||
+          textHeight > polygonHeight - margin
+        ) {
+          // Text doesn't fit within polygon, skip this label
+          continue;
+        }
+      } else if (geom.type === "LineString") {
+        // For linestrings (rivers, canals), deduplicate by name
+        // Only keep the one closest to screen center
+        const coords = geom.coordinates;
+        const midIdx = Math.floor(coords.length / 2);
+        centerX = toScreenX(coords[midIdx][0]);
+        centerY = toScreenY(coords[midIdx][1]);
+
+        // Calculate distance to screen center for prioritization
+        const screenCenterX = this.canvasWidth / 2;
+        const screenCenterY = this.canvasHeight / 2;
+        const distToCenter = Math.sqrt(
+          Math.pow(centerX - screenCenterX, 2) +
+            Math.pow(centerY - screenCenterY, 2),
+        );
+
+        // Check if we've seen this name before
+        if (seenNames.has(name)) {
+          const existing = seenNames.get(name);
+          // Keep the one closer to center
+          if (distToCenter >= existing.distToCenter) {
+            continue; // Skip this one, keep the existing
+          }
+        }
+
+        // For lines, calculate total length to decide if label fits
+        let totalLength = 0;
+        for (let i = 1; i < coords.length; i++) {
+          const x1 = toScreenX(coords[i - 1][0]);
+          const y1 = toScreenY(coords[i - 1][1]);
+          const x2 = toScreenX(coords[i][0]);
+          const y2 = toScreenY(coords[i][1]);
+          const dx = x2 - x1;
+          const dy = y2 - y1;
+          totalLength += Math.sqrt(dx * dx + dy * dy);
+        }
+
+        // Measure text
+        const fontSize = 12;
+        this.ctx.font = `italic ${fontSize}px Arial, sans-serif`;
+        const textMetrics = this.ctx.measureText(name);
+        const textWidth = textMetrics.width;
+
+        // Check if text fits along the line (with margin)
+        if (textWidth > totalLength - 20) {
+          // Text doesn't fit along line, skip this label
+          continue;
+        }
+
+        // Calculate angle at midpoint for text rotation
+        const beforeIdx = Math.max(0, midIdx - 1);
+        const afterIdx = Math.min(coords.length - 1, midIdx + 1);
+        const x1 = toScreenX(coords[beforeIdx][0]);
+        const y1 = toScreenY(coords[beforeIdx][1]);
+        const x2 = toScreenX(coords[afterIdx][0]);
+        const y2 = toScreenY(coords[afterIdx][1]);
+        angle = Math.atan2(y2 - y1, x2 - x1);
+
+        // Normalize angle to [-90°, 90°] to keep text readable
+        if (angle > Math.PI / 2) {
+          angle -= Math.PI;
+        } else if (angle < -Math.PI / 2) {
+          angle += Math.PI;
+        }
+
+        // Store this label (will replace existing if closer to center)
+        seenNames.set(name, {
+          distToCenter,
+          centerX,
+          centerY,
+          angle,
+          waterType,
+        });
+        continue; // Will be added to waterLabels after loop
+      } else {
+        continue; // Skip other geometry types
+      }
+
+      // Check if label position is in viewport
+      const margin = 20;
+      if (
+        centerX < -margin ||
+        centerX > this.canvasWidth + margin ||
+        centerY < -margin ||
+        centerY > this.canvasHeight + margin
+      ) {
+        continue;
+      }
+
+      waterLabels.push({
+        name,
+        waterType,
+        x: centerX,
+        y: centerY,
+        angle: 0,
+        isLine: false,
+      });
+    }
+
+    // Add the deduplicated line labels
+    for (const [name, data] of seenNames.entries()) {
+      // Check if label position is in viewport
+      const margin = 20;
+      if (
+        data.centerX < -margin ||
+        data.centerX > this.canvasWidth + margin ||
+        data.centerY < -margin ||
+        data.centerY > this.canvasHeight + margin
+      ) {
+        continue;
+      }
+
+      waterLabels.push({
+        name,
+        waterType: data.waterType,
+        x: data.centerX,
+        y: data.centerY,
+        angle: data.angle,
+        isLine: true,
+      });
+    }
+
+    if (waterLabels.length === 0) return;
+
+    // Render labels
+    this.ctx.textAlign = "center";
+    this.ctx.textBaseline = "middle";
+
+    for (const label of waterLabels) {
+      const fontSize = label.isLine ? 12 : 14; // Rivers slightly smaller
+      this.ctx.font = `italic ${fontSize}px Arial, sans-serif`;
+
+      // Save context for rotation
+      this.ctx.save();
+
+      // Translate to label position and rotate
+      this.ctx.translate(label.x, label.y);
+      this.ctx.rotate(label.angle);
+
+      // White outline for readability
+      const outlineColor = getColor("text", "outline");
+      this.ctx.strokeStyle = toRGBA({ ...outlineColor, a: 230 }); // 0.9 opacity = 230/255
+      this.ctx.lineWidth = 3;
+      this.ctx.strokeText(label.name, 0, 0);
+
+      // Blue text for water
+      const textColor = getColor("text", "water");
+      this.ctx.fillStyle = toRGBA({ ...textColor, a: 230 }); // 0.9 opacity = 230/255
+      this.ctx.fillText(label.name, 0, 0);
+
+      // Restore context
+      this.ctx.restore();
+    }
+
+    console.log(`[WATER] Rendered ${waterLabels.length} water labels`);
+  }
+
+  renderBuildingLabels(layerFeatures, bounds) {
+    // Render house numbers on buildings (only at very high zoom)
+    if (!layerFeatures || layerFeatures.length === 0) return;
+
+    const lod = this.getLOD();
+
+    // Only show house numbers at very high zoom (LOD 4 = < 1km view)
+    if (lod < 4) return;
+
+    // Pre-compute bounds scaling
+    const lonRange = bounds.maxLon - bounds.minLon;
+    const latRange = bounds.maxLat - bounds.minLat;
+    const scaleX = this.canvasWidth / lonRange;
+    const scaleY = this.canvasHeight / latRange;
+    const minLon = bounds.minLon;
+    const minLat = bounds.minLat;
+    const canvasHeight = this.canvasHeight;
+    const toScreenX = (lon) => (lon - minLon) * scaleX;
+    const toScreenY = (lat) => canvasHeight - (lat - minLat) * scaleY;
+
+    const houseNumbers = [];
+
+    for (const item of layerFeatures) {
+      const { feature, number } = item;
+      const geom = feature.geometry;
+      if (!geom || !geom.coordinates || !number) continue;
+
+      // Only handle polygons (buildings)
+      if (geom.type !== "Polygon") continue;
+
+      // Calculate centroid for label placement
+      const ring = geom.coordinates[0];
+      let sumX = 0,
+        sumY = 0;
+      for (const coord of ring) {
+        sumX += toScreenX(coord[0]);
+        sumY += toScreenY(coord[1]);
+      }
+      const centerX = sumX / ring.length;
+      const centerY = sumY / ring.length;
+
+      // Check if label position is in viewport
+      const margin = 10;
+      if (
+        centerX < -margin ||
+        centerX > this.canvasWidth + margin ||
+        centerY < -margin ||
+        centerY > this.canvasHeight + margin
+      ) {
+        continue;
+      }
+
+      houseNumbers.push({
+        number,
+        x: centerX,
+        y: centerY,
+      });
+    }
+
+    if (houseNumbers.length === 0) return;
+
+    // Limit density - don't show more than 100 house numbers at once
+    const maxLabels = 100;
+    if (houseNumbers.length > maxLabels) {
+      // Sort by distance to center, show closest ones
+      const centerX = this.canvasWidth / 2;
+      const centerY = this.canvasHeight / 2;
+      houseNumbers.sort((a, b) => {
+        const distA = (a.x - centerX) ** 2 + (a.y - centerY) ** 2;
+        const distB = (b.x - centerX) ** 2 + (b.y - centerY) ** 2;
+        return distA - distB;
+      });
+      houseNumbers.length = maxLabels;
+    }
+
+    // Render labels
+    this.ctx.textAlign = "center";
+    this.ctx.textBaseline = "middle";
+    const fontSize = 10;
+    this.ctx.font = `bold ${fontSize}px Arial, sans-serif`;
+
+    for (const label of houseNumbers) {
+      // White outline
+      const outlineColor = getColor("text", "outline");
+      this.ctx.strokeStyle = toRGBA({ ...outlineColor, a: 230 }); // 0.9 opacity = 230/255
+      this.ctx.lineWidth = 2.5;
+      this.ctx.strokeText(label.number, label.x, label.y);
+
+      // Dark text
+      const textColor = getColor("text", "buildings");
+      this.ctx.fillStyle = toRGBA({ ...textColor, a: 230 }); // 0.9 opacity = 230/255
+      this.ctx.fillText(label.number, label.x, label.y);
+    }
+
+    console.log(`[BUILDINGS] Rendered ${houseNumbers.length} house numbers`);
+  }
+
   renderLayer(layerFeatures, bounds, useFill) {
     // Batch features by style to minimize Canvas2D state changes.
     // Key = "r,g,b,a|width", value = array of coordinate arrays to draw.
     const lineBatches = new Map(); // key -> { coords: [...], features: [...] }
     const fillBatches = new Map(); // key -> { coords: [...], features: [...] }
+    const patternBatches = new Map(); // pattern -> { polygons: [...] }
     const strokeBatches = new Map(); // for building borders
     const railwayFeatures = []; // railways need special rendering
 
@@ -3628,6 +4889,8 @@ class MapRenderer {
               lineBatches.set(key, {
                 color,
                 width: width || 1,
+                borderWidth: item.borderWidth || 0,
+                borderColor: item.borderColor || null,
                 lines: [],
                 features: [],
               });
@@ -3667,32 +4930,70 @@ class MapRenderer {
           const shouldFill = fill && useFill;
 
           for (const polygon of polygonArrays) {
-            const ring = polygon[0];
-            if (!ring || ring.length < 3) continue;
+            // polygon is an array of rings: [outerRing, hole1, hole2, ...]
+            // outerRing is the boundary, subsequent rings are holes (islands in water bodies)
+            const outerRing = polygon[0];
+            const innerRings = polygon.slice(1); // holes
+            if (!outerRing || outerRing.length < 3) continue;
 
-            const flat = new Array(ring.length * 2);
+            // Convert outer ring to screen coordinates
+            const outerFlat = new Array(outerRing.length * 2);
             const screenCoords =
               this.hoverInfoEnabled || this.selectedFeature
-                ? new Array(ring.length)
+                ? new Array(outerRing.length)
                 : null;
-            for (let i = 0; i < ring.length; i++) {
-              const sx = toScreenX(ring[i][0]);
-              const sy = toScreenY(ring[i][1]);
-              flat[i * 2] = sx;
-              flat[i * 2 + 1] = sy;
+            for (let i = 0; i < outerRing.length; i++) {
+              const sx = toScreenX(outerRing[i][0]);
+              const sy = toScreenY(outerRing[i][1]);
+              outerFlat[i * 2] = sx;
+              outerFlat[i * 2 + 1] = sy;
               if (screenCoords) screenCoords[i] = { x: sx, y: sy };
             }
 
+            // Convert inner rings (holes) to screen coordinates
+            const innerFlats = [];
+            for (const innerRing of innerRings) {
+              if (!innerRing || innerRing.length < 3) continue;
+              const innerFlat = new Array(innerRing.length * 2);
+              for (let i = 0; i < innerRing.length; i++) {
+                const sx = toScreenX(innerRing[i][0]);
+                const sy = toScreenY(innerRing[i][1]);
+                innerFlat[i * 2] = sx;
+                innerFlat[i * 2 + 1] = sy;
+              }
+              innerFlats.push(innerFlat);
+            }
+
             if (shouldFill) {
-              const colorStr = item._fillKey;
-              if (!fillBatches.has(colorStr)) {
-                fillBatches.set(colorStr, {
-                  points: [],
-                  polygons: [],
-                  features: [],
+              // Check if this feature has a pattern (scrub, wetland, etc.)
+              if (item.pattern && this.patternCache[item.pattern]) {
+                // Add to pattern batch
+                if (!patternBatches.has(item.pattern)) {
+                  patternBatches.set(item.pattern, {
+                    baseColor: color, // Base fill color
+                    polygons: [],
+                  });
+                }
+                patternBatches.get(item.pattern).polygons.push({
+                  outer: outerFlat,
+                  holes: innerFlats,
+                });
+              } else {
+                // Regular solid fill
+                const colorStr = item._fillKey;
+                if (!fillBatches.has(colorStr)) {
+                  fillBatches.set(colorStr, {
+                    points: [],
+                    polygons: [],
+                    features: [],
+                  });
+                }
+                // Store outer ring and holes together
+                fillBatches.get(colorStr).polygons.push({
+                  outer: outerFlat,
+                  holes: innerFlats,
                 });
               }
-              fillBatches.get(colorStr).polygons.push(flat);
 
               // If feature has stroke property, add to stroke batch
               if (item.stroke && item.strokeColor) {
@@ -3704,7 +5005,10 @@ class MapRenderer {
                     polygons: [],
                   });
                 }
-                strokeBatches.get(strokeKey).polygons.push(flat);
+                strokeBatches.get(strokeKey).polygons.push({
+                  outer: outerFlat,
+                  holes: innerFlats,
+                });
               }
             } else {
               // Outline only - batch as lines with width 1
@@ -3717,7 +5021,11 @@ class MapRenderer {
                   features: [],
                 });
               }
-              lineBatches.get(key).lines.push(flat);
+              lineBatches.get(key).lines.push(outerFlat);
+              // Also outline the holes
+              for (const innerFlat of innerFlats) {
+                lineBatches.get(key).lines.push(innerFlat);
+              }
             }
 
             if (screenCoords) {
@@ -3741,13 +5049,38 @@ class MapRenderer {
       this.ctx.fillStyle = colorStr;
       this.ctx.beginPath();
 
-      // Filled polygons
-      for (const flat of batch.polygons) {
-        this.ctx.moveTo(flat[0], flat[1]);
-        for (let i = 2; i < flat.length; i += 2) {
-          this.ctx.lineTo(flat[i], flat[i + 1]);
+      // Filled polygons (with hole support)
+      for (const poly of batch.polygons) {
+        // Handle both old format (flat array) and new format (object with outer/holes)
+        if (poly.outer) {
+          // New format with holes support
+          const outer = poly.outer;
+          const holes = poly.holes || [];
+
+          // Draw outer ring (counter-clockwise for evenodd fill rule)
+          this.ctx.moveTo(outer[0], outer[1]);
+          for (let i = 2; i < outer.length; i += 2) {
+            this.ctx.lineTo(outer[i], outer[i + 1]);
+          }
+          this.ctx.closePath();
+
+          // Draw holes (clockwise for evenodd fill rule to cut out)
+          for (const hole of holes) {
+            // Draw hole in reverse direction to cut it out
+            this.ctx.moveTo(hole[hole.length - 2], hole[hole.length - 1]);
+            for (let i = hole.length - 4; i >= 0; i -= 2) {
+              this.ctx.lineTo(hole[i], hole[i + 1]);
+            }
+            this.ctx.closePath();
+          }
+        } else {
+          // Old format (backwards compatibility)
+          this.ctx.moveTo(poly[0], poly[1]);
+          for (let i = 2; i < poly.length; i += 2) {
+            this.ctx.lineTo(poly[i], poly[i + 1]);
+          }
+          this.ctx.closePath();
         }
-        this.ctx.closePath();
       }
 
       // Points
@@ -3756,7 +5089,73 @@ class MapRenderer {
         this.ctx.arc(batch.points[i], batch.points[i + 1], 3, 0, Math.PI * 2);
       }
 
-      this.ctx.fill();
+      // Use evenodd fill rule to properly handle holes
+      this.ctx.fill("evenodd");
+    }
+
+    // Flush pattern batches (areas with textured fills like scrub/wetland)
+    for (const [patternId, batch] of patternBatches) {
+      const pattern = this.patternCache[patternId];
+      if (!pattern) continue;
+
+      // First fill with base color
+      this.ctx.fillStyle = this._getRGBA(
+        batch.baseColor.r,
+        batch.baseColor.g,
+        batch.baseColor.b,
+        batch.baseColor.a / 255,
+      );
+      this.ctx.beginPath();
+
+      for (const poly of batch.polygons) {
+        const outer = poly.outer;
+        const holes = poly.holes || [];
+
+        // Draw outer ring
+        this.ctx.moveTo(outer[0], outer[1]);
+        for (let i = 2; i < outer.length; i += 2) {
+          this.ctx.lineTo(outer[i], outer[i + 1]);
+        }
+        this.ctx.closePath();
+
+        // Draw holes in reverse
+        for (const hole of holes) {
+          this.ctx.moveTo(hole[hole.length - 2], hole[hole.length - 1]);
+          for (let i = hole.length - 4; i >= 0; i -= 2) {
+            this.ctx.lineTo(hole[i], hole[i + 1]);
+          }
+          this.ctx.closePath();
+        }
+      }
+
+      this.ctx.fill("evenodd");
+
+      // Then overlay with pattern
+      this.ctx.fillStyle = pattern;
+      this.ctx.beginPath();
+
+      for (const poly of batch.polygons) {
+        const outer = poly.outer;
+        const holes = poly.holes || [];
+
+        // Draw outer ring
+        this.ctx.moveTo(outer[0], outer[1]);
+        for (let i = 2; i < outer.length; i += 2) {
+          this.ctx.lineTo(outer[i], outer[i + 1]);
+        }
+        this.ctx.closePath();
+
+        // Draw holes in reverse
+        for (const hole of holes) {
+          this.ctx.moveTo(hole[hole.length - 2], hole[hole.length - 1]);
+          for (let i = hole.length - 4; i >= 0; i -= 2) {
+            this.ctx.lineTo(hole[i], hole[i + 1]);
+          }
+          this.ctx.closePath();
+        }
+      }
+
+      this.ctx.fill("evenodd");
     }
 
     // Render building borders (after fills, before lines)
@@ -3765,18 +5164,63 @@ class MapRenderer {
       this.ctx.lineWidth = batch.width;
       this.ctx.beginPath();
 
-      for (const flat of batch.polygons) {
-        this.ctx.moveTo(flat[0], flat[1]);
-        for (let i = 2; i < flat.length; i += 2) {
-          this.ctx.lineTo(flat[i], flat[i + 1]);
+      for (const poly of batch.polygons) {
+        // Handle both old format (flat array) and new format (object with outer/holes)
+        if (poly.outer) {
+          // New format with holes support - stroke both outer and inner rings
+          const outer = poly.outer;
+          const holes = poly.holes || [];
+
+          // Stroke outer ring
+          this.ctx.moveTo(outer[0], outer[1]);
+          for (let i = 2; i < outer.length; i += 2) {
+            this.ctx.lineTo(outer[i], outer[i + 1]);
+          }
+          this.ctx.closePath();
+
+          // Stroke holes
+          for (const hole of holes) {
+            this.ctx.moveTo(hole[0], hole[1]);
+            for (let i = 2; i < hole.length; i += 2) {
+              this.ctx.lineTo(hole[i], hole[i + 1]);
+            }
+            this.ctx.closePath();
+          }
+        } else {
+          // Old format (backwards compatibility)
+          this.ctx.moveTo(poly[0], poly[1]);
+          for (let i = 2; i < poly.length; i += 2) {
+            this.ctx.lineTo(poly[i], poly[i + 1]);
+          }
+          this.ctx.closePath();
         }
-        this.ctx.closePath();
       }
 
       this.ctx.stroke();
     }
 
     // Flush line batches (one beginPath/stroke per color+width combo)
+    // First pass: draw borders (for features that have them, like small waterways)
+    for (const [key, batch] of lineBatches) {
+      if (batch.borderWidth && batch.borderWidth > 0 && batch.borderColor) {
+        this.ctx.strokeStyle = `rgba(${batch.borderColor.r},${batch.borderColor.g},${batch.borderColor.b},${batch.borderColor.a / 255})`;
+        this.ctx.lineWidth = batch.width + batch.borderWidth * 2;
+        this.ctx.lineCap = "round";
+        this.ctx.lineJoin = "round";
+        this.ctx.beginPath();
+
+        for (const flat of batch.lines) {
+          this.ctx.moveTo(flat[0], flat[1]);
+          for (let i = 2; i < flat.length; i += 2) {
+            this.ctx.lineTo(flat[i], flat[i + 1]);
+          }
+        }
+
+        this.ctx.stroke();
+      }
+    }
+
+    // Second pass: draw main lines
     for (const [key, batch] of lineBatches) {
       this.ctx.strokeStyle = `rgba(${batch.color.r},${batch.color.g},${batch.color.b},${batch.color.a / 255})`;
       this.ctx.lineWidth = batch.width;
