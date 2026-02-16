@@ -74,3 +74,12 @@ Features are classified in `step_3_generate_tiles.py` with metadata:
 2. Use git commits frequently for completed features
 3. Test changes in the browser before committing
 4. Keep solutions focused and avoid over-engineering
+
+## Communication Style
+
+**Keep responses SHORT and concise:**
+- Don't waste tokens on lengthy explanations
+- Confirm completion in 1-2 sentences
+- For significant changes, ask user to update documentation instead of explaining everything
+- Avoid verbose summaries, bullet lists, or extensive code explanations
+- Only provide details when explicitly asked

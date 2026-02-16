@@ -61,6 +61,7 @@ export const THEMES = {
       railway: { r: 210, g: 205, b: 210, a: 255 }, // Light purple-gray
       quarry: { r: 210, g: 200, b: 190, a: 255 }, // Gray-brown
       recreation: { r: 218, g: 238, b: 205, a: 255 }, // Very subtle green
+      services: { r: 220, g: 230, b: 240, a: 255 }, // Light blue for rest areas/services
     },
 
     // Recreation facilities
@@ -199,7 +200,9 @@ export function setTheme(themeName) {
 // Helper function to get a color from the active theme
 export function getColor(category, subcategory = null) {
   if (subcategory) {
-    return activeTheme[category]?.[subcategory] || { r: 255, g: 0, b: 255, a: 255 }; // Magenta fallback
+    return (
+      activeTheme[category]?.[subcategory] || { r: 255, g: 0, b: 255, a: 255 }
+    ); // Magenta fallback
   }
   return activeTheme[category] || { r: 255, g: 0, b: 255, a: 255 }; // Magenta fallback
 }

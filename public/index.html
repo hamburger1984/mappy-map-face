@@ -327,24 +327,13 @@
   </head>
   <body>
     <div class="container">
-      <h1>Hamburg OpenStreetMap Renderer</h1>
-      <div class="info">
-        <strong>Canvas2D + Progressive Tiles</strong> - High-performance map
-        rendering with tiled GeoJSON and level-of-detail optimization <br />Map
-        data: Hamburg region (Geofabrik extract)
-      </div>
-
+      <h1>OpenStreetMap Renderer</h1>
       <div id="loading" class="loading">
         <div class="spinner"></div>
         <div>Loading map tiles...</div>
       </div>
 
       <div id="mapContainer" style="display: none">
-        <div class="instructions">
-          <strong>How to interact:</strong>
-          🔍 Buttons to zoom | 🤚 Drag to pan | 👆 Hover features for info
-        </div>
-
         <div class="map-layout">
           <div class="canvas-container">
             <div class="zoom-controls">
@@ -402,6 +391,10 @@
           <div>Tile load time: <span id="tileLoadTime">0</span> ms</div>
           <div>Render time: <span id="renderTime">0</span> ms</div>
         </div>
+      </div>
+      <div class="info">
+        <strong>Canvas2D + Progressive Tiles</strong> - Vibing with GeoJSON and
+        level-of-detail optimization
       </div>
     </div>
 

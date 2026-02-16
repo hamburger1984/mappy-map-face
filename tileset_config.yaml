@@ -139,6 +139,7 @@ tilesets:
           tags:
             highway: ["motorway", "trunk", "motorway_link", "trunk_link"]
             construction: ["motorway", "trunk", "motorway_link", "trunk_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "major_roads"
           color: [233, 115, 103, 255]
@@ -153,6 +154,7 @@ tilesets:
           tags:
             highway: ["primary", "primary_link"]
             construction: ["primary", "primary_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
@@ -167,6 +169,7 @@ tilesets:
           tags:
             highway: ["secondary", "secondary_link"]
             construction: ["secondary", "secondary_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
@@ -181,6 +184,7 @@ tilesets:
           tags:
             highway: ["tertiary", "tertiary_link"]
             construction: ["tertiary", "tertiary_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "roads"
           color: [255, 255, 255, 255]
@@ -195,6 +199,7 @@ tilesets:
           tags:
             highway: ["residential", "unclassified", "living_street"]
             construction: ["residential", "living_street"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "roads"
           color: [255, 255, 255, 255]
@@ -217,6 +222,10 @@ tilesets:
                 "bridleway",
                 "pedestrian",
                 "steps",
+                "living_street",
+                "corridor",
+                "busway",
+                "raceway",
               ]
             construction:
               [
@@ -228,7 +237,12 @@ tilesets:
                 "bridleway",
                 "pedestrian",
                 "steps",
+                "living_street",
+                "corridor",
+                "busway",
+                "raceway",
               ]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "roads"
           color: [220, 220, 220, 255]
@@ -477,6 +491,19 @@ tilesets:
         render:
           layer: "landuse"
           color: [255, 230, 230, 255]
+          fill: true
+        simplification:
+          disabled: true
+
+      # Highway service areas
+      - name: "highway_service_areas"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            highway: ["rest_area", "services"]
+        render:
+          layer: "landuse"
+          color: [235, 220, 220, 255]
           fill: true
         simplification:
           disabled: true
@@ -807,6 +834,7 @@ tilesets:
           tags:
             highway: ["motorway", "trunk", "motorway_link", "trunk_link"]
             construction: ["motorway", "trunk", "motorway_link", "trunk_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "major_roads"
           color: [233, 115, 103, 255]
@@ -821,6 +849,7 @@ tilesets:
           tags:
             highway: ["primary", "primary_link"]
             construction: ["primary", "primary_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
@@ -835,6 +864,7 @@ tilesets:
           tags:
             highway: ["secondary", "secondary_link"]
             construction: ["secondary", "secondary_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
@@ -849,6 +879,7 @@ tilesets:
           tags:
             highway: ["tertiary", "tertiary_link"]
             construction: ["tertiary", "tertiary_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "roads"
           color: [255, 255, 255, 255]
@@ -863,6 +894,7 @@ tilesets:
           tags:
             highway: ["residential", "unclassified", "living_street"]
             construction: ["residential", "unclassified", "living_street"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "roads"
           color: [255, 255, 255, 255]
@@ -885,6 +917,10 @@ tilesets:
                 "bridleway",
                 "pedestrian",
                 "steps",
+                "living_street",
+                "corridor",
+                "busway",
+                "raceway",
               ]
             construction:
               [
@@ -896,7 +932,12 @@ tilesets:
                 "bridleway",
                 "pedestrian",
                 "steps",
+                "living_street",
+                "corridor",
+                "busway",
+                "raceway",
               ]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "roads"
           color: [220, 220, 220, 255]
@@ -1143,6 +1184,19 @@ tilesets:
         render:
           layer: "landuse"
           color: [255, 230, 230, 255]
+          fill: true
+        simplification:
+          epsilon_m: 2
+
+      # Highway service areas
+      - name: "highway_service_areas"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            highway: ["rest_area", "services"]
+        render:
+          layer: "landuse"
+          color: [235, 220, 220, 255]
           fill: true
         simplification:
           epsilon_m: 2
@@ -1444,6 +1498,7 @@ tilesets:
           tags:
             highway: ["motorway", "trunk", "motorway_link", "trunk_link"]
             construction: ["motorway", "trunk", "motorway_link", "trunk_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "major_roads"
           color: [233, 115, 103, 255]
@@ -1458,6 +1513,7 @@ tilesets:
           tags:
             highway: ["primary", "primary_link"]
             construction: ["primary", "primary_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
@@ -1472,6 +1528,7 @@ tilesets:
           tags:
             highway: ["secondary", "secondary_link"]
             construction: ["secondary", "secondary_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
@@ -1486,6 +1543,7 @@ tilesets:
           tags:
             highway: ["tertiary", "tertiary_link"]
             construction: ["tertiary", "tertiary_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "roads"
           color: [255, 255, 255, 255]
@@ -1500,6 +1558,7 @@ tilesets:
           tags:
             highway: ["residential", "unclassified", "living_street"]
             construction: ["residential", "unclassified", "living_street"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "roads"
           color: [255, 255, 255, 255]
@@ -1523,6 +1582,10 @@ tilesets:
                 "bridleway",
                 "pedestrian",
                 "steps",
+                "living_street",
+                "corridor",
+                "busway",
+                "raceway",
               ]
             construction:
               [
@@ -1534,7 +1597,12 @@ tilesets:
                 "bridleway",
                 "pedestrian",
                 "steps",
+                "living_street",
+                "corridor",
+                "busway",
+                "raceway",
               ]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "roads"
           color: [220, 220, 220, 255]
@@ -1781,6 +1849,19 @@ tilesets:
         render:
           layer: "landuse"
           color: [255, 230, 230, 255]
+          fill: true
+        simplification:
+          epsilon_m: 5
+
+      # Highway service areas
+      - name: "highway_service_areas"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            highway: ["rest_area", "services"]
+        render:
+          layer: "landuse"
+          color: [235, 220, 220, 255]
           fill: true
         simplification:
           epsilon_m: 5
@@ -2066,6 +2147,7 @@ tilesets:
           tags:
             highway: ["motorway", "trunk", "motorway_link", "trunk_link"]
             construction: ["motorway", "trunk", "motorway_link", "trunk_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "major_roads"
           color: [233, 115, 103, 255]
@@ -2080,6 +2162,7 @@ tilesets:
           tags:
             highway: ["primary", "primary_link"]
             construction: ["primary", "primary_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
@@ -2094,6 +2177,7 @@ tilesets:
           tags:
             highway: ["secondary", "secondary_link"]
             construction: ["secondary", "secondary_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
@@ -2423,6 +2507,7 @@ tilesets:
           tags:
             highway: ["motorway", "trunk", "motorway_link", "trunk_link"]
             construction: ["motorway", "trunk", "motorway_link", "trunk_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "major_roads"
           color: [233, 115, 103, 255]
@@ -2437,6 +2522,7 @@ tilesets:
           tags:
             highway: ["primary", "primary_link"]
             construction: ["primary", "primary_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
@@ -2451,6 +2537,7 @@ tilesets:
           tags:
             highway: ["secondary", "secondary_link"]
             construction: ["secondary", "secondary_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
@@ -2716,6 +2803,7 @@ tilesets:
           tags:
             highway: ["motorway", "trunk", "motorway_link", "trunk_link"]
             construction: ["motorway", "trunk", "motorway_link", "trunk_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "major_roads"
           color: [233, 115, 103, 255]
@@ -2730,6 +2818,7 @@ tilesets:
           tags:
             highway: ["primary", "primary_link"]
             construction: ["primary", "primary_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]
@@ -2852,6 +2941,7 @@ tilesets:
           tags:
             highway: ["motorway", "trunk", "motorway_link", "trunk_link"]
             construction: ["motorway", "trunk", "motorway_link", "trunk_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "major_roads"
           color: [233, 115, 103, 255]
@@ -2866,6 +2956,7 @@ tilesets:
           tags:
             highway: ["primary", "primary_link"]
             construction: ["primary", "primary_link"]
+          preserve_tags: ["bicycle_road", "cyclestreet"]
         render:
           layer: "major_roads"
           color: [252, 214, 164, 255]

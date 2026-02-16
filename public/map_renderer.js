@@ -2039,6 +2039,16 @@ class MapRenderer {
             h = (h * 31 + y1) | 0;
             h = (h * 31 + x2) | 0;
             h = (h * 31 + y2) | 0;
+
+            // Include OSM ID if available to avoid false duplicates
+            if (feature.id) {
+              const idHash =
+                typeof feature.id === "number"
+                  ? feature.id
+                  : parseInt(feature.id.replace(/\D/g, "").slice(-8)) || 0;
+              h = (h * 31 + idHash) | 0;
+            }
+
             featureKey = h;
           } else {
             // Fallback for features without geometry - use object reference
@@ -3037,6 +3047,16 @@ class MapRenderer {
       };
     }
 
+    // Highway areas - rest area and services (polygon features)
+    if (props.highway === "rest_area" || props.highway === "services") {
+      return {
+        layer: "landuse_areas",
+        color: getColor("specialPurpose", "services"),
+        minLOD: 1,
+        fill: true,
+      };
+    }
+
     // Playgrounds (with colorful pattern)
     if (props.leisure === "playground") {
       return {
@@ -3351,6 +3371,13 @@ class MapRenderer {
         lanes = lanes || 1.666; // 1-2?
         minLOD = 2;
         roadPriority = 3;
+      } else if (effectiveHighway === "living_street") {
+        // Residential street where pedestrians have priority
+        color = getColor("roads", "residential");
+        laneWidth = 3;
+        lanes = lanes || 1.5;
+        minLOD = 2;
+        roadPriority = 3;
       } else if (
         effectiveHighway === "service" ||
         effectiveHighway === "track"
@@ -3361,11 +3388,19 @@ class MapRenderer {
         lanes = lanes || 1.1;
         minLOD = 2;
         roadPriority = 2;
+      } else if (effectiveHighway === "busway") {
+        // Dedicated bus rapid transit lanes
+        color = getColor("roads", "service");
+        laneWidth = 3;
+        lanes = lanes || 1;
+        minLOD = 2;
+        roadPriority = 2;
       } else if (
         effectiveHighway === "footway" ||
         effectiveHighway === "path" ||
         effectiveHighway === "pedestrian" ||
-        effectiveHighway === "steps"
+        effectiveHighway === "steps" ||
+        effectiveHighway === "corridor"
       ) {
         // was: 2m
         color = getColor("roads", "footway");
@@ -3380,6 +3415,20 @@ class MapRenderer {
         lanes = lanes || 1;
         minLOD = 2;
         roadPriority = 1;
+      } else if (effectiveHighway === "bridleway") {
+        // Horse riding paths
+        color = getColor("roads", "footway");
+        laneWidth = 2.5;
+        lanes = lanes || 1;
+        minLOD = 2;
+        roadPriority = 0;
+      } else if (effectiveHighway === "raceway") {
+        // Motor racing tracks
+        color = getColor("roads", "service");
+        laneWidth = 8;
+        lanes = lanes || 2;
+        minLOD = 2;
+        roadPriority = 2;
       } else {
         console.log("Unknown highway", props);
         // Unknown highway type - skip it to avoid rendering unexpected features
@@ -3406,10 +3455,11 @@ class MapRenderer {
 
       // Assign to appropriate layer based on vertical position
       if (isTunnel) {
-        color.a = 80; // 30% opacity for tunnels
+        // Create a copy to avoid mutating the theme color
+        const tunnelColor = { ...color, a: 80 }; // 30% opacity for tunnels
         return {
           layer: "tunnels",
-          color,
+          color: tunnelColor,
           minLOD,
           width,
           fill: false,
@@ -3420,6 +3470,11 @@ class MapRenderer {
         if (isBridge) {
           console.log("Bridge road detected", props);
         }
+
+        // Check for bicycle_road marking
+        const isBicycleRoad =
+          props.bicycle_road === "yes" || props.cyclestreet === "yes";
+
         return {
           layer: "surface_roads",
           color,
@@ -3428,6 +3483,7 @@ class MapRenderer {
           fill: false,
           roadPriority,
           isConstruction,
+          isBicycleRoad,
         };
       }
     }
@@ -3465,10 +3521,11 @@ class MapRenderer {
         }
 
         if (isTunnel) {
-          color.a = 80; // 30% opacity for tunnels
+          // Create a copy to avoid mutating the theme color
+          const tunnelColor = { ...color, a: 80 }; // 30% opacity for tunnels
           return {
             layer: "tunnels",
-            color,
+            color: tunnelColor,
             minLOD,
             width,
             fill: false,
@@ -3673,6 +3730,7 @@ class MapRenderer {
             color,
             width: width || 1,
             isConstruction: item.isConstruction,
+            isBicycleRoad: item.isBicycleRoad,
           });
           if (screenCoords) {
             this.renderedFeatures.push({
@@ -3831,6 +3889,81 @@ class MapRenderer {
           this.ctx.stroke();
         }
         this.ctx.setLineDash([]);
+      }
+
+      // RENDERING PASS 3: Draw bicycle road markings (small bicycle pictograms)
+      // Only at LOD 3+ (zoomed in enough to see details)
+      const lod = this.getLOD();
+      if (lod >= 3) {
+        const bicycleRoads = roadFeatures.filter((fc) => fc.isBicycleRoad);
+        if (bicycleRoads.length > 0) {
+          this.ctx.fillStyle = toRGBA(getColor("roads", "cycleway"));
+          this.ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+          this.ctx.lineWidth = 0.5;
+
+          for (const fc of bicycleRoads) {
+            const flat = fc.flat;
+            // Calculate total length of road segment
+            let totalLength = 0;
+            const segments = [];
+            for (let i = 2; i < flat.length; i += 2) {
+              const dx = flat[i] - flat[i - 2];
+              const dy = flat[i + 1] - flat[i - 3];
+              const len = Math.sqrt(dx * dx + dy * dy);
+              segments.push({
+                x1: flat[i - 2],
+                y1: flat[i - 3],
+                x2: flat[i],
+                y2: flat[i + 1],
+                len,
+              });
+              totalLength += len;
+            }
+
+            // Place markings every 50-80 pixels along the road
+            const spacing = 60;
+            const numMarks = Math.floor(totalLength / spacing);
+
+            for (let m = 0; m < numMarks; m++) {
+              const targetDist = (m + 0.5) * spacing;
+              let accDist = 0;
+
+              // Find which segment contains this distance
+              for (const seg of segments) {
+                if (accDist + seg.len >= targetDist) {
+                  const t = (targetDist - accDist) / seg.len;
+                  const x = seg.x1 + t * (seg.x2 - seg.x1);
+                  const y = seg.y1 + t * (seg.y2 - seg.y1);
+                  const angle = Math.atan2(seg.y2 - seg.y1, seg.x2 - seg.x1);
+
+                  // Draw tiny bicycle pictogram (simplified)
+                  this.ctx.save();
+                  this.ctx.translate(x, y);
+                  this.ctx.rotate(angle);
+
+                  const size = 3; // Very small marking
+                  // Two circles for wheels
+                  this.ctx.beginPath();
+                  this.ctx.arc(-size, 0, size * 0.7, 0, Math.PI * 2);
+                  this.ctx.arc(size, 0, size * 0.7, 0, Math.PI * 2);
+                  this.ctx.stroke();
+                  this.ctx.fill();
+
+                  // Simple frame line
+                  this.ctx.beginPath();
+                  this.ctx.moveTo(-size, 0);
+                  this.ctx.lineTo(0, -size * 0.8);
+                  this.ctx.lineTo(size, 0);
+                  this.ctx.stroke();
+
+                  this.ctx.restore();
+                  break;
+                }
+                accDist += seg.len;
+              }
+            }
+          }
+        }
       }
     }
   }
