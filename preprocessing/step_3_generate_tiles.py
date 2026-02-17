@@ -19,7 +19,6 @@ import json
 import math
 import os
 import shutil
-import sqlite3
 import sys
 import tempfile
 import time
@@ -1354,12 +1353,6 @@ def get_tiles_for_feature(feature, zoom):
     return tiles
 
 
-def get_input_fingerprint(input_file):
-    """Fast fingerprint using file size + mtime (avoids hashing 3+ GB)."""
-    stat = Path(input_file).stat()
-    return f"{stat.st_size}:{stat.st_mtime_ns}"
-
-
 def get_work_dir(pbf_path):
     """Get the working directory for a PBF file's intermediate artifacts.
 
@@ -1367,23 +1360,6 @@ def get_work_dir(pbf_path):
     """
     folder_name = pbf_path.name.replace(".osm.pbf", "")
     return pbf_path.parent / folder_name
-
-
-def load_meta(work_dir):
-    """Load meta.json from work directory, or return empty dict."""
-    meta_path = work_dir / "meta.json"
-    if meta_path.exists():
-        try:
-            return json.loads(meta_path.read_text())
-        except:
-            pass
-    return {}
-
-
-def save_meta(work_dir, meta):
-    """Save meta.json to work directory."""
-    meta_path = work_dir / "meta.json"
-    meta_path.write_text(json.dumps(meta, indent=2))
 
 
 def get_pbf_bounds(pbf_file):
@@ -1421,27 +1397,88 @@ def get_pbf_bounds(pbf_file):
     return None
 
 
-def open_tileset_db(db_path):
-    """Open (or create) a per-tileset SQLite database."""
-    if db_path.exists():
-        db_path.unlink()
+def finalize_tile(tile_jsonl_path, tile_json_path):
+    """Read a .jsonl tile, deduplicate, sort by importance, compute _meta, write final .json."""
+    # Read all lines
+    with open(tile_jsonl_path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
 
-    conn = sqlite3.connect(str(db_path))
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=OFF")
-    conn.execute("PRAGMA page_size=8192")
-    conn.execute("PRAGMA cache_size=-64000")  # 64MB cache
-    conn.execute("PRAGMA temp_store=MEMORY")
-    conn.execute("""
-        CREATE TABLE tile_features (
-            x INTEGER,
-            y INTEGER,
-            importance INTEGER,
-            feature_json TEXT
-        )
-    """)
-    conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT)")
-    return conn
+    # Deduplicate and sort by importance (descending)
+    seen = set()
+    entries = []  # (importance, feature_json_str)
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        # Extract importance prefix: "importance\t{json}"
+        tab_idx = line.index("\t")
+        importance = int(line[:tab_idx])
+        feature_json = line[tab_idx + 1 :]
+        if feature_json not in seen:
+            seen.add(feature_json)
+            entries.append((importance, feature_json))
+
+    # Merge with existing .json tile if it exists (multi-region border tiles)
+    if tile_json_path.exists():
+        try:
+            with open(tile_json_path, "r", encoding="utf-8") as f:
+                existing_tile = json.load(f)
+                for feat in existing_tile.get("features", []):
+                    feat_str = json.dumps(feat, separators=(",", ":"))
+                    if feat_str not in seen:
+                        seen.add(feat_str)
+                        # Use importance 5 (medium) for existing features without importance
+                        entries.append((5, feat_str))
+        except:
+            pass
+
+    # Sort by importance descending
+    entries.sort(key=lambda e: e[0], reverse=True)
+
+    # Analyze tile content for _meta
+    has_coastline = False
+    has_land_features = False
+    feature_strings = []
+
+    for _, feat_str in entries:
+        feature_strings.append(feat_str)
+        try:
+            feat = json.loads(feat_str)
+            props = feat.get("properties", {})
+            if props.get("natural") == "coastline":
+                has_coastline = True
+            if (
+                props.get("highway")
+                or props.get("building")
+                or props.get("landuse")
+                or props.get("railway")
+                or props.get("amenity")
+                or props.get("shop")
+                or (
+                    props.get("natural")
+                    and props.get("natural") not in ["coastline", "water"]
+                )
+            ):
+                has_land_features = True
+        except:
+            pass
+
+    # Write final tile JSON
+    tile_json_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(tile_json_path, "w", encoding="utf-8") as f:
+        f.write('{"type":"FeatureCollection",')
+        f.write('"_meta":{"hasCoastline":')
+        f.write("true" if has_coastline else "false")
+        f.write(',"hasLandFeatures":')
+        f.write("true" if has_land_features else "false")
+        f.write('},"features":[')
+        f.write(",".join(feature_strings))
+        f.write("]}")
+
+    # Remove intermediate .jsonl
+    tile_jsonl_path.unlink()
+
+    return tile_json_path.stat().st_size
 
 
 def split_geojson_into_tiles(
@@ -1449,432 +1486,203 @@ def split_geojson_into_tiles(
     output_dir,
     source_pbf_file=None,
 ):
-    """Split GeoJSON into tiles using tileset-based SQLite databases.
+    """Split GeoJSON into tiles by streaming features directly to .jsonl files.
 
     Args:
-        geojson_file: Path to temporary GeoJSON file to process
+        geojson_file: Path to GeoJSON file to process
         output_dir: Directory to write tiles to
-        source_pbf_file: Path to source OSM PBF file (used for fingerprinting and bounds extraction)
+        source_pbf_file: Path to source OSM PBF file (used for bounds extraction)
     """
-
-    # Determine work directory and fingerprint
-    if source_pbf_file:
-        pbf_path = Path(source_pbf_file)
-        work_dir = get_work_dir(pbf_path)
-        fingerprint = get_input_fingerprint(source_pbf_file)
-    else:
-        work_dir = Path(geojson_file).parent
-        fingerprint = get_input_fingerprint(geojson_file)
-
-    work_dir.mkdir(exist_ok=True)
-    db_prefix = (
-        Path(source_pbf_file).stem if source_pbf_file else Path(geojson_file).stem
-    )
-
-    # Check if cached via meta.json
-    meta = load_meta(work_dir)
-    need_import = not (
-        meta.get("fingerprint") == fingerprint and meta.get("tilesets_complete")
-    )
 
     processing_keys = TILESET_IDS
     print(f"Generating tilesets: {processing_keys}")
 
-    if not need_import:
-        # Open existing databases read-only for Pass 2
-        tileset_dbs = {}
-        for tileset_id in processing_keys:
-            db_path = work_dir / f"{db_prefix}_z{tileset_id}.db"
-            if not db_path.exists():
-                need_import = True
-                break
-            tileset_dbs[tileset_id] = sqlite3.connect(str(db_path))
-
-    if not need_import:
-        # Retrieve bounds from meta.json or PBF
-        actual_bounds = meta.get("bounds")
-        if actual_bounds is None:
-            if source_pbf_file and Path(source_pbf_file).suffix == ".pbf":
-                actual_bounds = get_pbf_bounds(source_pbf_file)
-            if actual_bounds:
-                meta["bounds"] = actual_bounds
-                save_meta(work_dir, meta)
-            else:
-                raise ValueError(
-                    f"Could not retrieve bounds from meta.json or PBF file. "
-                    f"source_pbf_file={source_pbf_file}"
-                )
-    else:
-        # Build all databases from scratch
-        tileset_dbs = {}
-        for tileset_id in processing_keys:
-            db_path = work_dir / f"{db_prefix}_z{tileset_id}.db"
-            tileset_dbs[tileset_id] = open_tileset_db(db_path)
-
-        # Pass 1: Stream features into per-tileset SQLite databases
-        stats = defaultdict(int)
-        i = 0
-        batches = {tileset_id: [] for tileset_id in processing_keys}
-        BATCH_SIZE = 50000
-
-        # Get bounds from PBF header
-        # Features may reference nodes outside the region for complete relations
-        if source_pbf_file and Path(source_pbf_file).suffix == ".pbf":
-            pbf_bounds = get_pbf_bounds(source_pbf_file)
-            if not pbf_bounds:
-                raise ValueError(
-                    f"Could not extract bounds from PBF file {source_pbf_file}. "
-                    "Ensure osmium-tool is installed and the PBF file is valid."
-                )
-            actual_bounds = pbf_bounds
-        else:
+    # Get bounds from PBF header
+    if source_pbf_file and Path(source_pbf_file).suffix == ".pbf":
+        actual_bounds = get_pbf_bounds(source_pbf_file)
+        if not actual_bounds:
             raise ValueError(
-                f"Must provide source_pbf_file. source_pbf_file={source_pbf_file}"
+                f"Could not extract bounds from PBF file {source_pbf_file}. "
+                "Ensure osmium-tool is installed and the PBF file is valid."
             )
-
-        # Get file size for progress tracking
-        file_size = os.path.getsize(geojson_file)
-        start_time = time.time()
-        last_update = start_time
-        last_count = 0
-        update_interval = 1.2  # seconds
-        next_check_at = 75  # Target iteration to check and update
-
-        # Rolling window for rate calculation (keep last 5 samples)
-        rate_history = []  # List of (elapsed_time, items_processed) tuples
-        max_history = 5
-
-        with open(geojson_file, "rb") as f:
-            for feature in ijson.items(f, "features.item"):
-                i += 1
-
-                # Update at target iteration (adaptive based on processing rate)
-                if i >= next_check_at:
-                    current_time = time.time()
-                    # Record this sample
-                    elapsed_since_last = current_time - last_update
-                    features_since_last = i - last_count
-
-                    # Add to rolling window
-                    rate_history.append((elapsed_since_last, features_since_last))
-                    if len(rate_history) > max_history:
-                        rate_history.pop(0)
-
-                    # Calculate rate based on all samples in window
-                    total_elapsed = sum(sample[0] for sample in rate_history)
-                    total_features = sum(sample[1] for sample in rate_history)
-                    features_per_sec = (
-                        total_features / total_elapsed if total_elapsed > 0 else 0
-                    )
-
-                    # Get file position for progress percentage
-                    file_pos = f.tell()
-                    progress_pct = (file_pos / file_size * 100) if file_size > 0 else 0
-
-                    # Format features/sec based on magnitude
-                    if features_per_sec >= 1000:
-                        rate_str = f"{features_per_sec / 1000:.1f}k"
-                    else:
-                        rate_str = f"{features_per_sec:.0f}"
-
-                    # Print on same line with carriage return
-                    print(
-                        f"\r  Processed: {i:,} features | {rate_str} features/sec | {progress_pct:.1f}% through file",
-                        end="",
-                        flush=True,
-                    )
-                    last_update = current_time
-                    last_count = i
-
-                    # Calculate next target iteration based on current rate
-                    # Target: update approximately every 5 seconds
-                    if features_per_sec > 0:
-                        estimated_features = int(features_per_sec * update_interval)
-                        # Clamp between 1000 and 500000 to avoid too frequent or too rare checks
-                        estimated_features = max(1000, min(500000, estimated_features))
-                    else:
-                        estimated_features = 10000
-                    next_check_at = i + estimated_features
-
-                props = feature.get("properties", {})
-                geom_type = feature["geometry"]["type"]
-
-                # For each tileset, check if feature should be included
-                for tileset_config in TILESETS:
-                    tileset_id = tileset_config["id"]
-                    tile_size_m = tileset_config["tile_size_meters"]
-
-                    # Check if feature matches any feature definition in this tileset
-                    feature_config = feature_matches_tileset(
-                        feature, tileset_config, props, geom_type
-                    )
-                    if not feature_config:
-                        continue  # Feature not included in this tileset
-
-                    # Create a copy for this tileset
-                    tileset_feature = copy.deepcopy(feature)
-
-                    # Simplify for this tileset
-                    tileset_feature = simplify_feature_for_tileset(
-                        tileset_feature, tileset_id, feature_config
-                    )
-
-                    # Add render metadata from config
-                    tileset_feature["_render"] = feature_config["render"]
-
-                    # Get tiles for this tileset
-                    feature_tiles = get_tiles_for_feature_in_tileset(
-                        tileset_feature, tileset_id, tile_size_m
-                    )
-
-                    # Serialize and store
-                    feature_json = json.dumps(
-                        tileset_feature,
-                        separators=(",", ":"),
-                        default=decimal_default,
-                    )
-
-                    # Use importance for ordering (default to 5 for medium priority)
-                    _, importance = classify_feature_importance(props, geom_type)
-
-                    for tile_coords in feature_tiles:
-                        ts, x, y = tile_coords
-                        batches[ts].append((x, y, importance, feature_json))
-                        stats[ts] += 1
-
-                # Flush each tileset's batch independently
-                for tileset_id in processing_keys:
-                    if len(batches[tileset_id]) >= BATCH_SIZE:
-                        tileset_dbs[tileset_id].executemany(
-                            "INSERT INTO tile_features VALUES (?,?,?,?)",
-                            batches[tileset_id],
-                        )
-                        tileset_dbs[tileset_id].commit()
-                        batches[tileset_id].clear()
-
-        # Flush remaining batches
-        for tileset_id in processing_keys:
-            if batches[tileset_id]:
-                tileset_dbs[tileset_id].executemany(
-                    "INSERT INTO tile_features VALUES (?,?,?,?)", batches[tileset_id]
-                )
-                tileset_dbs[tileset_id].commit()
-                batches[tileset_id].clear()
-
-        # Final progress line (clear the line first)
-        print(
-            f"\r  Processed {i:,} features in {time.time() - start_time:.0f}s ({db_prefix})"
-            + " " * 40
+    else:
+        raise ValueError(
+            f"Must provide source_pbf_file. source_pbf_file={source_pbf_file}"
         )
 
-        # Create indexes for fast reads in Pass 2
-        for tileset_id in processing_keys:
-            conn = tileset_dbs[tileset_id]
-            conn.execute(
-                "CREATE INDEX idx_tile ON tile_features (x, y, importance DESC)"
-            )
-            conn.commit()
-
-        # Store fingerprint and bounds in meta.json
-        meta = {
-            "fingerprint": fingerprint,
-            "bounds": actual_bounds,
-            "tilesets_complete": True,
-        }
-        save_meta(work_dir, meta)
-
-    # Pass 2: Write tiles from each tileset database
     output_path = Path(output_dir)
-    total_tiles = 0
+
+    # Track all .jsonl files written per tileset for finalization
+    tile_files_written = defaultdict(set)  # tileset_id -> set of (x, y)
+    # Cache which directories have been created
+    created_dirs = set()
+
+    def append_to_tile(ts, x, y, line):
+        """Append a line to a tile's .jsonl file."""
+        tile_dir = output_path / str(ts) / str(x)
+        dir_key = (ts, x)
+        if dir_key not in created_dirs:
+            tile_dir.mkdir(parents=True, exist_ok=True)
+            created_dirs.add(dir_key)
+        with open(tile_dir / f"{y}.jsonl", "a", encoding="utf-8") as fh:
+            fh.write(line)
+
+    # Pass 1: Stream features directly to .jsonl tile files
+    stats = defaultdict(int)
+    i = 0
+
+    file_size = os.path.getsize(geojson_file)
+    start_time = time.time()
+    last_update = start_time
+    last_count = 0
+    update_interval = 1.2
+    next_check_at = 75
+
+    rate_history = []
+    max_history = 5
+
+    db_prefix = (
+        Path(source_pbf_file).stem if source_pbf_file else Path(geojson_file).stem
+    )
+
+    with open(geojson_file, "rb") as f:
+        for feature in ijson.items(f, "features.item"):
+            i += 1
+
+            # Progress reporting
+            if i >= next_check_at:
+                current_time = time.time()
+                elapsed_since_last = current_time - last_update
+                features_since_last = i - last_count
+
+                rate_history.append((elapsed_since_last, features_since_last))
+                if len(rate_history) > max_history:
+                    rate_history.pop(0)
+
+                total_elapsed = sum(s[0] for s in rate_history)
+                total_features = sum(s[1] for s in rate_history)
+                features_per_sec = (
+                    total_features / total_elapsed if total_elapsed > 0 else 0
+                )
+
+                file_pos = f.tell()
+                progress_pct = (file_pos / file_size * 100) if file_size > 0 else 0
+
+                rate_str = (
+                    f"{features_per_sec / 1000:.1f}k"
+                    if features_per_sec >= 1000
+                    else f"{features_per_sec:.0f}"
+                )
+                print(
+                    f"\r  Processed: {i:,} features | {rate_str} features/sec | {progress_pct:.1f}% through file",
+                    end="",
+                    flush=True,
+                )
+                last_update = current_time
+                last_count = i
+
+                if features_per_sec > 0:
+                    estimated_features = int(features_per_sec * update_interval)
+                    estimated_features = max(1000, min(500000, estimated_features))
+                else:
+                    estimated_features = 10000
+                next_check_at = i + estimated_features
+
+            props = feature.get("properties", {})
+            geom_type = feature["geometry"]["type"]
+
+            # For each tileset, check if feature should be included
+            for tileset_config in TILESETS:
+                tileset_id = tileset_config["id"]
+                tile_size_m = tileset_config["tile_size_meters"]
+
+                feature_config = feature_matches_tileset(
+                    feature, tileset_config, props, geom_type
+                )
+                if not feature_config:
+                    continue
+
+                tileset_feature = copy.deepcopy(feature)
+                tileset_feature = simplify_feature_for_tileset(
+                    tileset_feature, tileset_id, feature_config
+                )
+                tileset_feature["_render"] = feature_config["render"]
+
+                feature_tiles = get_tiles_for_feature_in_tileset(
+                    tileset_feature, tileset_id, tile_size_m
+                )
+
+                feature_json = json.dumps(
+                    tileset_feature,
+                    separators=(",", ":"),
+                    default=decimal_default,
+                )
+
+                _, importance = classify_feature_importance(props, geom_type)
+
+                for tile_coords in feature_tiles:
+                    ts, x, y = tile_coords
+                    append_to_tile(ts, x, y, f"{importance}\t{feature_json}\n")
+                    tile_files_written[ts].add((x, y))
+                    stats[ts] += 1
+
+    print(
+        f"\r  Processed {i:,} features in {time.time() - start_time:.0f}s ({db_prefix})"
+        + " " * 40
+    )
+
+    # Pass 2: Finalize each .jsonl into .json (deduplicate, sort, add _meta)
+    total_tiles = sum(len(tiles) for tiles in tile_files_written.values())
     tile_count = 0
     total_bytes = 0
-
-    for tileset_id in processing_keys:
-        total_tiles += (
-            tileset_dbs[tileset_id]
-            .execute("SELECT COUNT(DISTINCT x || '/' || y) FROM tile_features")
-            .fetchone()[0]
-        )
 
     write_start = time.time()
     last_update = write_start
     last_tile_count = 0
-    update_interval = 1.2  # seconds
-    next_tile_check_at = 12  # Target tile count to check and update
-
-    # Rolling window for tile write rate calculation (keep last 5 samples)
-    tile_rate_history = []  # List of (elapsed_time, tiles_written) tuples
-    max_history = 5
+    next_tile_check_at = 12
+    tile_rate_history = []
 
     for tileset_id in processing_keys:
-        conn = tileset_dbs[tileset_id]
-        cursor = conn.execute(
-            "SELECT x, y, feature_json FROM tile_features ORDER BY x, y, importance DESC"
-        )
+        for x, y in tile_files_written.get(tileset_id, set()):
+            jsonl_path = output_path / str(tileset_id) / str(x) / f"{y}.jsonl"
+            json_path = output_path / str(tileset_id) / str(x) / f"{y}.json"
 
-        created_dirs = set()
-        current_tile = None
-        feature_jsons = []
-
-        for x, y, feature_json in cursor:
-            tile_key = (x, y)
-            if tile_key != current_tile:
-                if current_tile is not None:
-                    cx, cy = current_tile
-                    tile_dir = output_path / str(tileset_id) / str(cx)
-                    if cx not in created_dirs:
-                        tile_dir.mkdir(parents=True, exist_ok=True)
-                        created_dirs.add(cx)
-                    tile_file = tile_dir / f"{cy}.json"
-
-                    # Merge with existing tile if it exists
-                    existing_features = []
-                    if tile_file.exists():
-                        try:
-                            with open(tile_file, "r", encoding="utf-8") as f:
-                                existing_tile = json.load(f)
-                                existing_features = [
-                                    json.dumps(feat, separators=(",", ":"))
-                                    for feat in existing_tile.get("features", [])
-                                ]
-                        except:
-                            pass  # If read fails, just overwrite
-
-                    # Combine existing and new features
-                    all_features = existing_features + feature_jsons
-
-                    with open(tile_file, "w", encoding="utf-8") as f:
-                        f.write('{"type":"FeatureCollection","features":[')
-                        f.write(",".join(all_features))
-                        f.write("]}")
-                    total_bytes += tile_file.stat().st_size
-                    tile_count += 1
-
-                    # Update at target tile count (adaptive based on write rate)
-                    if tile_count >= next_tile_check_at:
-                        current_time = time.time()
-                        # Record this sample
-                        elapsed_since_last = current_time - last_update
-                        tiles_since_last = tile_count - last_tile_count
-
-                        # Add to rolling window
-                        tile_rate_history.append((elapsed_since_last, tiles_since_last))
-                        if len(tile_rate_history) > max_history:
-                            tile_rate_history.pop(0)
-
-                        # Calculate rate based on all samples in window
-                        total_elapsed = sum(sample[0] for sample in tile_rate_history)
-                        total_tiles_written = sum(
-                            sample[1] for sample in tile_rate_history
-                        )
-                        tiles_per_sec = (
-                            total_tiles_written / total_elapsed
-                            if total_elapsed > 0
-                            else 0
-                        )
-                        progress_pct = (
-                            (tile_count / total_tiles * 100) if total_tiles > 0 else 0
-                        )
-                        print(
-                            f"\r  Written: {tile_count:,}/{total_tiles:,} tiles | {tiles_per_sec:.0f} tiles/sec | {progress_pct:.1f}%",
-                            end="",
-                            flush=True,
-                        )
-                        last_update = current_time
-                        last_tile_count = tile_count
-
-                        # Calculate next target tile count based on current rate
-                        # Target: update approximately every 5 seconds
-                        if tiles_per_sec > 0:
-                            estimated_tiles = int(tiles_per_sec * update_interval)
-                            # Clamp between 10 and 10000 to avoid too frequent or too rare checks
-                            estimated_tiles = max(10, min(10000, estimated_tiles))
-                        else:
-                            estimated_tiles = 100
-                        next_tile_check_at = tile_count + estimated_tiles
-                current_tile = tile_key
-                feature_jsons = []
-            feature_jsons.append(feature_json)
-
-        # Write last tile for this tileset
-        if current_tile is not None:
-            cx, cy = current_tile
-            tile_dir = output_path / str(tileset_id) / str(cx)
-            if cx not in created_dirs:
-                tile_dir.mkdir(parents=True, exist_ok=True)
-                created_dirs.add(cx)
-            tile_file = tile_dir / f"{cy}.json"
-
-            # Merge with existing tile if it exists
-            existing_features = []
-            if tile_file.exists():
-                try:
-                    with open(tile_file, "r", encoding="utf-8") as f:
-                        existing_tile = json.load(f)
-                        existing_features = [
-                            json.dumps(feat, separators=(",", ":"))
-                            for feat in existing_tile.get("features", [])
-                        ]
-                except:
-                    pass  # If read fails, just overwrite
-
-            # Combine and deduplicate features
-            # Use a set to track seen features (by their JSON string)
-            seen = set()
-            all_features = []
-            for feat_str in existing_features + feature_jsons:
-                if feat_str not in seen:
-                    seen.add(feat_str)
-                    all_features.append(feat_str)
-
-            # Analyze tile content for metadata and generate land polygon if needed
-            has_coastline = False
-            has_land_features = False
-            coastline_features = []
-
-            for feature_str in all_features:
-                try:
-                    feat = json.loads(feature_str)
-                    props = feat.get("properties", {})
-
-                    # Check for coastline
-                    if props.get("natural") == "coastline":
-                        has_coastline = True
-                        coastline_features.append(feat)
-
-                    # Check for land features
-                    if (
-                        props.get("highway")
-                        or props.get("building")
-                        or props.get("landuse")
-                        or props.get("railway")
-                        or props.get("amenity")
-                        or props.get("shop")
-                        or (
-                            props.get("natural")
-                            and props.get("natural") not in ["coastline", "water"]
-                        )
-                    ):
-                        has_land_features = True
-                except:
-                    pass
-
-            # Write tile with metadata
-            with open(tile_file, "w", encoding="utf-8") as f:
-                f.write('{"type":"FeatureCollection",')
-                f.write('"_meta":{"hasCoastline":')
-                f.write("true" if has_coastline else "false")
-                f.write(',"hasLandFeatures":')
-                f.write("true" if has_land_features else "false")
-                f.write('},"features":[')
-                f.write(",".join(all_features))
-                f.write("]}")
-            total_bytes += tile_file.stat().st_size
+            total_bytes += finalize_tile(jsonl_path, json_path)
             tile_count += 1
 
-        conn.close()
+            # Progress reporting
+            if tile_count >= next_tile_check_at:
+                current_time = time.time()
+                elapsed_since_last = current_time - last_update
+                tiles_since_last = tile_count - last_tile_count
 
-    # Final tile writing summary (clear the line first)
+                tile_rate_history.append((elapsed_since_last, tiles_since_last))
+                if len(tile_rate_history) > max_history:
+                    tile_rate_history.pop(0)
+
+                total_elapsed = sum(s[0] for s in tile_rate_history)
+                total_written = sum(s[1] for s in tile_rate_history)
+                tiles_per_sec = (
+                    total_written / total_elapsed if total_elapsed > 0 else 0
+                )
+                progress_pct = (
+                    (tile_count / total_tiles * 100) if total_tiles > 0 else 0
+                )
+                print(
+                    f"\r  Finalizing: {tile_count:,}/{total_tiles:,} tiles | {tiles_per_sec:.0f} tiles/sec | {progress_pct:.1f}%",
+                    end="",
+                    flush=True,
+                )
+                last_update = current_time
+                last_tile_count = tile_count
+
+                if tiles_per_sec > 0:
+                    estimated_tiles = int(tiles_per_sec * update_interval)
+                    estimated_tiles = max(10, min(10000, estimated_tiles))
+                else:
+                    estimated_tiles = 100
+                next_tile_check_at = tile_count + estimated_tiles
+
     write_elapsed = time.time() - write_start
     size_mb = total_bytes / (1024 * 1024)
     print(
@@ -1882,198 +1690,7 @@ def split_geojson_into_tiles(
         + " " * 40
     )
 
-    # Return actual bounds and tile size
     return {"bounds": actual_bounds, "total_bytes": total_bytes}
-
-
-# ============================================================================
-# STEP 3: TILE GENERATION ORCHESTRATION
-# ============================================================================
-
-
-def write_tiles_from_databases(work_dir, db_prefix, output_dir):
-    """Write tile JSON files from existing SQLite databases in work directory.
-
-    Returns total bytes written.
-    """
-    output_path = Path(output_dir)
-    total_bytes = 0
-
-    for tileset_id in TILESET_IDS:
-        db_path = work_dir / f"{db_prefix}_z{tileset_id}.db"
-        if not db_path.exists():
-            continue
-
-        conn = sqlite3.connect(str(db_path))
-        cursor = conn.execute(
-            "SELECT x, y, feature_json FROM tile_features ORDER BY x, y, importance DESC"
-        )
-
-        created_dirs = set()
-        current_tile = None
-        feature_jsons = []
-        tile_count = 0
-
-        for x, y, feature_json in cursor:
-            tile_key = (x, y)
-            if tile_key != current_tile:
-                if current_tile is not None:
-                    # Write previous tile
-                    cx, cy = current_tile
-                    tile_dir = output_path / str(tileset_id) / str(cx)
-                    if cx not in created_dirs:
-                        tile_dir.mkdir(parents=True, exist_ok=True)
-                        created_dirs.add(cx)
-                    tile_file = tile_dir / f"{cy}.json"
-
-                    # Merge with existing tile if it exists (for border tiles between regions)
-                    existing_features = []
-                    if tile_file.exists():
-                        try:
-                            with open(tile_file, "r", encoding="utf-8") as f:
-                                existing_tile = json.load(f)
-                                existing_features = [
-                                    json.dumps(feat, separators=(",", ":"))
-                                    for feat in existing_tile.get("features", [])
-                                ]
-                        except:
-                            pass  # If read fails, just overwrite
-
-                    # Combine and deduplicate features
-                    seen = set()
-                    merged_features = []
-                    for feat_str in existing_features + feature_jsons:
-                        if feat_str not in seen:
-                            seen.add(feat_str)
-                            merged_features.append(feat_str)
-
-                    # Analyze tile content and generate land polygon if needed
-                    has_coastline = False
-                    has_land_features = False
-                    coastline_features = []
-
-                    for feature_str in merged_features:
-                        try:
-                            feat = json.loads(feature_str)
-                            props = feat.get("properties", {})
-
-                            if props.get("natural") == "coastline":
-                                has_coastline = True
-                                coastline_features.append(feat)
-
-                            if (
-                                props.get("highway")
-                                or props.get("building")
-                                or props.get("landuse")
-                                or props.get("railway")
-                                or props.get("amenity")
-                                or props.get("shop")
-                                or (
-                                    props.get("natural")
-                                    and props.get("natural")
-                                    not in ["coastline", "water"]
-                                )
-                            ):
-                                has_land_features = True
-
-                            # Continue scanning to collect all coastline features
-                        except:
-                            pass
-
-                    with open(tile_file, "w", encoding="utf-8") as f:
-                        f.write('{"type":"FeatureCollection",')
-                        f.write('"_meta":{"hasCoastline":')
-                        f.write("true" if has_coastline else "false")
-                        f.write(',"hasLandFeatures":')
-                        f.write("true" if has_land_features else "false")
-                        f.write('},"features":[')
-                        f.write(",".join(merged_features))
-                        f.write("]}")
-                    total_bytes += tile_file.stat().st_size
-                    tile_count += 1
-
-                current_tile = tile_key
-                feature_jsons = []
-            feature_jsons.append(feature_json)
-
-        # Write last tile
-        if current_tile is not None:
-            cx, cy = current_tile
-            tile_dir = output_path / str(tileset_id) / str(cx)
-            if cx not in created_dirs:
-                tile_dir.mkdir(parents=True, exist_ok=True)
-                created_dirs.add(cx)
-            tile_file = tile_dir / f"{cy}.json"
-
-            # Merge with existing tile if it exists (for border tiles between regions)
-            existing_features = []
-            if tile_file.exists():
-                try:
-                    with open(tile_file, "r", encoding="utf-8") as f:
-                        existing_tile = json.load(f)
-                        existing_features = [
-                            json.dumps(feat, separators=(",", ":"))
-                            for feat in existing_tile.get("features", [])
-                        ]
-                except:
-                    pass  # If read fails, just overwrite
-
-            # Combine and deduplicate features
-            seen = set()
-            merged_features = []
-            for feat_str in existing_features + feature_jsons:
-                if feat_str not in seen:
-                    seen.add(feat_str)
-                    merged_features.append(feat_str)
-
-            # Analyze and write with metadata
-            has_coastline = False
-            has_land_features = False
-            coastline_features = []
-
-            for feature_str in merged_features:
-                try:
-                    feat = json.loads(feature_str)
-                    props = feat.get("properties", {})
-
-                    if props.get("natural") == "coastline":
-                        has_coastline = True
-                        coastline_features.append(feat)
-
-                    if (
-                        props.get("highway")
-                        or props.get("building")
-                        or props.get("landuse")
-                        or props.get("railway")
-                        or props.get("amenity")
-                        or props.get("shop")
-                        or (
-                            props.get("natural")
-                            and props.get("natural") not in ["coastline", "water"]
-                        )
-                    ):
-                        has_land_features = True
-
-                    # Continue scanning to collect all coastline features
-                except:
-                    pass
-
-            with open(tile_file, "w", encoding="utf-8") as f:
-                f.write('{"type":"FeatureCollection",')
-                f.write('"_meta":{"hasCoastline":')
-                f.write("true" if has_coastline else "false")
-                f.write(',"hasLandFeatures":')
-                f.write("true" if has_land_features else "false")
-                f.write('},"features":[')
-                f.write(",".join(merged_features))
-                f.write("]}")
-            total_bytes += tile_file.stat().st_size
-            tile_count += 1
-
-        conn.close()
-        print(f"  {tileset_id}: {tile_count:,} tiles")
-
-    return total_bytes
 
 
 def process_geojson_to_tiles(args):
@@ -2181,46 +1798,27 @@ def main():
             print("Error: No OSM PBF files found")
             sys.exit(1)
 
-        # Check which PBF files have valid cached databases
+        # Find GeoJSON files for each PBF
         files_to_process = []
-        cached_pbf_files = []
 
         for pbf_file in pbf_files:
-            # Check if cached via meta.json in work directory
             work_dir = get_work_dir(pbf_file)
-            fingerprint = get_input_fingerprint(str(pbf_file))
-            meta = load_meta(work_dir)
-
-            if meta.get("fingerprint") == fingerprint and meta.get("tilesets_complete"):
-                cached_pbf_files.append(pbf_file)
-                print(f"  ✓ {pbf_file.name}: databases cached, skipping GeoJSON")
-            else:
-                # Need GeoJSON for this file - it lives in the work dir
-                geojson_file = work_dir / f"{pbf_file.stem}.geojson"
-                if not geojson_file.exists():
-                    print(
-                        f"  ⚠ {pbf_file.name}: needs processing but {geojson_file.name} not found"
-                    )
-                    print("     Run 'just convert' first")
-                    sys.exit(1)
-                files_to_process.append(geojson_file)
+            geojson_file = work_dir / f"{pbf_file.stem}.geojson"
+            if not geojson_file.exists():
+                print(f"  ⚠ {pbf_file.name}: {geojson_file.name} not found")
+                print("     Run 'just convert' first")
+                sys.exit(1)
+            files_to_process.append(geojson_file)
 
         # Sort files by size (largest first) for efficient border tile merging
-        # Larger datasets should be processed first, smaller ones merge into them
         if files_to_process:
             files_to_process.sort(key=lambda f: f.stat().st_size, reverse=True)
-            print(
-                f"\nWill process {len(files_to_process)} GeoJSON file(s) (databases not cached)"
-            )
+            print(f"\nWill process {len(files_to_process)} GeoJSON file(s)")
             print("  Processing order (largest to smallest):")
             for gj in files_to_process:
                 size_mb = gj.stat().st_size / (1024 * 1024)
                 name = gj.stem.replace("-latest.osm", "").replace("-", " ").title()
                 print(f"    • {name} ({size_mb:.0f} MB)")
-
-        # Sort cached files by size as well
-        if cached_pbf_files:
-            cached_pbf_files.sort(key=lambda f: f.stat().st_size, reverse=True)
 
         geojson_files = files_to_process
 
@@ -2278,39 +1876,6 @@ def main():
             )
 
         all_results.extend(results)
-
-    # Process cached databases - write tiles from existing databases
-    if cached_pbf_files:
-        print(f"\nProcessing {len(cached_pbf_files)} cached database(s) into tiles:")
-        for pbf_file in cached_pbf_files:
-            region_name = (
-                pbf_file.stem.replace("-latest.osm", "").replace("-", " ").title()
-            )
-            print(f"  • {region_name}")
-        print()
-
-        # Write tiles from each cached database
-        for pbf_file in cached_pbf_files:
-            work_dir = get_work_dir(pbf_file)
-            db_prefix = pbf_file.stem
-            output_path = Path(str(temp_tile_dir))
-
-            # Get bounds from meta.json or PBF
-            meta = load_meta(work_dir)
-            bounds = meta.get("bounds") or get_pbf_bounds(pbf_file)
-
-            # Write tiles from the cached databases
-            print(f"Writing tiles for {pbf_file.stem}...")
-            source_bytes = write_tiles_from_databases(work_dir, db_prefix, output_path)
-
-            all_results.append(
-                {
-                    "name": f"{pbf_file.stem}.geojson",
-                    "status": "success",
-                    "bounds": bounds,
-                    "total_bytes": source_bytes,
-                }
-            )
 
     # Merge bounds from all results
     merged_bounds = {
