@@ -392,37 +392,38 @@ class MapRenderer {
   }
 
   createScrubPattern() {
-    // Create a subtle pattern for scrubland (small bush/shrub symbols)
-    const size = 16;
+    // Scrubland pattern: scattered bush clusters with visible stems
+    const size = 40;
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext("2d");
 
-    // Draw small random bush symbols
-    ctx.fillStyle = toRGBA(getColor("patterns", "scrubBush")); // Dark green, semi-transparent
+    ctx.fillStyle = toRGBA(getColor("patterns", "scrubBush"));
     ctx.strokeStyle = toRGBA(getColor("patterns", "scrubStem"));
-    ctx.lineWidth = 0.5;
 
-    // Draw 3-4 small bush clusters in pattern
     const bushes = [
-      { x: 3, y: 3, r: 1.5 },
-      { x: 11, y: 7, r: 1.2 },
-      { x: 7, y: 12, r: 1.3 },
-      { x: 13, y: 14, r: 1.1 },
+      { x: 6, y: 7, r: 3.5 },
+      { x: 24, y: 5, r: 3 },
+      { x: 35, y: 18, r: 2.8 },
+      { x: 14, y: 22, r: 3.2 },
+      { x: 30, y: 32, r: 3.5 },
+      { x: 8, y: 35, r: 2.5 },
     ];
 
     for (const bush of bushes) {
-      // Draw as small irregular circles
+      // Multi-lobe bush shape
       ctx.beginPath();
-      ctx.arc(bush.x, bush.y, bush.r, 0, Math.PI * 2);
+      ctx.arc(bush.x - bush.r * 0.4, bush.y - bush.r * 0.2, bush.r * 0.7, 0, Math.PI * 2);
+      ctx.arc(bush.x + bush.r * 0.4, bush.y - bush.r * 0.2, bush.r * 0.7, 0, Math.PI * 2);
+      ctx.arc(bush.x, bush.y - bush.r * 0.6, bush.r * 0.6, 0, Math.PI * 2);
       ctx.fill();
-      ctx.stroke();
 
-      // Add small stems
+      // Stem
+      ctx.lineWidth = 1.2;
       ctx.beginPath();
-      ctx.moveTo(bush.x, bush.y + bush.r);
-      ctx.lineTo(bush.x, bush.y + bush.r + 1);
+      ctx.moveTo(bush.x, bush.y + bush.r * 0.3);
+      ctx.lineTo(bush.x, bush.y + bush.r * 0.3 + 3);
       ctx.stroke();
     }
 
@@ -430,44 +431,46 @@ class MapRenderer {
   }
 
   createWetlandPattern() {
-    // Create a subtle pattern for wetlands (water + grass symbols)
-    const size = 16;
+    // Wetland pattern: wavy water lines with grass tufts
+    const size = 40;
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext("2d");
 
-    // Draw subtle wavy lines (water)
-    ctx.strokeStyle = toRGBA(getColor("patterns", "wetlandWater")); // Light blue, very transparent
-    ctx.lineWidth = 0.8;
+    // Wavy water lines
+    ctx.strokeStyle = toRGBA(getColor("patterns", "wetlandWater"));
+    ctx.lineWidth = 1.5;
 
-    // Horizontal wavy lines
-    for (let y = 2; y < size; y += 6) {
+    for (let y = 5; y < size; y += 12) {
       ctx.beginPath();
       ctx.moveTo(0, y);
-      for (let x = 0; x <= size; x += 2) {
-        const wave = Math.sin((x / size) * Math.PI * 2) * 0.5;
+      for (let x = 0; x <= size; x += 1) {
+        const wave = Math.sin((x / size) * Math.PI * 3) * 1.5;
         ctx.lineTo(x, y + wave);
       }
       ctx.stroke();
     }
 
-    // Add small grass tufts
-    ctx.strokeStyle = toRGBA(getColor("patterns", "wetlandGrass")); // Green, semi-transparent
-    ctx.lineWidth = 0.6;
+    // Grass tufts (larger, more visible)
+    ctx.strokeStyle = toRGBA(getColor("patterns", "wetlandGrass"));
+    ctx.lineWidth = 1.2;
+    ctx.lineCap = "round";
 
     const tufts = [
-      { x: 4, y: 4 },
-      { x: 12, y: 8 },
-      { x: 8, y: 14 },
+      { x: 8, y: 10 },
+      { x: 28, y: 6 },
+      { x: 18, y: 22 },
+      { x: 35, y: 28 },
+      { x: 6, y: 34 },
     ];
 
     for (const tuft of tufts) {
-      // Draw vertical grass blades
-      for (let i = -1; i <= 1; i++) {
+      // 5 grass blades fanning out
+      for (let i = -2; i <= 2; i++) {
         ctx.beginPath();
-        ctx.moveTo(tuft.x + i * 0.5, tuft.y + 1);
-        ctx.lineTo(tuft.x + i * 0.5, tuft.y - 2);
+        ctx.moveTo(tuft.x, tuft.y + 3);
+        ctx.quadraticCurveTo(tuft.x + i * 1.5, tuft.y - 2, tuft.x + i * 2.5, tuft.y - 6);
         ctx.stroke();
       }
     }
@@ -476,35 +479,35 @@ class MapRenderer {
   }
 
   createBroadleafForestPattern() {
-    // Pattern for deciduous/broadleaf forest (leaf shapes)
-    const size = 20;
+    // Broadleaf forest pattern: rounded tree canopy circles
+    const size = 40;
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext("2d");
 
     const color = getColor("patterns", "broadleafForest");
-    ctx.fillStyle = toRGBA(color); // Medium green, semi-transparent
+    ctx.fillStyle = toRGBA(color);
     ctx.strokeStyle = toRGBA(color);
-    ctx.lineWidth = 0.5;
+    ctx.lineWidth = 0.8;
 
-    // Draw leaf shapes at various positions
-    const leaves = [
-      { x: 4, y: 5, r: 2.5, angle: 0.3 },
-      { x: 14, y: 3, r: 2, angle: -0.2 },
-      { x: 10, y: 11, r: 2.3, angle: 0.5 },
-      { x: 6, y: 16, r: 2.2, angle: -0.4 },
-      { x: 16, y: 15, r: 2.4, angle: 0.1 },
+    // Tree canopies as rounded shapes
+    const trees = [
+      { x: 8, y: 8, r: 5, angle: 0.3 },
+      { x: 28, y: 6, r: 4.5, angle: -0.2 },
+      { x: 18, y: 20, r: 5.5, angle: 0.5 },
+      { x: 6, y: 30, r: 4, angle: -0.4 },
+      { x: 34, y: 28, r: 5, angle: 0.1 },
+      { x: 22, y: 36, r: 4.5, angle: 0.7 },
     ];
 
-    for (const leaf of leaves) {
+    for (const tree of trees) {
       ctx.save();
-      ctx.translate(leaf.x, leaf.y);
-      ctx.rotate(leaf.angle);
+      ctx.translate(tree.x, tree.y);
+      ctx.rotate(tree.angle);
 
-      // Draw oval leaf shape
       ctx.beginPath();
-      ctx.ellipse(0, 0, leaf.r * 0.6, leaf.r, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, tree.r * 0.7, tree.r, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
 
@@ -515,38 +518,38 @@ class MapRenderer {
   }
 
   createNeedleleafForestPattern() {
-    // Pattern for coniferous/needleleaf forest (small triangular trees)
-    const size = 20;
+    // Needleleaf forest pattern: triangular conifer tree shapes
+    const size = 40;
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext("2d");
 
-    ctx.fillStyle = toRGBA(getColor("patterns", "needleleafForest")); // Darker green for conifers
+    ctx.fillStyle = toRGBA(getColor("patterns", "needleleafForest"));
     ctx.strokeStyle = toRGBA(getColor("patterns", "needleleafForest"));
-    ctx.lineWidth = 0.6;
+    ctx.lineWidth = 1;
 
-    // Draw small pine tree shapes
     const trees = [
-      { x: 5, y: 6, h: 5 },
-      { x: 15, y: 4, h: 4.5 },
-      { x: 10, y: 13, h: 5.5 },
-      { x: 17, y: 16, h: 4 },
+      { x: 8, y: 10, h: 10 },
+      { x: 28, y: 7, h: 9 },
+      { x: 18, y: 24, h: 11 },
+      { x: 35, y: 30, h: 8 },
+      { x: 6, y: 34, h: 9 },
     ];
 
     for (const tree of trees) {
-      // Draw simple triangle for pine tree
+      // Triangle pine tree
       ctx.beginPath();
-      ctx.moveTo(tree.x, tree.y - tree.h / 2); // Top
-      ctx.lineTo(tree.x - tree.h / 2.5, tree.y + tree.h / 2); // Bottom left
-      ctx.lineTo(tree.x + tree.h / 2.5, tree.y + tree.h / 2); // Bottom right
+      ctx.moveTo(tree.x, tree.y - tree.h / 2);
+      ctx.lineTo(tree.x - tree.h / 2.5, tree.y + tree.h / 2);
+      ctx.lineTo(tree.x + tree.h / 2.5, tree.y + tree.h / 2);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
 
-      // Small trunk
+      // Trunk
       ctx.fillStyle = toRGBA(getColor("patterns", "needleleafTrunk"));
-      ctx.fillRect(tree.x - 0.5, tree.y + tree.h / 2, 1, 1.5);
+      ctx.fillRect(tree.x - 1, tree.y + tree.h / 2, 2, 3);
       ctx.fillStyle = toRGBA(getColor("patterns", "needleleafForest"));
     }
 
@@ -554,39 +557,40 @@ class MapRenderer {
   }
 
   createMixedForestPattern() {
-    // Pattern for mixed forest (combination of leaves and triangles)
-    const size = 20;
+    // Mixed forest pattern: combination of rounded canopies and conifer triangles
+    const size = 40;
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext("2d");
 
-    // Draw some broadleaf shapes
+    // Broadleaf canopies
     ctx.fillStyle = toRGBA(getColor("patterns", "mixedForestLeaf"));
     ctx.strokeStyle = toRGBA(getColor("patterns", "mixedForestLeaf"));
-    ctx.lineWidth = 0.5;
+    ctx.lineWidth = 0.8;
 
     const leaves = [
-      { x: 4, y: 5, r: 2.2 },
-      { x: 15, y: 14, r: 2 },
+      { x: 8, y: 8, r: 5 },
+      { x: 30, y: 28, r: 4.5 },
+      { x: 10, y: 34, r: 4 },
     ];
 
     for (const leaf of leaves) {
       ctx.beginPath();
-      ctx.ellipse(leaf.x, leaf.y, leaf.r * 0.6, leaf.r, 0.3, 0, Math.PI * 2);
+      ctx.ellipse(leaf.x, leaf.y, leaf.r * 0.7, leaf.r, 0.3, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
     }
 
-    // Draw some conifer shapes
+    // Conifer triangles
     ctx.fillStyle = toRGBA(getColor("patterns", "mixedForestNeedle"));
     ctx.strokeStyle = toRGBA(getColor("patterns", "mixedForestNeedle"));
-    ctx.lineWidth = 0.6;
+    ctx.lineWidth = 1;
 
     const trees = [
-      { x: 11, y: 4, h: 4.5 },
-      { x: 7, y: 15, h: 5 },
-      { x: 17, y: 8, h: 4 },
+      { x: 24, y: 8, h: 10 },
+      { x: 14, y: 22, h: 9 },
+      { x: 36, y: 16, h: 8 },
     ];
 
     for (const tree of trees) {
@@ -603,39 +607,18 @@ class MapRenderer {
   }
 
   createPlaygroundPattern() {
-    // Pattern for playgrounds (colorful playful shapes)
-    const size = 18;
+    // Playground pattern: colorful shapes representing play equipment
+    const size = 40;
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext("2d");
 
-    // Draw colorful shapes representing play equipment
     const shapes = [
-      {
-        x: 4,
-        y: 4,
-        r: 2,
-        color: toRGBA(getColor("patterns", "playgroundRed")),
-      }, // Red circle (ball)
-      {
-        x: 13,
-        y: 5,
-        r: 1.8,
-        color: toRGBA(getColor("patterns", "playgroundBlue")),
-      }, // Blue circle
-      {
-        x: 8,
-        y: 13,
-        r: 2.2,
-        color: toRGBA(getColor("patterns", "playgroundOrange")),
-      }, // Orange circle
-      {
-        x: 15,
-        y: 15,
-        r: 1.5,
-        color: toRGBA(getColor("patterns", "playgroundPurple")),
-      }, // Purple circle
+      { x: 8, y: 8, r: 4, color: toRGBA(getColor("patterns", "playgroundRed")) },
+      { x: 28, y: 10, r: 3.5, color: toRGBA(getColor("patterns", "playgroundBlue")) },
+      { x: 16, y: 28, r: 4.5, color: toRGBA(getColor("patterns", "playgroundOrange")) },
+      { x: 34, y: 32, r: 3, color: toRGBA(getColor("patterns", "playgroundPurple")) },
     ];
 
     for (const shape of shapes) {
@@ -643,64 +626,59 @@ class MapRenderer {
       ctx.beginPath();
       ctx.arc(shape.x, shape.y, shape.r, 0, Math.PI * 2);
       ctx.fill();
-
-      // Add outline
       ctx.strokeStyle = shape.color;
-      ctx.lineWidth = 0.8;
+      ctx.lineWidth = 1.2;
       ctx.stroke();
     }
 
-    // Add small swing shape
+    // Swing frame
     ctx.strokeStyle = toRGBA(getColor("patterns", "playgroundSwing"));
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(3, 10);
-    ctx.lineTo(3, 7);
-    ctx.moveTo(6, 10);
-    ctx.lineTo(6, 7);
+    ctx.moveTo(5, 22);
+    ctx.lineTo(5, 16);
+    ctx.moveTo(12, 22);
+    ctx.lineTo(12, 16);
     ctx.stroke();
     ctx.fillStyle = toRGBA(getColor("patterns", "playgroundSwingSeat"));
-    ctx.fillRect(2.5, 10, 4, 1.5);
+    ctx.fillRect(4, 22, 9, 2.5);
 
     return canvas;
   }
 
   createSwimmingPoolPattern() {
-    // Pattern for swimming pools/public baths (water with tile lines)
-    const size = 16;
+    // Swimming pool pattern: waves with tile grid
+    const size = 36;
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext("2d");
 
-    // Draw subtle wave pattern
+    // Wave pattern
     ctx.strokeStyle = toRGBA(getColor("patterns", "swimmingPoolWave"));
-    ctx.lineWidth = 0.8;
+    ctx.lineWidth = 1.5;
 
-    for (let y = 2; y < size; y += 5) {
+    for (let y = 4; y < size; y += 10) {
       ctx.beginPath();
       ctx.moveTo(0, y);
-      for (let x = 0; x <= size; x += 2) {
-        const wave = Math.sin((x / size) * Math.PI * 3) * 0.8;
+      for (let x = 0; x <= size; x += 1) {
+        const wave = Math.sin((x / size) * Math.PI * 3) * 2;
         ctx.lineTo(x, y + wave);
       }
       ctx.stroke();
     }
 
-    // Add tile grid lines (like pool tiles)
+    // Tile grid
     ctx.strokeStyle = toRGBA(getColor("patterns", "swimmingPoolTile"));
-    ctx.lineWidth = 0.5;
+    ctx.lineWidth = 0.8;
 
-    // Vertical lines
-    for (let x = 0; x <= size; x += 8) {
+    for (let x = 0; x <= size; x += 18) {
       ctx.beginPath();
       ctx.moveTo(x, 0);
       ctx.lineTo(x, size);
       ctx.stroke();
     }
-
-    // Horizontal lines
-    for (let y = 0; y <= size; y += 8) {
+    for (let y = 0; y <= size; y += 18) {
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(size, y);
@@ -711,23 +689,21 @@ class MapRenderer {
   }
 
   createBeachPattern() {
-    // Pattern for beach/sand (stipple/dots for sandy texture)
-    const size = 16;
+    // Beach pattern: scattered sand dots
+    const size = 36;
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext("2d");
 
-    // Draw random dots for sand grains
-    ctx.fillStyle = toRGBA(getColor("patterns", "beachSand")); // Sandy color
+    // Sand grain dots
+    ctx.fillStyle = toRGBA(getColor("patterns", "beachSand"));
 
-    // Create random but deterministic pattern
     const dots = [];
-    for (let i = 0; i < 30; i++) {
-      // Use deterministic pseudo-random based on i
-      const x = (i * 7) % 16;
-      const y = (i * 11) % 16;
-      const r = 0.4 + ((i * 3) % 5) * 0.1;
+    for (let i = 0; i < 25; i++) {
+      const x = (i * 13) % 36;
+      const y = (i * 17) % 36;
+      const r = 0.7 + ((i * 3) % 5) * 0.15;
       dots.push({ x, y, r });
     }
 
@@ -737,13 +713,14 @@ class MapRenderer {
       ctx.fill();
     }
 
-    // Add a few larger sand particles
+    // Larger sand particles
     ctx.fillStyle = toRGBA(getColor("patterns", "beachSandLarge"));
     const largeDots = [
-      { x: 4, y: 6, r: 0.8 },
-      { x: 11, y: 3, r: 0.7 },
-      { x: 8, y: 13, r: 0.9 },
-      { x: 14, y: 10, r: 0.6 },
+      { x: 8, y: 12, r: 1.5 },
+      { x: 24, y: 6, r: 1.3 },
+      { x: 16, y: 26, r: 1.6 },
+      { x: 30, y: 20, r: 1.2 },
+      { x: 4, y: 32, r: 1.4 },
     ];
 
     for (const dot of largeDots) {
@@ -756,23 +733,24 @@ class MapRenderer {
   }
 
   createBeachVolleyballPattern() {
-    // Pattern for beach volleyball courts (sand with net line)
-    const size = 20;
+    // Beach volleyball pattern: sand with net line
+    const size = 40;
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext("2d");
 
-    // Sand texture (lighter, similar to beach but less dense)
+    // Sand dots
     ctx.fillStyle = toRGBA(getColor("patterns", "beachVolleyballSand"));
     const dots = [
-      { x: 3, y: 4, r: 0.5 },
-      { x: 8, y: 2, r: 0.4 },
-      { x: 14, y: 5, r: 0.6 },
-      { x: 6, y: 9, r: 0.5 },
-      { x: 16, y: 11, r: 0.4 },
-      { x: 10, y: 15, r: 0.5 },
-      { x: 4, y: 17, r: 0.6 },
+      { x: 6, y: 8, r: 0.9 },
+      { x: 16, y: 4, r: 0.7 },
+      { x: 28, y: 10, r: 1 },
+      { x: 12, y: 18, r: 0.8 },
+      { x: 34, y: 22, r: 0.7 },
+      { x: 20, y: 30, r: 0.9 },
+      { x: 8, y: 34, r: 1 },
+      { x: 32, y: 36, r: 0.8 },
     ];
 
     for (const dot of dots) {
@@ -781,22 +759,22 @@ class MapRenderer {
       ctx.fill();
     }
 
-    // Draw net line across middle
+    // Net line
     ctx.strokeStyle = toRGBA(getColor("patterns", "beachVolleyballNet"));
-    ctx.lineWidth = 1.2;
+    ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(0, size / 2);
     ctx.lineTo(size, size / 2);
     ctx.stroke();
 
-    // Net mesh pattern
+    // Net mesh
     ctx.strokeStyle = toRGBA(getColor("patterns", "beachVolleyballMesh"));
-    ctx.lineWidth = 0.4;
+    ctx.lineWidth = 0.6;
     for (let i = -2; i <= 2; i++) {
       if (i === 0) continue;
       ctx.beginPath();
-      ctx.moveTo(0, size / 2 + i * 1.5);
-      ctx.lineTo(size, size / 2 + i * 1.5);
+      ctx.moveTo(0, size / 2 + i * 2.5);
+      ctx.lineTo(size, size / 2 + i * 2.5);
       ctx.stroke();
     }
 
@@ -804,100 +782,92 @@ class MapRenderer {
   }
 
   createPicnicSitePattern() {
-    // Pattern for picnic sites/shelters (table symbols)
-    const size = 18;
+    // Picnic site pattern: table symbols
+    const size = 40;
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext("2d");
 
-    ctx.fillStyle = toRGBA(getColor("patterns", "picnicWood")); // Brown for wood
+    ctx.fillStyle = toRGBA(getColor("patterns", "picnicWood"));
     ctx.strokeStyle = toRGBA(getColor("patterns", "picnicWoodStroke"));
-    ctx.lineWidth = 0.8;
+    ctx.lineWidth = 1.2;
 
-    // Draw picnic table symbols
     const tables = [
-      { x: 5, y: 5 },
-      { x: 13, y: 13 },
+      { x: 12, y: 12 },
+      { x: 30, y: 30 },
     ];
 
     for (const table of tables) {
-      // Table top (rectangle)
-      ctx.fillRect(table.x - 2.5, table.y - 0.5, 5, 1);
-      ctx.strokeRect(table.x - 2.5, table.y - 0.5, 5, 1);
+      // Table top
+      ctx.fillRect(table.x - 5, table.y - 1, 10, 2);
+      ctx.strokeRect(table.x - 5, table.y - 1, 10, 2);
 
-      // Bench seats (smaller rectangles on sides)
-      ctx.fillRect(table.x - 2.5, table.y - 2.5, 5, 0.6);
-      ctx.strokeRect(table.x - 2.5, table.y - 2.5, 5, 0.6);
-      ctx.fillRect(table.x - 2.5, table.y + 1.9, 5, 0.6);
-      ctx.strokeRect(table.x - 2.5, table.y + 1.9, 5, 0.6);
+      // Bench seats
+      ctx.fillRect(table.x - 5, table.y - 5, 10, 1.2);
+      ctx.strokeRect(table.x - 5, table.y - 5, 10, 1.2);
+      ctx.fillRect(table.x - 5, table.y + 3.5, 10, 1.2);
+      ctx.strokeRect(table.x - 5, table.y + 3.5, 10, 1.2);
 
       // Table legs
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.moveTo(table.x - 1.5, table.y - 0.5);
-      ctx.lineTo(table.x - 1.5, table.y + 1.5);
-      ctx.moveTo(table.x + 1.5, table.y - 0.5);
-      ctx.lineTo(table.x + 1.5, table.y + 1.5);
+      ctx.moveTo(table.x - 3, table.y - 1);
+      ctx.lineTo(table.x - 3, table.y + 3);
+      ctx.moveTo(table.x + 3, table.y - 1);
+      ctx.lineTo(table.x + 3, table.y + 3);
       ctx.stroke();
-      ctx.lineWidth = 0.8;
+      ctx.lineWidth = 1.2;
     }
 
     return canvas;
   }
 
   createTableTennisPattern() {
-    // Pattern for table tennis/ping pong tables
-    const size = 20;
+    // Table tennis pattern: top-down table view
+    const size = 40;
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext("2d");
 
-    // Draw table tennis tables (top-down view)
-    const tables = [{ x: 10, y: 10 }];
+    const tables = [{ x: 20, y: 20 }];
 
     for (const table of tables) {
-      // Table surface (dark green)
+      const tableW = 24;
+      const tableH = 14;
+
+      // Table surface
       ctx.fillStyle = toRGBA(getColor("patterns", "tableTennisTable"));
       ctx.strokeStyle = toRGBA(getColor("patterns", "tableTennisTableStroke"));
-      ctx.lineWidth = 0.8;
-
-      // Table rectangle (wider than tall for typical orientation)
-      const tableW = 12;
-      const tableH = 7;
+      ctx.lineWidth = 1.2;
       ctx.fillRect(table.x - tableW / 2, table.y - tableH / 2, tableW, tableH);
-      ctx.strokeRect(
-        table.x - tableW / 2,
-        table.y - tableH / 2,
-        tableW,
-        tableH,
-      );
+      ctx.strokeRect(table.x - tableW / 2, table.y - tableH / 2, tableW, tableH);
 
-      // Center line (white)
+      // Center line
       ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
-      ctx.lineWidth = 0.5;
+      ctx.lineWidth = 0.8;
       ctx.beginPath();
       ctx.moveTo(table.x - tableW / 2, table.y);
       ctx.lineTo(table.x + tableW / 2, table.y);
       ctx.stroke();
 
-      // Net (gray, slightly thicker in middle)
+      // Net
       ctx.strokeStyle = toRGBA(getColor("patterns", "tableTennisNet"));
-      ctx.lineWidth = 1.2;
+      ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(table.x, table.y - tableH / 2);
       ctx.lineTo(table.x, table.y + tableH / 2);
       ctx.stroke();
 
-      // Net mesh (subtle)
+      // Net mesh
       ctx.strokeStyle = toRGBA(getColor("patterns", "tableTennisNetMesh"));
-      ctx.lineWidth = 0.3;
+      ctx.lineWidth = 0.5;
       for (let i = -2; i <= 2; i++) {
         if (i === 0) continue;
         ctx.beginPath();
-        ctx.moveTo(table.x + i * 1.2, table.y - tableH / 2);
-        ctx.lineTo(table.x + i * 1.2, table.y + tableH / 2);
+        ctx.moveTo(table.x + i * 2, table.y - tableH / 2);
+        ctx.lineTo(table.x + i * 2, table.y + tableH / 2);
         ctx.stroke();
       }
 
@@ -1717,13 +1687,10 @@ class MapRenderer {
     }
 
     // Fallback to closest tileset
-    if (this.viewWidthMeters < 1000) return "t1";
-    if (this.viewWidthMeters < 2000) return "t2";
-    if (this.viewWidthMeters < 7000) return "t3";
-    if (this.viewWidthMeters < 15000) return "t4";
-    if (this.viewWidthMeters < 70000) return "t5";
-    if (this.viewWidthMeters < 150000) return "t6";
-    return "t7";
+    if (this.viewWidthMeters < 2000) return "t1";
+    if (this.viewWidthMeters < 15000) return "t2";
+    if (this.viewWidthMeters < 150000) return "t3";
+    return "t4";
   }
 
   getVisibleTiles(bounds) {
@@ -3107,6 +3074,9 @@ class MapRenderer {
       props.amenity === "picnic_table" ||
       props.amenity === "shelter"
     ) {
+      if (props.amenity == "shelter") {
+        console.log("Shelter", props);
+      }
       return {
         layer: "landuse_areas",
         color: getColor("recreation", "picnicSite"),
@@ -3250,14 +3220,25 @@ class MapRenderer {
         borderWidth = 0.5;
       }
 
+      if (isTunnel) {
+        console.log("Tunnel", props);
+      }
+
+      let waterColor = getColor("water", "line");
+      let waterBorder = getColor("water", "border");
+      if (isTunnel) {
+        waterColor = { ...waterColor, a: 51 }; // 20% opacity for tunnels
+        waterBorder = { ...waterBorder, a: 51 }; // 20% opacity for tunnels
+      }
+
       const result = {
         layer: "waterways",
-        color: getColor("water", "line"),
+        color: waterColor,
         minLOD: importance,
         fill: false,
         width: minWidth,
         borderWidth: borderWidth,
-        borderColor: getColor("water", "border"),
+        borderColor: waterBorder,
       };
 
       // If waterway has a name, add label info
@@ -5227,6 +5208,11 @@ class MapRenderer {
     }
 
     // Flush pattern batches (areas with textured fills like scrub/wetland)
+    // Scale patterns based on zoom so they remain readable at all zoom levels
+    const metersPerPixel = this.viewWidthMeters / this.canvasWidth;
+    // At ~1m/px (street level) use scale 1.0, at ~100m/px (city) scale up to ~2.5
+    const patternScale = Math.max(1.0, Math.min(3.0, Math.log2(metersPerPixel + 1) * 0.6 + 0.5));
+
     for (const [patternId, batch] of patternBatches) {
       const pattern = this.patternCache[patternId];
       if (!pattern) continue;
@@ -5263,7 +5249,8 @@ class MapRenderer {
 
       this.ctx.fill("evenodd");
 
-      // Then overlay with pattern
+      // Then overlay with pattern, scaled for current zoom
+      pattern.setTransform(new DOMMatrix().scaleSelf(patternScale, patternScale));
       this.ctx.fillStyle = pattern;
       this.ctx.beginPath();
 
