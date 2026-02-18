@@ -31,12 +31,12 @@ except ImportError:
 OSM_SOURCES = {
     "hamburg": "https://download.geofabrik.de/europe/germany/hamburg-latest.osm.pbf",
     "schleswig-holstein": "https://download.geofabrik.de/europe/germany/schleswig-holstein-latest.osm.pbf",
-    "mecklenburg-vorpommern": "https://download.geofabrik.de/europe/germany/mecklenburg-vorpommern-latest.osm.pbf",
-    "niedersachsen": "https://download.geofabrik.de/europe/germany/niedersachsen-latest.osm.pbf",
-    "nordrhein-westfalen": "https://download.geofabrik.de/europe/germany/nordrhein-westfalen-latest.osm.pbf",
-    "denmark": "https://download.geofabrik.de/europe/denmark-latest.osm.pbf",
-    #"poland": "https://download.geofabrik.de/europe/poland-latest.osm.pbf",
-    "sweden": "https://download.geofabrik.de/europe/sweden-latest.osm.pbf",
+    # "mecklenburg-vorpommern": "https://download.geofabrik.de/europe/germany/mecklenburg-vorpommern-latest.osm.pbf",
+    # "niedersachsen": "https://download.geofabrik.de/europe/germany/niedersachsen-latest.osm.pbf",
+    # "nordrhein-westfalen": "https://download.geofabrik.de/europe/germany/nordrhein-westfalen-latest.osm.pbf",
+    # "denmark": "https://download.geofabrik.de/europe/denmark-latest.osm.pbf",
+    # "poland": "https://download.geofabrik.de/europe/poland-latest.osm.pbf",
+    # "sweden": "https://download.geofabrik.de/europe/sweden-latest.osm.pbf",
 }
 
 

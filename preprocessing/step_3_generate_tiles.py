@@ -1399,6 +1399,12 @@ def get_pbf_bounds(pbf_file):
 
 def finalize_tile(tile_jsonl_path, tile_json_path):
     """Read a .jsonl tile, deduplicate, sort by importance, compute _meta, write final .json."""
+    # Another parallel process may have already finalized this tile (border tiles)
+    if not tile_jsonl_path.exists():
+        if tile_json_path.exists():
+            return tile_json_path.stat().st_size
+        return 0
+
     # Read all lines
     with open(tile_jsonl_path, "r", encoding="utf-8") as f:
         lines = f.readlines()
