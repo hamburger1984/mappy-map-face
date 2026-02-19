@@ -6,13 +6,18 @@ import { getColor, toRGBA, toRGB } from "./map_theme.js";
 
 // POI category definitions with tag mappings
 const POI_CATEGORIES = {
-  food_drink: {
-    label: "Food & Drink",
+  cafe: {
+    label: "Cafes & Coffee",
+    color: getColor("poi", "foodDrink"),
+    amenity: new Set(["cafe"]),
+    shop: new Set(["coffee", "tea"]),
+  },
+  restaurant: {
+    label: "Restaurants & Food",
     color: getColor("poi", "foodDrink"),
     amenity: new Set([
       "restaurant",
       "fast_food",
-      "cafe",
       "ice_cream",
       "food_court",
       "bbq",
@@ -25,8 +30,6 @@ const POI_CATEGORIES = {
       "butcher",
       "cheese",
       "seafood",
-      "coffee",
-      "tea",
       "wine",
       "beverages",
       "alcohol",
@@ -208,11 +211,17 @@ const POI_CATEGORIES = {
       "hookah_lounge",
     ]),
   },
+  recreation: {
+    label: "Recreation",
+    color: getColor("poi", "services"),
+    sport: new Set(["table_tennis"]),
+  },
 };
 
 // Classification priority order for amenity tags
 const POI_AMENITY_PRIORITY = [
-  "food_drink",
+  "cafe",
+  "restaurant",
   "nightlife",
   "health",
   "education",
@@ -382,7 +391,6 @@ class MapRenderer {
       beach: this.createBeachPattern(),
       beach_volleyball: this.createBeachVolleyballPattern(),
       picnic_site: this.createPicnicSitePattern(),
-      table_tennis: this.createTableTennisPattern(),
     };
 
     // Convert canvases to CanvasPattern objects
@@ -733,50 +741,38 @@ class MapRenderer {
   }
 
   createBeachVolleyballPattern() {
-    // Beach volleyball pattern: sand with net line
-    const size = 40;
+    // Beach volleyball pattern: ball in top-left corner with empty space
+    const size = 24;
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext("2d");
 
-    // Sand dots
-    ctx.fillStyle = toRGBA(getColor("patterns", "beachVolleyballSand"));
-    const dots = [
-      { x: 6, y: 8, r: 0.9 },
-      { x: 16, y: 4, r: 0.7 },
-      { x: 28, y: 10, r: 1 },
-      { x: 12, y: 18, r: 0.8 },
-      { x: 34, y: 22, r: 0.7 },
-      { x: 20, y: 30, r: 0.9 },
-      { x: 8, y: 34, r: 1 },
-      { x: 32, y: 36, r: 0.8 },
-    ];
+    const cx = 5;
+    const cy = 5;
+    const r = 4;
 
-    for (const dot of dots) {
-      ctx.beginPath();
-      ctx.arc(dot.x, dot.y, dot.r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Net line
+    // Ball outline
     ctx.strokeStyle = toRGBA(getColor("patterns", "beachVolleyballNet"));
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(0, size / 2);
-    ctx.lineTo(size, size / 2);
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Net mesh
-    ctx.strokeStyle = toRGBA(getColor("patterns", "beachVolleyballMesh"));
+    // Volleyball seams
     ctx.lineWidth = 0.6;
-    for (let i = -2; i <= 2; i++) {
-      if (i === 0) continue;
-      ctx.beginPath();
-      ctx.moveTo(0, size / 2 + i * 2.5);
-      ctx.lineTo(size, size / 2 + i * 2.5);
-      ctx.stroke();
-    }
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - r);
+    ctx.quadraticCurveTo(cx + 1.5, cy, cx, cy + r);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx - r * 0.87, cy - r * 0.5);
+    ctx.quadraticCurveTo(cx - 0.5, cy + 1, cx - r * 0.87, cy + r * 0.5);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx + r * 0.87, cy - r * 0.5);
+    ctx.quadraticCurveTo(cx + 0.5, cy + 1, cx + r * 0.87, cy + r * 0.5);
+    ctx.stroke();
 
     return canvas;
   }
@@ -823,90 +819,6 @@ class MapRenderer {
     return canvas;
   }
 
-  createTableTennisPattern() {
-    // Table tennis pattern: top-down table view
-    const size = 40;
-    const canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext("2d");
-
-    const tables = [{ x: 20, y: 20 }];
-
-    for (const table of tables) {
-      const tableW = 24;
-      const tableH = 14;
-
-      // Table surface
-      ctx.fillStyle = toRGBA(getColor("patterns", "tableTennisTable"));
-      ctx.strokeStyle = toRGBA(getColor("patterns", "tableTennisTableStroke"));
-      ctx.lineWidth = 1.2;
-      ctx.fillRect(table.x - tableW / 2, table.y - tableH / 2, tableW, tableH);
-      ctx.strokeRect(table.x - tableW / 2, table.y - tableH / 2, tableW, tableH);
-
-      // Center line
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
-      ctx.lineWidth = 0.8;
-      ctx.beginPath();
-      ctx.moveTo(table.x - tableW / 2, table.y);
-      ctx.lineTo(table.x + tableW / 2, table.y);
-      ctx.stroke();
-
-      // Net
-      ctx.strokeStyle = toRGBA(getColor("patterns", "tableTennisNet"));
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(table.x, table.y - tableH / 2);
-      ctx.lineTo(table.x, table.y + tableH / 2);
-      ctx.stroke();
-
-      // Net mesh
-      ctx.strokeStyle = toRGBA(getColor("patterns", "tableTennisNetMesh"));
-      ctx.lineWidth = 0.5;
-      for (let i = -2; i <= 2; i++) {
-        if (i === 0) continue;
-        ctx.beginPath();
-        ctx.moveTo(table.x + i * 2, table.y - tableH / 2);
-        ctx.lineTo(table.x + i * 2, table.y + tableH / 2);
-        ctx.stroke();
-      }
-
-      // Optional: add small paddles on sides
-      ctx.fillStyle = toRGBA(getColor("patterns", "tableTennisPaddle"));
-      ctx.strokeStyle = toRGBA(getColor("patterns", "tableTennisPaddleStroke"));
-      ctx.lineWidth = 0.5;
-
-      // Left paddle
-      ctx.beginPath();
-      ctx.ellipse(
-        table.x - tableW / 2 - 2,
-        table.y - 2,
-        1.5,
-        1.8,
-        0.3,
-        0,
-        Math.PI * 2,
-      );
-      ctx.fill();
-      ctx.stroke();
-
-      // Right paddle
-      ctx.beginPath();
-      ctx.ellipse(
-        table.x + tableW / 2 + 2,
-        table.y + 2,
-        1.5,
-        1.8,
-        -0.3,
-        0,
-        Math.PI * 2,
-      );
-      ctx.fill();
-      ctx.stroke();
-    }
-
-    return canvas;
-  }
 
   drawGlyph(ctx, categoryId, color, size) {
     const cx = size / 2;
@@ -932,7 +844,26 @@ class MapRenderer {
     };
 
     switch (categoryId) {
-      case "food_drink": {
+      case "cafe": {
+        // Coffee cup
+        const cw = r * 1.0, ch = r * 0.8;
+        ctx.beginPath();
+        ctx.rect(cx - cw / 2, cy - ch / 2 + 1, cw, ch);
+        haloFill();
+        // Handle
+        ctx.beginPath();
+        ctx.arc(cx + cw / 2, cy + 1, ch * 0.35, -Math.PI * 0.4, Math.PI * 0.4);
+        haloStroke(1.5);
+        // Steam
+        ctx.beginPath();
+        ctx.moveTo(cx - r * 0.2, cy - ch / 2 - 1);
+        ctx.quadraticCurveTo(cx - r * 0.3, cy - ch / 2 - r * 0.5, cx - r * 0.1, cy - ch / 2 - r * 0.7);
+        ctx.moveTo(cx + r * 0.2, cy - ch / 2 - 1);
+        ctx.quadraticCurveTo(cx + r * 0.1, cy - ch / 2 - r * 0.5, cx + r * 0.3, cy - ch / 2 - r * 0.7);
+        haloStroke(0.8);
+        break;
+      }
+      case "restaurant": {
         // Fork and knife
         ctx.beginPath();
         ctx.moveTo(cx - r * 0.4, cy + r);
@@ -1040,6 +971,22 @@ class MapRenderer {
         ctx.moveTo(cx - r * 0.35, cy + r * 0.8);
         ctx.lineTo(cx + r * 0.35, cy + r * 0.8);
         haloStroke(1.2);
+        break;
+      }
+      case "recreation": {
+        // Table tennis paddle
+        const pr = r * 0.6;
+        ctx.beginPath();
+        ctx.arc(cx, cy - r * 0.15, pr, 0, Math.PI * 2);
+        haloFill();
+        // Handle
+        ctx.beginPath();
+        ctx.moveTo(cx - r * 0.15, cy + pr * 0.6);
+        ctx.lineTo(cx + r * 0.15, cy + pr * 0.6);
+        ctx.lineTo(cx + r * 0.12, cy + r);
+        ctx.lineTo(cx - r * 0.12, cy + r);
+        ctx.closePath();
+        haloFill();
         break;
       }
     }
@@ -1962,61 +1909,46 @@ class MapRenderer {
             lodFilteredCount++;
             continue;
           }
-          // Fast deduplication: use first + last coordinate + geometry type as numeric key
-          // This catches true duplicates while avoiding false positives
+          // Fast deduplication: use multiple coordinates + vertex count + geometry type as string key
+          // GeoJSON polygons are closed rings (first == last coord), so we use
+          // first coord, a midpoint, and vertex count for better discrimination
           const geom = feature.geometry;
           let featureKey;
 
           if (geom && geom.coordinates) {
             const coords = geom.coordinates;
-            let firstCoord, lastCoord;
+            const typeId = geomTypeId[geom.type] || 0;
+            let keyParts;
 
             if (geom.type === "Point") {
-              firstCoord = lastCoord = coords;
+              keyParts = `${typeId},${coords[0].toFixed(6)},${coords[1].toFixed(6)}`;
             } else if (geom.type === "LineString") {
-              firstCoord = coords[0];
-              lastCoord = coords[coords.length - 1];
+              const mid = coords[Math.floor(coords.length / 2)];
+              keyParts = `${typeId},${coords.length},${coords[0][0].toFixed(6)},${coords[0][1].toFixed(6)},${mid[0].toFixed(6)},${mid[1].toFixed(6)}`;
             } else if (geom.type === "Polygon") {
-              firstCoord = coords[0][0];
-              lastCoord = coords[0][coords[0].length - 1];
+              const ring = coords[0];
+              const mid = ring[Math.floor(ring.length / 2)];
+              keyParts = `${typeId},${ring.length},${ring[0][0].toFixed(6)},${ring[0][1].toFixed(6)},${mid[0].toFixed(6)},${mid[1].toFixed(6)}`;
             } else if (geom.type === "MultiLineString") {
-              firstCoord = coords[0][0];
-              lastCoord =
-                coords[coords.length - 1][coords[coords.length - 1].length - 1];
+              const first = coords[0][0];
+              const lastLine = coords[coords.length - 1];
+              const last = lastLine[lastLine.length - 1];
+              const totalVerts = coords.reduce((s, c) => s + c.length, 0);
+              keyParts = `${typeId},${totalVerts},${first[0].toFixed(6)},${first[1].toFixed(6)},${last[0].toFixed(6)},${last[1].toFixed(6)}`;
             } else if (geom.type === "MultiPolygon") {
-              firstCoord = coords[0][0][0];
-              lastCoord =
-                coords[coords.length - 1][0][
-                  coords[coords.length - 1][0].length - 1
-                ];
+              const first = coords[0][0][0];
+              const lastPoly = coords[coords.length - 1][0];
+              const mid = lastPoly[Math.floor(lastPoly.length / 2)];
+              const totalVerts = coords.reduce((s, p) => s + p[0].length, 0);
+              keyParts = `${typeId},${totalVerts},${first[0].toFixed(6)},${first[1].toFixed(6)},${mid[0].toFixed(6)},${mid[1].toFixed(6)}`;
             }
 
-            // Create numeric hash: combine type ID and rounded coordinates
-            // Use simple integer hash within safe integer range
-            const typeId = geomTypeId[geom.type] || 0;
-            const x1 = Math.round(firstCoord[0] * 1e6);
-            const y1 = Math.round(firstCoord[1] * 1e6);
-            const x2 = Math.round(lastCoord[0] * 1e6);
-            const y2 = Math.round(lastCoord[1] * 1e6);
-
-            // Simple multiplicative hash that stays within 32-bit integer range
-            // Using prime number 31 to reduce collisions
-            let h = typeId;
-            h = (h * 31 + x1) | 0;
-            h = (h * 31 + y1) | 0;
-            h = (h * 31 + x2) | 0;
-            h = (h * 31 + y2) | 0;
-
-            // Include OSM ID if available to avoid false duplicates
+            // Include feature ID if available
             if (feature.id) {
-              const idHash =
-                typeof feature.id === "number"
-                  ? feature.id
-                  : parseInt(feature.id.replace(/\D/g, "").slice(-8)) || 0;
-              h = (h * 31 + idHash) | 0;
+              keyParts += `,${feature.id}`;
             }
 
-            featureKey = h;
+            featureKey = keyParts;
           } else {
             // Fallback for features without geometry - use object reference
             featureKey = Math.random();
@@ -2780,11 +2712,11 @@ class MapRenderer {
       let pattern = null;
 
       if (leafType === "broadleaved") {
-        pattern = "broadleaf_forest";
+        pattern = null; // TODO: "broadleaf_forest" — pattern needs redesign
       } else if (leafType === "needleleaved") {
-        pattern = "needleleaf_forest";
+        pattern = null; // TODO: "needleleaf_forest" — pattern needs redesign
       } else if (leafType === "mixed") {
-        pattern = "mixed_forest";
+        pattern = null; // TODO: "mixed_forest" — pattern needs redesign
       }
       // If no leaf_type tag, use default (no pattern, solid color)
 
@@ -3046,16 +2978,7 @@ class MapRenderer {
       };
     }
 
-    // Table tennis / ping pong tables
-    if (props.leisure === "pitch" && props.sport === "table_tennis") {
-      return {
-        layer: "landuse_areas",
-        color: getColor("recreation", "tableTennis"),
-        minLOD: 3,
-        fill: true,
-        pattern: "table_tennis",
-      };
-    }
+    // Table tennis is handled as a Point marker, not a polygon
 
     // Swimming pools and public baths
     if (props.leisure === "swimming_pool" || props.amenity === "public_bath") {
@@ -3277,11 +3200,17 @@ class MapRenderer {
         return { layer: null, minLOD: 999, fill: false };
       }
 
-      // Remap construction roads to their target type
+      // Remap construction/planned roads to their target type
       let isConstruction = false;
       let effectiveHighway = props.highway;
       if (props.highway === "construction" && props.construction) {
         effectiveHighway = props.construction;
+        isConstruction = true;
+      } else if (props.highway === "planned" && props.planned) {
+        effectiveHighway = props.planned;
+        isConstruction = true;
+      } else if (props.highway === "proposed" && props.proposed) {
+        effectiveHighway = props.proposed;
         isConstruction = true;
       }
 
@@ -3383,10 +3312,15 @@ class MapRenderer {
         effectiveHighway === "steps" ||
         effectiveHighway === "corridor"
       ) {
-        // was: 2m
         color = getColor("roads", "footway");
         laneWidth = 2;
-        lanes = lanes || 1;
+        // Steps/corridors: ignore OSM width/lanes when zoomed out (>500m) to avoid oversized rendering
+        if ((effectiveHighway === "steps" || effectiveHighway === "corridor") && this.viewWidthMeters > 500) {
+          realWidthMeters = null;
+          lanes = 1;
+        } else {
+          lanes = lanes || 1;
+        }
         minLOD = 2;
         roadPriority = 0;
       } else if (effectiveHighway === "cycleway") {
@@ -3598,6 +3532,18 @@ class MapRenderer {
           placePriority,
           fontSize,
           population,
+        };
+      }
+
+      // Table tennis tables (leisure=pitch + sport=table_tennis, usually points)
+      if (props.sport === "table_tennis" && props.leisure === "pitch") {
+        const catDef = POI_CATEGORIES.recreation;
+        return {
+          layer: "points",
+          color: { r: catDef.color.r, g: catDef.color.g, b: catDef.color.b, a: 255 },
+          minLOD: 3,
+          fill: false,
+          poiCategory: "recreation",
         };
       }
 
@@ -4480,8 +4426,9 @@ class MapRenderer {
 
       if (tooClose) continue;
 
-      // Render the label
-      this.ctx.font = `bold ${place.fontSize}px Arial, sans-serif`;
+      // Render the label - bold for major places, normal weight for small places
+      const fontWeight = place.priority <= 6 ? "bold" : "";
+      this.ctx.font = `${fontWeight} ${place.fontSize}px Arial, sans-serif`.trim();
 
       // White outline for readability
       const outlineColor = getColor("text", "outline");
@@ -5158,29 +5105,27 @@ class MapRenderer {
       }
     }
 
-    // Flush fill batches (polygons + points with same color in one path)
+    // Flush fill batches — each polygon gets its own path to avoid
+    // evenodd artifacts when same-color polygons overlap (e.g. park + village_green)
     for (const [colorStr, batch] of fillBatches) {
       this.ctx.fillStyle = colorStr;
-      this.ctx.beginPath();
 
-      // Filled polygons (with hole support)
+      // Filled polygons (each as independent path so overlaps don't cancel)
       for (const poly of batch.polygons) {
-        // Handle both old format (flat array) and new format (object with outer/holes)
+        this.ctx.beginPath();
         if (poly.outer) {
-          // New format with holes support
           const outer = poly.outer;
           const holes = poly.holes || [];
 
-          // Draw outer ring (counter-clockwise for evenodd fill rule)
+          // Draw outer ring
           this.ctx.moveTo(outer[0], outer[1]);
           for (let i = 2; i < outer.length; i += 2) {
             this.ctx.lineTo(outer[i], outer[i + 1]);
           }
           this.ctx.closePath();
 
-          // Draw holes (clockwise for evenodd fill rule to cut out)
+          // Draw holes in reverse direction to cut them out
           for (const hole of holes) {
-            // Draw hole in reverse direction to cut it out
             this.ctx.moveTo(hole[hole.length - 2], hole[hole.length - 1]);
             for (let i = hole.length - 4; i >= 0; i -= 2) {
               this.ctx.lineTo(hole[i], hole[i + 1]);
@@ -5188,84 +5133,56 @@ class MapRenderer {
             this.ctx.closePath();
           }
         } else {
-          // Old format (backwards compatibility)
           this.ctx.moveTo(poly[0], poly[1]);
           for (let i = 2; i < poly.length; i += 2) {
             this.ctx.lineTo(poly[i], poly[i + 1]);
           }
           this.ctx.closePath();
         }
+        this.ctx.fill("evenodd");
       }
 
-      // Points
-      for (let i = 0; i < batch.points.length; i += 2) {
-        this.ctx.moveTo(batch.points[i] + 3, batch.points[i + 1]);
-        this.ctx.arc(batch.points[i], batch.points[i + 1], 3, 0, Math.PI * 2);
+      // Points (can still be batched — circles don't overlap problematically)
+      if (batch.points.length > 0) {
+        this.ctx.beginPath();
+        for (let i = 0; i < batch.points.length; i += 2) {
+          this.ctx.moveTo(batch.points[i] + 3, batch.points[i + 1]);
+          this.ctx.arc(batch.points[i], batch.points[i + 1], 3, 0, Math.PI * 2);
+        }
+        this.ctx.fill("evenodd");
       }
-
-      // Use evenodd fill rule to properly handle holes
-      this.ctx.fill("evenodd");
     }
 
     // Flush pattern batches (areas with textured fills like scrub/wetland)
-    // Scale patterns based on zoom so they remain readable at all zoom levels
-    const metersPerPixel = this.viewWidthMeters / this.canvasWidth;
-    // At ~1m/px (street level) use scale 1.0, at ~100m/px (city) scale up to ~2.5
-    const patternScale = Math.max(1.0, Math.min(3.0, Math.log2(metersPerPixel + 1) * 0.6 + 0.5));
+    // No pattern scaling — use native pattern size at all zoom levels
+    const patternScale = 1.0;
 
     for (const [patternId, batch] of patternBatches) {
       const pattern = this.patternCache[patternId];
       if (!pattern) continue;
 
       // First fill with base color
-      this.ctx.fillStyle = this._getRGBA(
+      const baseColorStr = this._getRGBA(
         batch.baseColor.r,
         batch.baseColor.g,
         batch.baseColor.b,
         batch.baseColor.a / 255,
       );
-      this.ctx.beginPath();
-
-      for (const poly of batch.polygons) {
-        const outer = poly.outer;
-        const holes = poly.holes || [];
-
-        // Draw outer ring
-        this.ctx.moveTo(outer[0], outer[1]);
-        for (let i = 2; i < outer.length; i += 2) {
-          this.ctx.lineTo(outer[i], outer[i + 1]);
-        }
-        this.ctx.closePath();
-
-        // Draw holes in reverse
-        for (const hole of holes) {
-          this.ctx.moveTo(hole[hole.length - 2], hole[hole.length - 1]);
-          for (let i = hole.length - 4; i >= 0; i -= 2) {
-            this.ctx.lineTo(hole[i], hole[i + 1]);
-          }
-          this.ctx.closePath();
-        }
-      }
-
-      this.ctx.fill("evenodd");
-
-      // Then overlay with pattern, scaled for current zoom
       pattern.setTransform(new DOMMatrix().scaleSelf(patternScale, patternScale));
-      this.ctx.fillStyle = pattern;
-      this.ctx.beginPath();
 
+      // Fill each polygon independently to avoid evenodd overlap artifacts
       for (const poly of batch.polygons) {
         const outer = poly.outer;
         const holes = poly.holes || [];
 
-        // Draw outer ring
+        // Base color fill
+        this.ctx.fillStyle = baseColorStr;
+        this.ctx.beginPath();
         this.ctx.moveTo(outer[0], outer[1]);
         for (let i = 2; i < outer.length; i += 2) {
           this.ctx.lineTo(outer[i], outer[i + 1]);
         }
         this.ctx.closePath();
-
-        // Draw holes in reverse
         for (const hole of holes) {
           this.ctx.moveTo(hole[hole.length - 2], hole[hole.length - 1]);
           for (let i = hole.length - 4; i >= 0; i -= 2) {
@@ -5273,9 +5190,25 @@ class MapRenderer {
           }
           this.ctx.closePath();
         }
-      }
+        this.ctx.fill("evenodd");
 
-      this.ctx.fill("evenodd");
+        // Pattern overlay
+        this.ctx.fillStyle = pattern;
+        this.ctx.beginPath();
+        this.ctx.moveTo(outer[0], outer[1]);
+        for (let i = 2; i < outer.length; i += 2) {
+          this.ctx.lineTo(outer[i], outer[i + 1]);
+        }
+        this.ctx.closePath();
+        for (const hole of holes) {
+          this.ctx.moveTo(hole[hole.length - 2], hole[hole.length - 1]);
+          for (let i = hole.length - 4; i >= 0; i -= 2) {
+            this.ctx.lineTo(hole[i], hole[i + 1]);
+          }
+          this.ctx.closePath();
+        }
+        this.ctx.fill("evenodd");
+      }
     }
 
     // Render building borders (after fills, before lines)
@@ -5379,7 +5312,7 @@ class MapRenderer {
 
     // Flush POI glyphs
     if (this._poiRenderQueue.length > 0) {
-      const displaySize = 12;
+      const displaySize = 16;
       const halfSize = displaySize / 2;
 
       // Sort by category for GPU texture cache locality

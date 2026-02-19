@@ -116,7 +116,9 @@ feature_templates:
       tags:
         highway: ["motorway", "trunk", "motorway_link", "trunk_link"]
         construction: ["motorway", "trunk", "motorway_link", "trunk_link"]
-      preserve_tags: ["bicycle_road", "cyclestreet"]
+        planned: ["motorway", "trunk", "motorway_link", "trunk_link"]
+        proposed: ["motorway", "trunk", "motorway_link", "trunk_link"]
+      preserve_tags: ["bicycle_road", "cyclestreet", "planned", "proposed"]
     render:
       layer: "major_roads"
       color: [233, 115, 103, 255]
@@ -130,7 +132,9 @@ feature_templates:
       tags:
         highway: ["primary", "primary_link"]
         construction: ["primary", "primary_link"]
-      preserve_tags: ["bicycle_road", "cyclestreet"]
+        planned: ["primary", "primary_link"]
+        proposed: ["primary", "primary_link"]
+      preserve_tags: ["bicycle_road", "cyclestreet", "planned", "proposed"]
     render:
       layer: "major_roads"
       color: [252, 214, 164, 255]
@@ -144,7 +148,9 @@ feature_templates:
       tags:
         highway: ["secondary", "secondary_link"]
         construction: ["secondary", "secondary_link"]
-      preserve_tags: ["bicycle_road", "cyclestreet"]
+        planned: ["secondary", "secondary_link"]
+        proposed: ["secondary", "secondary_link"]
+      preserve_tags: ["bicycle_road", "cyclestreet", "planned", "proposed"]
     render:
       layer: "major_roads"
       color: [252, 214, 164, 255]
@@ -158,7 +164,9 @@ feature_templates:
       tags:
         highway: ["tertiary", "tertiary_link"]
         construction: ["tertiary", "tertiary_link"]
-      preserve_tags: ["bicycle_road", "cyclestreet"]
+        planned: ["tertiary", "tertiary_link"]
+        proposed: ["tertiary", "tertiary_link"]
+      preserve_tags: ["bicycle_road", "cyclestreet", "planned", "proposed"]
     render:
       layer: "roads"
       color: [255, 255, 255, 255]
@@ -172,7 +180,9 @@ feature_templates:
       tags:
         highway: ["residential", "unclassified", "living_street"]
         construction: ["residential", "living_street"]
-      preserve_tags: ["bicycle_road", "cyclestreet"]
+        planned: ["residential", "living_street"]
+        proposed: ["residential", "living_street"]
+      preserve_tags: ["bicycle_road", "cyclestreet", "planned", "proposed"]
     render:
       layer: "roads"
       color: [255, 255, 255, 255]
@@ -188,7 +198,11 @@ feature_templates:
                   "pedestrian", "steps", "living_street", "corridor", "busway", "raceway"]
         construction: ["service", "track", "path", "footway", "cycleway", "bridleway",
                        "pedestrian", "steps", "living_street", "corridor", "busway", "raceway"]
-      preserve_tags: ["bicycle_road", "cyclestreet"]
+        planned: ["service", "track", "path", "footway", "cycleway", "bridleway",
+                  "pedestrian", "steps", "living_street", "corridor", "busway", "raceway"]
+        proposed: ["service", "track", "path", "footway", "cycleway", "bridleway",
+                   "pedestrian", "steps", "living_street", "corridor", "busway", "raceway"]
+      preserve_tags: ["bicycle_road", "cyclestreet", "planned", "proposed"]
     render:
       layer: "roads"
       color: [220, 220, 220, 255]
@@ -462,14 +476,14 @@ feature_templates:
   table_tennis: &table_tennis
     name: "table_tennis"
     osm_match:
-      geometry: ["Polygon", "MultiPolygon"]
+      geometry: ["Point"]
       tags:
         leisure: ["pitch"]
         sport: ["table_tennis"]
+      preserve_tags: ["sport"]
     render:
-      layer: "recreation"
-      color: [200, 230, 180, 255]
-      fill: true
+      layer: "points"
+      color: [100, 160, 100, 255]
 
   beach_volleyball: &beach_volleyball
     name: "beach_volleyball"

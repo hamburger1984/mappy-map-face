@@ -1041,12 +1041,20 @@ def get_render_metadata(props, geom_type):
             "fill": True,
         }
 
-    # Remap construction roads to their target type for render metadata
+    # Remap construction/planned/proposed roads to their target type for render metadata
     effective_highway = highway
     if effective_highway == "construction":
         construction = props.get("construction")
         if construction:
             effective_highway = construction
+    elif effective_highway == "planned":
+        planned = props.get("planned")
+        if planned:
+            effective_highway = planned
+    elif effective_highway == "proposed":
+        proposed = props.get("proposed")
+        if proposed:
+            effective_highway = proposed
 
     # Major highways (motorway, trunk, primary/Bundesstraßen)
     if effective_highway in MAJOR_HIGHWAYS:

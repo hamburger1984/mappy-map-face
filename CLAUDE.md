@@ -74,6 +74,7 @@ Features are classified in `step_3_generate_tiles.py` with metadata:
 2. Use git commits frequently for completed features
 3. Test changes in the browser before committing
 4. Keep solutions focused and avoid over-engineering
+5. Do NOT add "Co-Authored-By" lines to commit messages
 
 ## Communication Style
 
