@@ -497,6 +497,52 @@ feature_templates:
       color: [255, 241, 186, 255]
       fill: true
 
+  # --- Aeroways ---
+  runways: &runways
+    name: "runways"
+    osm_match:
+      geometry: ["LineString", "MultiLineString"]
+      tags:
+        aeroway: ["runway"]
+    render:
+      layer: "aeroways"
+      color: [80, 80, 80, 255]
+      preserve_tags: ["ref", "surface", "width", "lit", "length"]
+
+  taxiways: &taxiways
+    name: "taxiways"
+    osm_match:
+      geometry: ["LineString", "MultiLineString"]
+      tags:
+        aeroway: ["taxiway"]
+    render:
+      layer: "aeroways"
+      color: [120, 120, 120, 255]
+      preserve_tags: ["ref", "surface"]
+
+  aprons: &aprons
+    name: "aprons"
+    osm_match:
+      geometry: ["Polygon", "MultiPolygon", "LineString", "MultiLineString"]
+      tags:
+        aeroway: ["apron"]
+    render:
+      layer: "aeroways"
+      color: [160, 160, 160, 255]
+      fill: true
+
+  helipads: &helipads
+    name: "helipads"
+    osm_match:
+      geometry: ["Polygon", "MultiPolygon", "Point"]
+      tags:
+        aeroway: ["helipad"]
+    render:
+      layer: "aeroways"
+      color: [100, 100, 100, 255]
+      fill: true
+      preserve_tags: ["ref"]
+
   # --- Buildings ---
   buildings: &buildings
     name: "buildings"
@@ -740,6 +786,14 @@ tilesets:
         simplification: { disabled: true }
       - <<: *beach_volleyball
         simplification: { disabled: true }
+      - <<: *runways
+        simplification: { disabled: true }
+      - <<: *taxiways
+        simplification: { disabled: true }
+      - <<: *aprons
+        simplification: { disabled: true }
+      - <<: *helipads
+        simplification: { disabled: true }
       - <<: *buildings
         simplification: { disabled: true }
       - <<: *country_borders
@@ -765,86 +819,92 @@ tilesets:
     features:
       # All features with moderate simplification, no area filters
       - <<: *coastline
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *water_bodies_all
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *major_rivers
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *minor_waterways
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *scrub_heath
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *wetland
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *beach
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *forests_all
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *motorways
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *primary_roads
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *secondary_roads
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *tertiary_roads
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *residential_roads
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       # NO minor_roads
       - <<: *major_rail
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *subway_light_rail
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *tram
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *parks
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *agriculture
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *residential_landuse
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *commercial_landuse
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *industrial_landuse
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *cemeteries
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *military
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *railway_yards
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *allotments
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *construction
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *education
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *religious
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *quarries
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *port
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *institutional
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *flowerbed
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *highway_service_areas
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *playground
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *swimming_pool
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *picnic_site
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *table_tennis
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *beach_volleyball
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
+      - <<: *runways
+        simplification: { epsilon_m: 3 }
+      - <<: *taxiways
+        simplification: { epsilon_m: 3 }
+      - <<: *aprons
+        simplification: { epsilon_m: 3 }
       - <<: *buildings
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *country_borders
-        simplification: { epsilon_m: 10 }
+        simplification: { epsilon_m: 3 }
       - <<: *cities
       - <<: *large_towns
       - <<: *towns
@@ -955,6 +1015,8 @@ tilesets:
       - <<: *railway_yards
         simplification: { epsilon_m: 50 }
       # NO allotments/construction/education/religious/quarries/buildings
+      - <<: *runways
+        simplification: { epsilon_m: 50 }
       - <<: *country_borders
         simplification: { epsilon_m: 50 }
       - <<: *cities

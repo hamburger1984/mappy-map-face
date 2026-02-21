@@ -1311,6 +1311,15 @@ def classify_feature_importance(props, geom_type):
     if effective_highway in TERTIARY_RESIDENTIAL_HIGHWAYS:
         return (11, 30)  # Z11-Z14
 
+    # Aeroways
+    aeroway = props.get("aeroway")
+    if aeroway == "runway":
+        return (0, 75)  # Always visible, high importance
+    if aeroway == "taxiway":
+        return (11, 35)  # Z11+
+    if aeroway in ("apron", "helipad"):
+        return (11, 30)  # Z11+
+
     # Buildings
     if building:
         return (11, 20)  # Z11-Z14
