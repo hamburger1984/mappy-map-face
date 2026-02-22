@@ -437,8 +437,20 @@ class MapRenderer {
     for (const bush of bushes) {
       // Multi-lobe bush shape
       ctx.beginPath();
-      ctx.arc(bush.x - bush.r * 0.4, bush.y - bush.r * 0.2, bush.r * 0.7, 0, Math.PI * 2);
-      ctx.arc(bush.x + bush.r * 0.4, bush.y - bush.r * 0.2, bush.r * 0.7, 0, Math.PI * 2);
+      ctx.arc(
+        bush.x - bush.r * 0.4,
+        bush.y - bush.r * 0.2,
+        bush.r * 0.7,
+        0,
+        Math.PI * 2,
+      );
+      ctx.arc(
+        bush.x + bush.r * 0.4,
+        bush.y - bush.r * 0.2,
+        bush.r * 0.7,
+        0,
+        Math.PI * 2,
+      );
       ctx.arc(bush.x, bush.y - bush.r * 0.6, bush.r * 0.6, 0, Math.PI * 2);
       ctx.fill();
 
@@ -493,7 +505,12 @@ class MapRenderer {
       for (let i = -2; i <= 2; i++) {
         ctx.beginPath();
         ctx.moveTo(tuft.x, tuft.y + 3);
-        ctx.quadraticCurveTo(tuft.x + i * 1.5, tuft.y - 2, tuft.x + i * 2.5, tuft.y - 6);
+        ctx.quadraticCurveTo(
+          tuft.x + i * 1.5,
+          tuft.y - 2,
+          tuft.x + i * 2.5,
+          tuft.y - 6,
+        );
         ctx.stroke();
       }
     }
@@ -638,10 +655,30 @@ class MapRenderer {
     const ctx = canvas.getContext("2d");
 
     const shapes = [
-      { x: 8, y: 8, r: 4, color: toRGBA(getColor("patterns", "playgroundRed")) },
-      { x: 28, y: 10, r: 3.5, color: toRGBA(getColor("patterns", "playgroundBlue")) },
-      { x: 16, y: 28, r: 4.5, color: toRGBA(getColor("patterns", "playgroundOrange")) },
-      { x: 34, y: 32, r: 3, color: toRGBA(getColor("patterns", "playgroundPurple")) },
+      {
+        x: 8,
+        y: 8,
+        r: 4,
+        color: toRGBA(getColor("patterns", "playgroundRed")),
+      },
+      {
+        x: 28,
+        y: 10,
+        r: 3.5,
+        color: toRGBA(getColor("patterns", "playgroundBlue")),
+      },
+      {
+        x: 16,
+        y: 28,
+        r: 4.5,
+        color: toRGBA(getColor("patterns", "playgroundOrange")),
+      },
+      {
+        x: 34,
+        y: 32,
+        r: 3,
+        color: toRGBA(getColor("patterns", "playgroundPurple")),
+      },
     ];
 
     for (const shape of shapes) {
@@ -834,7 +871,6 @@ class MapRenderer {
     return canvas;
   }
 
-
   drawGlyph(ctx, categoryId, color, size) {
     const cx = size / 2;
     const cy = size / 2;
@@ -861,7 +897,8 @@ class MapRenderer {
     switch (categoryId) {
       case "cafe": {
         // Coffee cup
-        const cw = r * 1.0, ch = r * 0.8;
+        const cw = r * 1.0,
+          ch = r * 0.8;
         ctx.beginPath();
         ctx.rect(cx - cw / 2, cy - ch / 2 + 1, cw, ch);
         haloFill();
@@ -872,9 +909,19 @@ class MapRenderer {
         // Steam
         ctx.beginPath();
         ctx.moveTo(cx - r * 0.2, cy - ch / 2 - 1);
-        ctx.quadraticCurveTo(cx - r * 0.3, cy - ch / 2 - r * 0.5, cx - r * 0.1, cy - ch / 2 - r * 0.7);
+        ctx.quadraticCurveTo(
+          cx - r * 0.3,
+          cy - ch / 2 - r * 0.5,
+          cx - r * 0.1,
+          cy - ch / 2 - r * 0.7,
+        );
         ctx.moveTo(cx + r * 0.2, cy - ch / 2 - 1);
-        ctx.quadraticCurveTo(cx + r * 0.1, cy - ch / 2 - r * 0.5, cx + r * 0.3, cy - ch / 2 - r * 0.7);
+        ctx.quadraticCurveTo(
+          cx + r * 0.1,
+          cy - ch / 2 - r * 0.5,
+          cx + r * 0.3,
+          cy - ch / 2 - r * 0.7,
+        );
         haloStroke(0.8);
         break;
       }
@@ -911,7 +958,8 @@ class MapRenderer {
       case "ice_cream": {
         // Ice cream sundae in a bowl (🍨 style)
         // Bowl — wide arc at bottom
-        const bowlW = r * 1.1, bowlH = r * 0.5;
+        const bowlW = r * 1.1,
+          bowlH = r * 0.5;
         ctx.beginPath();
         ctx.ellipse(cx, cy + r * 0.3, bowlW, bowlH, 0, 0, Math.PI);
         haloFill();
@@ -929,20 +977,28 @@ class MapRenderer {
         // Croissant (🥐) — crescent body tapering to pointed ends
         ctx.beginPath();
         // Start at left tip
-        const lx = cx - r * 1.2, ly = cy + r * 0.1;
-        const rx = cx + r * 1.2, ry = cy + r * 0.1;
+        const lx = cx - r * 1.2,
+          ly = cy + r * 0.1;
+        const rx = cx + r * 1.2,
+          ry = cy + r * 0.1;
         ctx.moveTo(lx, ly);
         // Top curve (outer arc, bows upward)
         ctx.bezierCurveTo(
-          cx - r * 0.6, cy - r * 1.0,
-          cx + r * 0.6, cy - r * 1.0,
-          rx, ry,
+          cx - r * 0.6,
+          cy - r * 1.0,
+          cx + r * 0.6,
+          cy - r * 1.0,
+          rx,
+          ry,
         );
         // Bottom curve (inner arc, shallower)
         ctx.bezierCurveTo(
-          cx + r * 0.5, cy + r * 0.3,
-          cx - r * 0.5, cy + r * 0.3,
-          lx, ly,
+          cx + r * 0.5,
+          cy + r * 0.3,
+          cx - r * 0.5,
+          cy + r * 0.3,
+          lx,
+          ly,
         );
         ctx.closePath();
         haloFill();
@@ -973,8 +1029,10 @@ class MapRenderer {
       }
       case "supermarket": {
         // Shopping cart
-        const cartW = r * 1.0, cartH = r * 0.7;
-        const cartL = cx - r * 0.6, cartT = cy - r * 0.3;
+        const cartW = r * 1.0,
+          cartH = r * 0.7;
+        const cartL = cx - r * 0.6,
+          cartT = cy - r * 0.3;
         // Cart basket (trapezoid)
         ctx.beginPath();
         ctx.moveTo(cartL, cartT);
@@ -990,10 +1048,22 @@ class MapRenderer {
         haloStroke(1.5);
         // Wheels
         ctx.beginPath();
-        ctx.arc(cartL + cartW * 0.3, cartT + cartH + r * 0.25, r * 0.2, 0, Math.PI * 2);
+        ctx.arc(
+          cartL + cartW * 0.3,
+          cartT + cartH + r * 0.25,
+          r * 0.2,
+          0,
+          Math.PI * 2,
+        );
         haloFill();
         ctx.beginPath();
-        ctx.arc(cartL + cartW * 0.85, cartT + cartH + r * 0.25, r * 0.2, 0, Math.PI * 2);
+        ctx.arc(
+          cartL + cartW * 0.85,
+          cartT + cartH + r * 0.25,
+          r * 0.2,
+          0,
+          Math.PI * 2,
+        );
         haloFill();
         break;
       }
@@ -1826,7 +1896,12 @@ class MapRenderer {
 
       // Track per-tile timing for instrumentation
       if (!this._tileFetchStats) this._tileFetchStats = [];
-      this._tileFetchStats.push({ key, fetchTime, parseTime, features: tileData.features?.length || 0 });
+      this._tileFetchStats.push({
+        key,
+        fetchTime,
+        parseTime,
+        features: tileData.features?.length || 0,
+      });
 
       this.tileCache.set(key, tileData);
       this.loadingTiles.delete(key);
@@ -2099,8 +2174,12 @@ class MapRenderer {
 
     // Store merge stats for render instrumentation
     this._lastMergeStats = {
-      mergeTime, totalLoaded, features: features.length,
-      lodFiltered: lodFilteredCount, duplicatesRemoved, bboxTime,
+      mergeTime,
+      totalLoaded,
+      features: features.length,
+      lodFiltered: lodFilteredCount,
+      duplicatesRemoved,
+      bboxTime,
     };
 
     return {
@@ -2358,8 +2437,11 @@ class MapRenderer {
         aeroways: [],
         tunnels: [],
         waterways: [],
+        tunnel_waterways: [],
         surface_roads: [],
+        bridge_roads: [],
         surface_railways: [],
+        bridge_railways: [],
         boundaries: [],
         coastline: [], // Coastline visualization (magenta with arrows)
         points: [],
@@ -2448,11 +2530,18 @@ class MapRenderer {
           _fillKey: featureInfo._fillKey,
           showDirection: featureInfo.showDirection,
           pattern: featureInfo.pattern,
+          bridgeLayer: featureInfo.bridgeLayer,
+          isBicycleRoad: featureInfo.isBicycleRoad,
           isRunway: featureInfo.isRunway,
           runwayRef: featureInfo.runwayRef,
           runwayLit: featureInfo.runwayLit,
           runwayLength: featureInfo.runwayLength,
           isHelipad: featureInfo.isHelipad,
+          placePriority: featureInfo.placePriority,
+          fontSize: featureInfo.fontSize,
+          placeType: featureInfo.placeType,
+          population: featureInfo.population,
+          isPlatform: featureInfo.isPlatform,
         });
 
         // Add water labels
@@ -2509,12 +2598,17 @@ class MapRenderer {
     this.renderLayer(layers.landuse_areas, adjustedBounds, true);
     layerTimings.landuse = performance.now() - layerStart;
 
-    // 3. Water areas (lakes, rivers)
+    // 3. Surface waterways (rivers, streams — drawn before water polygons so lakes cover them)
+    layerStart = performance.now();
+    this.renderLayer(layers.waterways, adjustedBounds, false);
+    layerTimings.waterways = performance.now() - layerStart;
+
+    // 3b. Water areas (lakes, rivers as polygons — on top of waterway lines)
     layerStart = performance.now();
     this.renderLayer(layers.water_areas, adjustedBounds, true);
     layerTimings.water = performance.now() - layerStart;
 
-    // 3b. Islands
+    // 3c. Islands
     layerStart = performance.now();
     this.renderLayer(layers.islands, adjustedBounds, true);
     layerTimings.islands = performance.now() - layerStart;
@@ -2534,10 +2628,10 @@ class MapRenderer {
     this.renderRoadLayer(layers.tunnels, adjustedBounds, TUNNEL_ROAD_ALPHA);
     layerTimings.tunnels = performance.now() - layerStart;
 
-    // 6. Waterways (rivers, streams as lines)
+    // 6. Tunneled waterways (semi-transparent, after road tunnels)
     layerStart = performance.now();
-    this.renderLayer(layers.waterways, adjustedBounds, false);
-    layerTimings.waterways = performance.now() - layerStart;
+    this.renderLayer(layers.tunnel_waterways, adjustedBounds, false);
+    layerTimings.tunnelWaterways = performance.now() - layerStart;
 
     // 7. Surface roads (sorted by priority, with outlines)
     layerStart = performance.now();
@@ -2553,6 +2647,20 @@ class MapRenderer {
     layerStart = performance.now();
     this.renderLayer(layers.surface_railways, adjustedBounds, false);
     layerTimings.railways = performance.now() - layerStart;
+
+    // 8b. Bridge roads and railways — rendered on top of surface, sorted by ascending layer value
+    layerStart = performance.now();
+    this.renderBridges(
+      layers.bridge_roads,
+      layers.bridge_railways,
+      adjustedBounds,
+    );
+    layerTimings.bridges = performance.now() - layerStart;
+
+    // 8c. Street names on bridges
+    if (layers.bridge_roads.length > 0) {
+      this.renderStreetNames(layers.bridge_roads, adjustedBounds);
+    }
 
     // 9. Country boundaries
     layerStart = performance.now();
@@ -2586,7 +2694,11 @@ class MapRenderer {
 
     // 10d. Building labels (house numbers, only at very high zoom)
     layerStart = performance.now();
-    this.renderBuildingLabels(layers.building_labels, adjustedBounds, layers.surface_roads);
+    this.renderBuildingLabels(
+      layers.building_labels,
+      adjustedBounds,
+      layers.surface_roads,
+    );
     layerTimings.buildingLabels = performance.now() - layerStart;
 
     // 11. Highlight hovered or selected feature on top of everything
@@ -2626,42 +2738,57 @@ class MapRenderer {
         time,
         count: layers[name]?.length || 0,
       }))
-      .filter(r => r.count > 0 || r.time > 1);
+      .filter((r) => r.count > 0 || r.time > 1);
 
     // Output structured performance report
-    console.group(`[PERF] Frame ${renderTime}ms | ${featureCount} features | ${viewKm}`);
+    console.group(
+      `[PERF] Frame ${renderTime}ms | ${featureCount} features | ${viewKm}`,
+    );
 
     // Phase 1: Tile identification & loading
-    console.group("1. Tiles");
-    console.log(`Tileset: ${visibleTiles[0]?.tileset || "?"} | ${visibleTiles.length} tiles (${cacheHits} cached, ${networkFetches} fetched)`);
+    console.group(`1. Tiles — ${perfTimings.tileLoad.toFixed(1)}ms`);
+    console.log(
+      `Tileset: ${visibleTiles[0]?.tileset || "?"} | ${visibleTiles.length} tiles (${cacheHits} cached, ${networkFetches} fetched)`,
+    );
     if (networkFetches > 0) {
-      console.log(`Network fetch: ${totalFetchTime.toFixed(1)}ms | JSON parse: ${totalParseTime.toFixed(1)}ms`);
+      console.log(
+        `Network fetch: ${totalFetchTime.toFixed(1)}ms | JSON parse: ${totalParseTime.toFixed(1)}ms`,
+      );
       for (const s of fetchStats) {
-        console.log(`  ${s.key}: fetch ${s.fetchTime.toFixed(1)}ms, parse ${s.parseTime.toFixed(1)}ms, ${s.features} features`);
+        console.log(
+          `  ${s.key}: fetch ${s.fetchTime.toFixed(1)}ms, parse ${s.parseTime.toFixed(1)}ms, ${s.features} features`,
+        );
       }
     }
-    console.log(`Total tile load: ${perfTimings.tileLoad.toFixed(1)}ms`);
     console.groupEnd();
 
     // Phase 2: Merge & dedup
-    console.group("2. Merge & dedup");
-    console.log(`${ms.totalLoaded || 0} raw → ${ms.features || 0} unique (${ms.duplicatesRemoved || 0} dupes, ${ms.lodFiltered || 0} LOD filtered)`);
-    console.log(`Dedup + merge: ${(ms.mergeTime - (ms.bboxTime || 0)).toFixed(1)}ms | Bbox compute: ${(ms.bboxTime || 0).toFixed(1)}ms`);
+    const mergeTotal = ms.mergeTime || 0;
+    console.group(`2. Merge & dedup — ${mergeTotal.toFixed(1)}ms`);
+    console.log(
+      `${ms.totalLoaded || 0} raw → ${ms.features || 0} unique (${ms.duplicatesRemoved || 0} dupes, ${ms.lodFiltered || 0} LOD filtered)`,
+    );
+    console.log(
+      `Dedup + merge: ${(mergeTotal - (ms.bboxTime || 0)).toFixed(1)}ms | Bbox compute: ${(ms.bboxTime || 0).toFixed(1)}ms`,
+    );
     console.groupEnd();
 
     // Phase 3: Classification
-    console.group("3. Classify");
-    console.log(`${featureCount} classified, ${culledCount} viewport culled, ${lodCulledCount} LOD culled | ${perfTimings.classify.toFixed(1)}ms`);
+    console.group(`3. Classify — ${perfTimings.classify.toFixed(1)}ms`);
+    console.log(
+      `${featureCount} classified, ${culledCount} viewport culled, ${lodCulledCount} LOD culled`,
+    );
     console.groupEnd();
 
     // Phase 4: Rendering layers
-    console.group("4. Render layers");
+    console.group(`4. Render layers — ${perfTimings.totalRender.toFixed(1)}ms`);
     const sortedLayers = layerRows.sort((a, b) => b.time - a.time);
     for (const { name, time, count } of sortedLayers) {
       const bar = "█".repeat(Math.max(1, Math.round(time / 2)));
-      console.log(`${name.padEnd(18)} ${String(count).padStart(5)} features  ${time.toFixed(1).padStart(7)}ms  ${bar}`);
+      console.log(
+        `${name.padEnd(18)} ${String(count).padStart(5)} features  ${time.toFixed(1).padStart(7)}ms  ${bar}`,
+      );
     }
-    console.log(`Total render: ${perfTimings.totalRender.toFixed(1)}ms`);
     console.groupEnd();
 
     console.groupEnd();
@@ -3088,10 +3215,20 @@ class MapRenderer {
       };
     }
 
-    // Landuse areas - quarry/landfill
-    if (props.landuse === "quarry" || props.landuse === "landfill") {
+    // Landuse areas - quarry
+    if (props.landuse === "quarry") {
       return {
         layer: "landuse_areas",
+        color: getColor("specialPurpose", "quarry"),
+        minLOD: 2,
+        fill: true,
+      };
+    }
+
+    // Landfill — rendered early (natural_background) so forests on top aren't covered
+    if (props.landuse === "landfill") {
+      return {
+        layer: "natural_background",
         color: getColor("specialPurpose", "quarry"),
         minLOD: 2,
         fill: true,
@@ -3360,10 +3497,6 @@ class MapRenderer {
         borderWidth = 0.5;
       }
 
-      if (isTunnel) {
-        console.log("Tunnel", props);
-      }
-
       let waterColor = getColor("water", "line");
       let waterBorder = getColor("water", "border");
       if (isTunnel) {
@@ -3372,7 +3505,7 @@ class MapRenderer {
       }
 
       const result = {
-        layer: "waterways",
+        layer: isTunnel ? "tunnel_waterways" : "waterways",
         color: waterColor,
         minLOD: importance,
         fill: false,
@@ -3532,7 +3665,10 @@ class MapRenderer {
         color = getColor("roads", "footway");
         laneWidth = 2;
         // Steps/corridors: ignore OSM width/lanes when zoomed out (>500m) to avoid oversized rendering
-        if ((effectiveHighway === "steps" || effectiveHighway === "corridor") && this.viewWidthMeters > 500) {
+        if (
+          (effectiveHighway === "steps" || effectiveHighway === "corridor") &&
+          this.viewWidthMeters > 500
+        ) {
           realWidthMeters = null;
           lanes = 1;
         } else {
@@ -3597,16 +3733,12 @@ class MapRenderer {
           isConstruction,
         };
       } else {
-        if (isBridge) {
-          console.log("Bridge road detected", props);
-        }
-
         // Check for bicycle_road marking
         const isBicycleRoad =
           props.bicycle_road === "yes" || props.cyclestreet === "yes";
 
-        return {
-          layer: "surface_roads",
+        const result = {
+          layer: isBridge ? "bridge_roads" : "surface_roads",
           color,
           minLOD,
           width,
@@ -3615,6 +3747,10 @@ class MapRenderer {
           isConstruction,
           isBicycleRoad,
         };
+        if (isBridge) {
+          result.bridgeLayer = parseInt(props.layer) || 1;
+        }
+        return result;
       }
     }
 
@@ -3660,15 +3796,70 @@ class MapRenderer {
             isRailway: true,
           };
         } else {
-          return {
-            layer: "surface_railways",
+          const result = {
+            layer: isBridge ? "bridge_railways" : "surface_railways",
             color,
             minLOD,
             width,
             fill: false,
             isRailway: true,
           };
+          if (isBridge) {
+            result.bridgeLayer = parseInt(props.layer) || 1;
+          }
+          return result;
         }
+      }
+    }
+
+    // Railway platforms (polygon or line)
+    if (props.railway === "platform" || props.public_transport === "platform") {
+      if (type === "Polygon" || type === "MultiPolygon") {
+        return {
+          layer: "surface_railways",
+          color: { r: 160, g: 160, b: 160, a: 255 },
+          minLOD: 2,
+          fill: true,
+          stroke: true,
+          strokeColor: { r: 120, g: 120, b: 120, a: 255 },
+          strokeWidth: 1,
+          isPlatform: true,
+        };
+      } else if (type === "LineString" || type === "MultiLineString") {
+        return {
+          layer: "surface_railways",
+          color: { r: 140, g: 140, b: 140, a: 255 },
+          minLOD: 2,
+          width: 3,
+          fill: false,
+          isPlatform: true,
+        };
+      }
+    }
+
+    // Railway stations and halts
+    if (props.railway === "station" || props.railway === "halt" || props.public_transport === "station") {
+      if (type === "Polygon" || type === "MultiPolygon") {
+        return {
+          layer: "buildings",
+          color: { r: 180, g: 170, b: 160, a: 255 },
+          minLOD: 1,
+          fill: true,
+          stroke: true,
+          strokeColor: { r: 120, g: 110, b: 100, a: 255 },
+          strokeWidth: 1,
+        };
+      } else if (type === "Point" && props.name) {
+        // Station points rendered as place labels
+        return {
+          layer: "place_labels",
+          color: { r: 80, g: 80, b: 80, a: 255 },
+          minLOD: 1,
+          fill: false,
+          placeType: "station",
+          placePriority: 7,
+          fontSize: 11,
+        };
       }
     }
 
@@ -3753,7 +3944,12 @@ class MapRenderer {
         const catDef = POI_CATEGORIES.recreation;
         return {
           layer: "points",
-          color: { r: catDef.color.r, g: catDef.color.g, b: catDef.color.b, a: 255 },
+          color: {
+            r: catDef.color.r,
+            g: catDef.color.g,
+            b: catDef.color.b,
+            a: 255,
+          },
           minLOD: 3,
           fill: false,
           poiCategory: "recreation",
@@ -3821,7 +4017,8 @@ class MapRenderer {
 
     for (const item of polygons) {
       const geom = item.feature.geometry;
-      const rings = geom.type === "Polygon" ? [geom.coordinates] : geom.coordinates;
+      const rings =
+        geom.type === "Polygon" ? [geom.coordinates] : geom.coordinates;
       const c = item.color;
       this.ctx.fillStyle = `rgba(${c.r},${c.g},${c.b},${c.a / 255})`;
       for (const poly of rings) {
@@ -3844,7 +4041,8 @@ class MapRenderer {
     const runways = [];
     for (const item of lines) {
       const geom = item.feature.geometry;
-      const coordArrays = geom.type === "LineString" ? [geom.coordinates] : geom.coordinates;
+      const coordArrays =
+        geom.type === "LineString" ? [geom.coordinates] : geom.coordinates;
       const screenPaths = [];
       for (const coords of coordArrays) {
         const pts = [];
@@ -3853,7 +4051,12 @@ class MapRenderer {
         }
         screenPaths.push(pts);
       }
-      const entry = { item, screenPaths, w: item.width || (item.isRunway ? 4 : 2), c: item.color };
+      const entry = {
+        item,
+        screenPaths,
+        w: item.width || (item.isRunway ? 4 : 2),
+        c: item.color,
+      };
       if (item.isRunway) runways.push(entry);
       else taxiways.push(entry);
     }
@@ -3875,14 +4078,20 @@ class MapRenderer {
       if (w > 4) {
         this.ctx.strokeStyle = "rgba(255,255,255,0.4)";
         this.ctx.lineWidth = w;
-        for (const pts of screenPaths) { tracePath(pts); this.ctx.stroke(); }
+        for (const pts of screenPaths) {
+          tracePath(pts);
+          this.ctx.stroke();
+        }
       }
     }
     // Pass 2: taxiway fill
     for (const { screenPaths, w, c } of taxiways) {
       this.ctx.strokeStyle = `rgba(${c.r},${c.g},${c.b},${c.a / 255})`;
       this.ctx.lineWidth = w > 4 ? w - 2 : w;
-      for (const pts of screenPaths) { tracePath(pts); this.ctx.stroke(); }
+      for (const pts of screenPaths) {
+        tracePath(pts);
+        this.ctx.stroke();
+      }
     }
     // Pass 3: taxiway centerline
     for (const { screenPaths, w } of taxiways) {
@@ -3891,7 +4100,10 @@ class MapRenderer {
         this.ctx.strokeStyle = "rgba(255,255,200,0.5)";
         this.ctx.lineWidth = Math.max(1, w * 0.05);
         this.ctx.setLineDash([dashLen, dashLen]);
-        for (const pts of screenPaths) { tracePath(pts); this.ctx.stroke(); }
+        for (const pts of screenPaths) {
+          tracePath(pts);
+          this.ctx.stroke();
+        }
         this.ctx.setLineDash([]);
       }
     }
@@ -3905,7 +4117,10 @@ class MapRenderer {
       if (w > 6) {
         this.ctx.strokeStyle = "rgba(255,255,255,0.6)";
         this.ctx.lineWidth = w;
-        for (const pts of screenPaths) { tracePath(pts); this.ctx.stroke(); }
+        for (const pts of screenPaths) {
+          tracePath(pts);
+          this.ctx.stroke();
+        }
       }
     }
 
@@ -3913,7 +4128,10 @@ class MapRenderer {
     for (const { screenPaths, w, c } of runways) {
       this.ctx.strokeStyle = `rgba(${c.r},${c.g},${c.b},${c.a / 255})`;
       this.ctx.lineWidth = w > 6 ? w - 3 : w;
-      for (const pts of screenPaths) { tracePath(pts); this.ctx.stroke(); }
+      for (const pts of screenPaths) {
+        tracePath(pts);
+        this.ctx.stroke();
+      }
     }
 
     // Pass 3: runway centerline dashes
@@ -3922,7 +4140,10 @@ class MapRenderer {
       this.ctx.strokeStyle = "rgba(255,255,255,0.8)";
       this.ctx.lineWidth = Math.max(1, w * 0.06);
       this.ctx.setLineDash([dashLen, dashLen]);
-      for (const pts of screenPaths) { tracePath(pts); this.ctx.stroke(); }
+      for (const pts of screenPaths) {
+        tracePath(pts);
+        this.ctx.stroke();
+      }
     }
     this.ctx.setLineDash([]);
 
@@ -3972,17 +4193,30 @@ class MapRenderer {
             const segDy = pts[i + 1].y - pts[i].y;
             const segLen = Math.sqrt(segDx * segDx + segDy * segDy);
             if (segLen < 1) continue;
-            const nx = -segDy / segLen, ny = segDx / segLen;
+            const nx = -segDy / segLen,
+              ny = segDx / segLen;
             const steps = Math.floor(segLen / spacing);
             for (let s = 0; s <= steps; s++) {
               const t = s / Math.max(1, steps);
               const px = pts[i].x + segDx * t;
               const py = pts[i].y + segDy * t;
               this.ctx.beginPath();
-              this.ctx.arc(px + nx * halfW, py + ny * halfW, dotR, 0, Math.PI * 2);
+              this.ctx.arc(
+                px + nx * halfW,
+                py + ny * halfW,
+                dotR,
+                0,
+                Math.PI * 2,
+              );
               this.ctx.fill();
               this.ctx.beginPath();
-              this.ctx.arc(px - nx * halfW, py - ny * halfW, dotR, 0, Math.PI * 2);
+              this.ctx.arc(
+                px - nx * halfW,
+                py - ny * halfW,
+                dotR,
+                0,
+                Math.PI * 2,
+              );
               this.ctx.fill();
             }
           }
@@ -3991,7 +4225,51 @@ class MapRenderer {
     }
   }
 
-  renderRoadLayer(layerFeatures, bounds, alphaOverride = null) {
+  renderBridges(bridgeRoads, bridgeRailways, bounds) {
+    // Combine bridge roads and railways, then sort by ascending OSM layer value
+    // so layer=1 bridges render first (bottom), layer=2+ on top
+    const allBridges = [];
+    for (const item of bridgeRoads) {
+      allBridges.push({ ...item, _isBridgeRoad: true });
+    }
+    for (const item of bridgeRailways) {
+      allBridges.push({ ...item, _isBridgeRailway: true });
+    }
+    if (allBridges.length === 0) return;
+
+    // Group by bridge layer value
+    const byLayer = new Map();
+    for (const item of allBridges) {
+      const lv = item.bridgeLayer || 1;
+      if (!byLayer.has(lv)) byLayer.set(lv, { roads: [], railways: [] });
+      const group = byLayer.get(lv);
+      if (item._isBridgeRoad) group.roads.push(item);
+      else group.railways.push(item);
+    }
+
+    // Render in ascending layer order
+    const sortedLayers = [...byLayer.keys()].sort((a, b) => a - b);
+    for (const lv of sortedLayers) {
+      const { roads, railways } = byLayer.get(lv);
+      // Render roads for this layer level (with full multi-pass casing/fill, butt cap for bridge borders)
+      if (roads.length > 0) {
+        this.renderRoadLayer(roads, bounds, null, { bridgeMode: true });
+      }
+      // Render railways for this layer level
+      if (railways.length > 0) {
+        this.renderLayer(railways, bounds, false);
+      }
+    }
+  }
+
+  renderRoadLayer(
+    layerFeatures,
+    bounds,
+    alphaOverride = null,
+    { bridgeMode = false } = {},
+  ) {
+    const casingCap = bridgeMode ? "butt" : "round";
+
     // Apply alpha override for tunnels etc.
     const prevAlpha = this.ctx.globalAlpha;
     if (alphaOverride !== null) {
@@ -4135,7 +4413,7 @@ class MapRenderer {
         for (const [key, batch] of borderBatches) {
           this.ctx.strokeStyle = batch.style;
           this.ctx.lineWidth = batch.width;
-          this.ctx.lineCap = "round";
+          this.ctx.lineCap = casingCap;
           this.ctx.lineJoin = "round";
           this.ctx.beginPath();
           for (const flat of batch.flats) {
@@ -4158,7 +4436,7 @@ class MapRenderer {
           const a = (0.6 + 0.4 * t) * (cf.color.a / 255);
           this.ctx.strokeStyle = `rgba(${r},${g},${b},${a})`;
           this.ctx.lineWidth = cf.width + 2;
-          this.ctx.lineCap = "round";
+          this.ctx.lineCap = casingCap;
           this.ctx.lineJoin = "round";
           this.ctx.beginPath();
           this.ctx.moveTo(cf.flat[0], cf.flat[1]);
@@ -4852,7 +5130,8 @@ class MapRenderer {
 
       // Render the label - bold for major places, normal weight for small places
       const fontWeight = place.priority <= 6 ? "bold" : "";
-      this.ctx.font = `${fontWeight} ${place.fontSize}px Arial, sans-serif`.trim();
+      this.ctx.font =
+        `${fontWeight} ${place.fontSize}px Arial, sans-serif`.trim();
 
       // White outline for readability
       const outlineColor = getColor("text", "outline");
@@ -5187,7 +5466,9 @@ class MapRenderer {
   renderBuildingLabels(layerFeatures, bounds, roadFeatures) {
     if (!layerFeatures || layerFeatures.length === 0) return;
 
-    console.log(`[BUILDINGS] ${layerFeatures.length} features with house numbers available, LOD=${this.getLOD()}`);
+    console.log(
+      `[BUILDINGS] ${layerFeatures.length} features with house numbers available, LOD=${this.getLOD()}`,
+    );
 
     if (this.viewWidthMeters > 500) return;
 
@@ -5208,14 +5489,19 @@ class MapRenderer {
         const geom = item.feature.geometry;
         if (!geom || !geom.coordinates) continue;
         const coordArrays =
-          geom.type === "LineString" ? [geom.coordinates] :
-          geom.type === "MultiLineString" ? geom.coordinates : null;
+          geom.type === "LineString"
+            ? [geom.coordinates]
+            : geom.type === "MultiLineString"
+              ? geom.coordinates
+              : null;
         if (!coordArrays) continue;
         for (const coords of coordArrays) {
           for (let i = 0; i < coords.length - 1; i++) {
             roadSegments.push(
-              toScreenX(coords[i][0]), toScreenY(coords[i][1]),
-              toScreenX(coords[i + 1][0]), toScreenY(coords[i + 1][1]),
+              toScreenX(coords[i][0]),
+              toScreenY(coords[i][1]),
+              toScreenX(coords[i + 1][0]),
+              toScreenY(coords[i + 1][1]),
             );
           }
         }
@@ -5245,9 +5531,12 @@ class MapRenderer {
 
       // Convert ring to screen coords, compute centroid and bbox
       const screenRing = new Array(ring.length);
-      let sumX = 0, sumY = 0;
-      let bboxMinX = Infinity, bboxMaxX = -Infinity;
-      let bboxMinY = Infinity, bboxMaxY = -Infinity;
+      let sumX = 0,
+        sumY = 0;
+      let bboxMinX = Infinity,
+        bboxMaxX = -Infinity;
+      let bboxMinY = Infinity,
+        bboxMaxY = -Infinity;
       for (let i = 0; i < ring.length; i++) {
         const sx = toScreenX(ring[i][0]);
         const sy = toScreenY(ring[i][1]);
@@ -5264,9 +5553,12 @@ class MapRenderer {
 
       // Skip if outside viewport
       if (
-        centerX < -10 || centerX > this.canvasWidth + 10 ||
-        centerY < -10 || centerY > this.canvasHeight + 10
-      ) continue;
+        centerX < -10 ||
+        centerX > this.canvasWidth + 10 ||
+        centerY < -10 ||
+        centerY > this.canvasHeight + 10
+      )
+        continue;
 
       // Check if text fits inside the building polygon
       const textWidth = this.ctx.measureText(number).width;
@@ -5278,23 +5570,35 @@ class MapRenderer {
       }
 
       // Find nearest road segment and offset label towards the road-facing edge
-      let labelX = centerX, labelY = centerY;
+      let labelX = centerX,
+        labelY = centerY;
       if (roadSegments.length > 0) {
         // Find closest road point to building centroid
-        let bestDist = Infinity, nearestRoadX = centerX, nearestRoadY = centerY;
+        let bestDist = Infinity,
+          nearestRoadX = centerX,
+          nearestRoadY = centerY;
         for (let i = 0; i < roadSegments.length; i += 4) {
-          const ax = roadSegments[i], ay = roadSegments[i + 1];
-          const bx = roadSegments[i + 2], by = roadSegments[i + 3];
+          const ax = roadSegments[i],
+            ay = roadSegments[i + 1];
+          const bx = roadSegments[i + 2],
+            by = roadSegments[i + 3];
           // Quick distance cull — skip segments far from this building
-          const segCenterX = (ax + bx) * 0.5, segCenterY = (ay + by) * 0.5;
-          const roughDist = Math.abs(segCenterX - centerX) + Math.abs(segCenterY - centerY);
+          const segCenterX = (ax + bx) * 0.5,
+            segCenterY = (ay + by) * 0.5;
+          const roughDist =
+            Math.abs(segCenterX - centerX) + Math.abs(segCenterY - centerY);
           if (roughDist > 200) continue;
           // Project centroid onto segment
-          const dx = bx - ax, dy = by - ay;
+          const dx = bx - ax,
+            dy = by - ay;
           const lenSq = dx * dx + dy * dy;
           if (lenSq === 0) continue;
-          const t = Math.max(0, Math.min(1, ((centerX - ax) * dx + (centerY - ay) * dy) / lenSq));
-          const px = ax + t * dx, py = ay + t * dy;
+          const t = Math.max(
+            0,
+            Math.min(1, ((centerX - ax) * dx + (centerY - ay) * dy) / lenSq),
+          );
+          const px = ax + t * dx,
+            py = ay + t * dy;
           const dist = (px - centerX) ** 2 + (py - centerY) ** 2;
           if (dist < bestDist) {
             bestDist = dist;
@@ -5303,13 +5607,15 @@ class MapRenderer {
           }
         }
 
-        if (bestDist < 10000) { // within ~100px
+        if (bestDist < 10000) {
+          // within ~100px
           // Direction from centroid towards nearest road
           const dirX = nearestRoadX - centerX;
           const dirY = nearestRoadY - centerY;
           const dirLen = Math.sqrt(dirX * dirX + dirY * dirY);
           if (dirLen > 0.5) {
-            const nx = dirX / dirLen, ny = dirY / dirLen;
+            const nx = dirX / dirLen,
+              ny = dirY / dirLen;
             // Find how far we can shift towards road while staying inside bbox
             const maxShiftX = (polyWidth - textWidth) * 0.5 - 1;
             const maxShiftY = (polyHeight - fontSize) * 0.5 - 1;
@@ -5330,7 +5636,9 @@ class MapRenderer {
       });
     }
 
-    console.log(`[BUILDINGS] House numbers: ${houseNumbers.length} rendered, ${skippedTooSmall} skipped (too small)`);
+    console.log(
+      `[BUILDINGS] House numbers: ${houseNumbers.length} rendered, ${skippedTooSmall} skipped (too small)`,
+    );
 
     if (houseNumbers.length === 0) return;
 
@@ -5667,7 +5975,9 @@ class MapRenderer {
         batch.baseColor.b,
         batch.baseColor.a / 255,
       );
-      pattern.setTransform(new DOMMatrix().scaleSelf(patternScale, patternScale));
+      pattern.setTransform(
+        new DOMMatrix().scaleSelf(patternScale, patternScale),
+      );
 
       // Fill each polygon independently to avoid evenodd overlap artifacts
       for (const poly of batch.polygons) {

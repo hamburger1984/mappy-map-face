@@ -4,12 +4,6 @@ Step 3: Generate map tiles from GeoJSON files.
 
 This script processes GeoJSON files into tile format with parallel processing
 and detailed progress reporting.
-
-Tile system:
-- Z0-Z5: Major features (motorways, railways, forests, large water)
-- Z6-Z10: Secondary features (primary roads, parks, rivers)
-- Z11-Z14: Detailed features (residential roads, buildings)
-- Z15+: All details (paths, small POIs)
 """
 
 import argparse
@@ -18,6 +12,7 @@ import decimal
 import json
 import math
 import os
+import random
 import shutil
 import sys
 import tempfile
@@ -46,25 +41,6 @@ except ImportError:
     print("Error: PyYAML is required for config parsing")
     print("Install with: pip install PyYAML")
     sys.exit(1)
-
-
-# ============================================================================
-# TILE GENERATION CORE (from split-tiles.py)
-# ============================================================================
-
-#!/usr/bin/env python3
-"""
-Split GeoJSON into progressive tiles for efficient loading.
-
-Tile system:
-- Z0-Z5: Major features (motorways, railways, forests, large water)
-- Z6-Z10: Secondary features (primary roads, parks, rivers)
-- Z11-Z14: Detailed features (residential roads, buildings)
-- Z15+: All details (paths, small POIs)
-
-Tile grid uses Web Mercator (similar to OSM tiles)
-Each tile: tiles/{zoom}/{x}/{y}.json.gz
-"""
 
 
 def decimal_default(o):
@@ -728,6 +704,79 @@ def simplify_feature_for_tileset(feature, tileset_id, feature_config):
     return feature
 
 
+def clip_feature_to_tile(feature, tile_x, tile_y, tile_size_m, buffer_pct=0.02):
+    """
+    Clip feature geometry to tile bounds with a small buffer.
+
+    Args:
+        feature: GeoJSON feature (will be modified in place)
+        tile_x: Tile X index
+        tile_y: Tile Y index
+        tile_size_m: Tile size in meters
+        buffer_pct: Buffer as fraction of tile size (0.02 = 2%)
+
+    Returns:
+        Clipped feature, or None if geometry is empty after clipping
+    """
+    from shapely.geometry import box, mapping, shape
+
+    geom = feature.get("geometry")
+    if not geom or geom["type"] == "Point":
+        return feature  # Points don't need clipping
+
+    # Only clip polygon types — clipping LineStrings causes gaps at tile boundaries
+    # where road/rail segments don't reconnect cleanly
+    if geom["type"] in ("LineString", "MultiLineString"):
+        return feature
+
+    # Compute tile bounds in degrees
+    lat_avg = tile_y * tile_size_m / 111320 + (tile_size_m / 111320 / 2)
+    meters_per_deg_lon = 111320 * math.cos(math.radians(lat_avg))
+    meters_per_deg_lat = 111320
+
+    tile_width_deg = tile_size_m / meters_per_deg_lon
+    tile_height_deg = tile_size_m / meters_per_deg_lat
+
+    min_lon = tile_x * tile_width_deg
+    min_lat = tile_y * tile_height_deg
+    max_lon = min_lon + tile_width_deg
+    max_lat = min_lat + tile_height_deg
+
+    # Add buffer to avoid edge artifacts
+    buf_lon = tile_width_deg * buffer_pct
+    buf_lat = tile_height_deg * buffer_pct
+    min_lon -= buf_lon
+    min_lat -= buf_lat
+    max_lon += buf_lon
+    max_lat += buf_lat
+
+    try:
+        shapely_geom = shape(geom)
+
+        # Skip clipping if feature is fully within the buffered tile
+        gmin_lon, gmin_lat, gmax_lon, gmax_lat = shapely_geom.bounds
+        if (
+            gmin_lon >= min_lon
+            and gmax_lon <= max_lon
+            and gmin_lat >= min_lat
+            and gmax_lat <= max_lat
+        ):
+            return feature
+
+        tile_box = box(min_lon, min_lat, max_lon, max_lat)
+        clipped = shapely_geom.intersection(tile_box)
+
+        if clipped.is_empty:
+            return None
+
+        feature["geometry"] = mapping(clipped)
+        return feature
+
+    except Exception:
+        # If clipping fails, return original
+        return feature
+
+
 def snap_to_grid(geom, grid_size_m):
     """
     Snap geometry coordinates to grid to prevent gaps between adjacent features.
@@ -1152,6 +1201,26 @@ def get_render_metadata(props, geom_type):
                 "fill": False,
             }
 
+    # Railway platforms (polygon or line shapes)
+    if railway == "platform" or props.get("public_transport") == "platform":
+        return {
+            "layer": "railways",
+            "color": {"r": 120, "g": 120, "b": 120, "a": 255},
+            "minLOD": 2,
+            "fill": True,
+        }
+
+    # Railway stations and halts (point or polygon)
+    if railway in ("station", "halt") or props.get("public_transport") == "station":
+        station_name = props.get("name", "")
+        return {
+            "layer": "railways",
+            "color": {"r": 100, "g": 100, "b": 100, "a": 255},
+            "minLOD": 1,
+            "fill": True,
+            "stationName": station_name,
+        }
+
     # Place names (cities, towns, villages, suburbs, etc.) - rendered as labels
     if geom_type == "Point" and props.get("place") and props.get("name"):
         place_type = props.get("place")
@@ -1294,6 +1363,12 @@ def classify_feature_importance(props, geom_type):
     if railway and geom_type != "Point":
         if railway in ALL_RAIL_TYPES:
             return (0, 70)  # Z0-Z5, important
+
+    # Railway stations and platforms
+    if railway in ("station", "halt") or props.get("public_transport") == "station":
+        return (6, 55)  # Visible at medium zoom
+    if railway == "platform" or props.get("public_transport") == "platform":
+        return (11, 35)  # Visible at closer zoom
 
     # Major rivers
     if waterway in MAJOR_WATERWAYS:
@@ -1508,6 +1583,8 @@ def split_geojson_into_tiles(
     geojson_file,
     output_dir,
     source_pbf_file=None,
+    clip_to_tiles=False,
+    clip_buffer_pct=0.02,
 ):
     """Split GeoJSON into tiles by streaming features directly to .jsonl files.
 
@@ -1519,6 +1596,8 @@ def split_geojson_into_tiles(
 
     processing_keys = TILESET_IDS
     print(f"Generating tilesets: {processing_keys}")
+    if clip_to_tiles:
+        print(f"  Clipping enabled (buffer: {clip_buffer_pct * 100:.1f}% of tile size)")
 
     # Get bounds from PBF header
     if source_pbf_file and Path(source_pbf_file).suffix == ".pbf":
@@ -1635,19 +1714,41 @@ def split_geojson_into_tiles(
                     tileset_feature, tileset_id, tile_size_m
                 )
 
-                feature_json = json.dumps(
-                    tileset_feature,
-                    separators=(",", ":"),
-                    default=decimal_default,
-                )
-
                 _, importance = classify_feature_importance(props, geom_type)
 
-                for tile_coords in feature_tiles:
-                    ts, x, y = tile_coords
-                    append_to_tile(ts, x, y, f"{importance}\t{feature_json}\n")
-                    tile_files_written[ts].add((x, y))
-                    stats[ts] += 1
+                if clip_to_tiles and len(feature_tiles) > 1:
+                    # Clip geometry to each tile's bounds individually
+                    for tile_coords in feature_tiles:
+                        ts, x, y = tile_coords
+                        clipped = clip_feature_to_tile(
+                            copy.deepcopy(tileset_feature),
+                            x,
+                            y,
+                            tile_size_m,
+                            clip_buffer_pct,
+                        )
+                        if clipped is None:
+                            continue
+                        clipped_json = json.dumps(
+                            clipped,
+                            separators=(",", ":"),
+                            default=decimal_default,
+                        )
+                        append_to_tile(ts, x, y, f"{importance}\t{clipped_json}\n")
+                        tile_files_written[ts].add((x, y))
+                        stats[ts] += 1
+                else:
+                    # No clipping — serialize once, write to all tiles
+                    feature_json = json.dumps(
+                        tileset_feature,
+                        separators=(",", ":"),
+                        default=decimal_default,
+                    )
+                    for tile_coords in feature_tiles:
+                        ts, x, y = tile_coords
+                        append_to_tile(ts, x, y, f"{importance}\t{feature_json}\n")
+                        tile_files_written[ts].add((x, y))
+                        stats[ts] += 1
 
     print(
         f"\r  Processed {i:,} features in {time.time() - start_time:.0f}s ({db_prefix})"
@@ -1718,7 +1819,7 @@ def split_geojson_into_tiles(
 
 def process_geojson_to_tiles(args):
     """Process a single GeoJSON file into tiles."""
-    geojson_file, output_dir, source_file = args
+    geojson_file, output_dir, source_file, clip_to_tiles, clip_buffer_pct = args
 
     geojson_path = Path(geojson_file)
     source_path = Path(source_file) if source_file else geojson_path
@@ -1728,6 +1829,8 @@ def process_geojson_to_tiles(args):
             str(geojson_file),
             output_dir,
             source_pbf_file=str(source_path),
+            clip_to_tiles=clip_to_tiles,
+            clip_buffer_pct=clip_buffer_pct,
         )
 
         return {
@@ -1775,6 +1878,173 @@ def feature_intersects_bounds(feature, bbox):
     return False
 
 
+def _categorize_feature(feature):
+    """Categorize a feature by its primary OSM tag for statistics."""
+    props = feature.get("properties", {})
+    # Priority order for primary tag detection
+    for key in (
+        "building", "highway", "railway", "waterway", "natural", "landuse",
+        "leisure", "amenity", "shop", "boundary", "place", "aeroway",
+        "public_transport", "man_made",
+    ):
+        val = props.get(key)
+        if val:
+            if key == "building" and val == "yes":
+                return "building", "building"
+            return key, f"{key}:{val}"
+    return "unknown", "unknown"
+
+
+def _count_coordinates(geometry):
+    """Count total coordinate points in a geometry."""
+    coords = geometry.get("coordinates", [])
+    geom_type = geometry.get("type", "")
+
+    if geom_type == "Point":
+        return 1
+    elif geom_type in ("LineString", "MultiPoint"):
+        return len(coords)
+    elif geom_type in ("Polygon", "MultiLineString"):
+        return sum(len(ring) for ring in coords)
+    elif geom_type == "MultiPolygon":
+        return sum(len(ring) for polygon in coords for ring in polygon)
+    return 0
+
+
+def _format_size(num_bytes):
+    """Format bytes as human-readable string."""
+    if num_bytes >= 1024 * 1024 * 1024:
+        return f"{num_bytes / (1024 ** 3):.2f} GB"
+    elif num_bytes >= 1024 * 1024:
+        return f"{num_bytes / (1024 * 1024):.1f} MB"
+    elif num_bytes >= 1024:
+        return f"{num_bytes / 1024:.0f} KB"
+    return f"{num_bytes} B"
+
+
+def compute_tile_statistics(tile_dir, output_file=None, max_sample=1000):
+    """Compute per-tileset statistics by sampling tiles.
+
+    Args:
+        tile_dir: Path to generated tiles directory
+        output_file: Path to write statistics report (default: tile_dir/statistics.md)
+        max_sample: Max tiles to sample per tileset
+    """
+    tile_dir = Path(tile_dir)
+    if output_file is None:
+        output_file = tile_dir / "statistics.md"
+
+    lines = []
+    lines.append("# Tile Statistics")
+    lines.append(f"")
+    lines.append(f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"Source: `{tile_dir}`")
+    lines.append("")
+    lines.append("## Methodology")
+    lines.append("")
+    lines.append(f"- Sampled up to {max_sample} random tiles per tileset")
+    lines.append("- For each sampled tile, parsed JSON and measured per-feature JSON size")
+    lines.append("- Categorized features by primary OSM tag (building, highway:residential, etc.)")
+    lines.append("- Extrapolated to full tileset using sample ratio")
+    lines.append("- Coordinate counts reflect total vertices across all geometry rings/lines")
+    lines.append("")
+
+    for tileset_id in sorted(d.name for d in tile_dir.iterdir() if d.is_dir() and d.name.startswith("t")):
+        tileset_path = tile_dir / tileset_id
+        # Collect all tile files
+        tile_files = list(tileset_path.rglob("*.json"))
+        if not tile_files:
+            continue
+
+        total_tiles = len(tile_files)
+        actual_disk_size = sum(f.stat().st_size for f in tile_files)
+
+        # Sample
+        if total_tiles <= max_sample:
+            sampled = tile_files
+        else:
+            sampled = random.sample(tile_files, max_sample)
+
+        sample_ratio = total_tiles / len(sampled)
+        sample_pct = len(sampled) / total_tiles * 100
+
+        # Collect stats per category
+        group_stats = defaultdict(lambda: {"bytes": 0, "features": 0, "coords": 0})
+        category_stats = defaultdict(lambda: {"bytes": 0, "features": 0, "coords": 0})
+
+        for tile_file in sampled:
+            try:
+                with open(tile_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                continue
+
+            features = data.get("features", []) if isinstance(data, dict) else data
+            for feat in features:
+                feat_json = json.dumps(feat, separators=(",", ":"))
+                feat_bytes = len(feat_json.encode("utf-8"))
+                coord_count = _count_coordinates(feat.get("geometry", {}))
+                group, category = _categorize_feature(feat)
+
+                group_stats[group]["bytes"] += feat_bytes
+                group_stats[group]["features"] += 1
+                group_stats[group]["coords"] += coord_count
+
+                category_stats[category]["bytes"] += feat_bytes
+                category_stats[category]["features"] += 1
+                category_stats[category]["coords"] += coord_count
+
+        # Write tileset section
+        lines.append(f"## {tileset_id.upper()}")
+        lines.append("")
+        lines.append(f"- **Tiles:** {total_tiles:,}")
+        lines.append(f"- **Actual disk size:** {_format_size(actual_disk_size)}")
+        lines.append(f"- **Sampled:** {len(sampled)} tiles ({sample_pct:.1f}%)")
+
+        total_sampled_bytes = sum(s["bytes"] for s in group_stats.values())
+        estimated_total = total_sampled_bytes * sample_ratio
+        lines.append(f"- **Estimated feature data:** {_format_size(int(estimated_total))}")
+        lines.append("")
+
+        # By group
+        lines.append("### By group")
+        lines.append("")
+        lines.append("| Group | Est. Size | Features | Coordinates |")
+        lines.append("|-------|----------|----------|-------------|")
+
+        sorted_groups = sorted(group_stats.items(), key=lambda x: x[1]["bytes"], reverse=True)
+        for group, stats in sorted_groups:
+            est_size = _format_size(int(stats["bytes"] * sample_ratio))
+            est_features = f'{int(stats["features"] * sample_ratio):,}'
+            est_coords = f'{int(stats["coords"] * sample_ratio):,}'
+            lines.append(f"| {group} | {est_size} | {est_features} | {est_coords} |")
+
+        lines.append("")
+
+        # Top categories
+        lines.append("### Top categories")
+        lines.append("")
+        lines.append("| Category | Est. Size | Features | Coordinates | Avg bytes |")
+        lines.append("|----------|----------|----------|-------------|-----------|")
+
+        sorted_cats = sorted(category_stats.items(), key=lambda x: x[1]["bytes"], reverse=True)
+        for category, stats in sorted_cats[:30]:
+            est_size = _format_size(int(stats["bytes"] * sample_ratio))
+            est_features = f'{int(stats["features"] * sample_ratio):,}'
+            est_coords = f'{int(stats["coords"] * sample_ratio):,}'
+            avg_bytes = stats["bytes"] // max(stats["features"], 1)
+            lines.append(f"| {category} | {est_size} | {est_features} | {est_coords} | {avg_bytes} |")
+
+        lines.append("")
+
+    report = "\n".join(lines)
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write(report)
+
+    print(f"  ✓ Statistics written to {output_file}")
+    return output_file
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate map tiles from GeoJSON files",
@@ -1804,6 +2074,18 @@ def main():
         type=int,
         default=3,
         help="Number of parallel tile generation processes",
+    )
+    parser.add_argument(
+        "--clip",
+        action="store_true",
+        default=True,
+        help="Clip feature geometries to tile bounds (reduces size for large polygons)",
+    )
+    parser.add_argument(
+        "--clip-buffer",
+        type=float,
+        default=0.02,
+        help="Buffer around tile bounds for clipping (in percent of tile size, e.g. 0.02 = 2%%)",
     )
 
     args = parser.parse_args()
@@ -1884,6 +2166,8 @@ def main():
                     str(gj),
                     str(temp_tile_dir),
                     source_file,
+                    args.clip,
+                    args.clip_buffer,
                 )
             )
 
@@ -2012,6 +2296,13 @@ def main():
             f"  ✓ Bounds: {merged_bounds['minLat']:.2f}°N to {merged_bounds['maxLat']:.2f}°N, "
             f"{merged_bounds['minLon']:.2f}°E to {merged_bounds['maxLon']:.2f}°E"
         )
+
+        # Compute tile statistics
+        print()
+        print("Computing tile statistics...")
+        stats_start = time.time()
+        compute_tile_statistics(temp_tile_dir)
+        print(f"  Done in {time.time() - stats_start:.1f}s")
 
         # Move tiles from temp directory to final location atomically
         if args.output_dir.exists():
