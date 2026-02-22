@@ -215,11 +215,12 @@ feature_templates:
     osm_match:
       geometry: ["LineString", "MultiLineString"]
       tags:
-        railway: ["rail", "narrow_gauge", "preserved"]
+        railway: ["rail", "narrow_gauge", "preserved", "construction", "planned", "proposed"]
     render:
       layer: "railways"
       color: [153, 153, 153, 255]
       stroke_width_px: 2
+      preserve_tags: ["construction", "planned", "proposed", "railway"]
 
   subway_light_rail: &subway_light_rail
     name: "subway_light_rail"

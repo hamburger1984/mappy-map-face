@@ -3764,24 +3764,49 @@ class MapRenderer {
         "monorail",
         "narrow_gauge",
         "preserved",
+        "construction",
+        "planned",
+        "proposed",
       ];
+
+      // Remap construction/planned/proposed railways to their target type
+      let effectiveRailway = props.railway;
+      let isPlannedRailway = false;
+      if (effectiveRailway === "construction" && props.construction) {
+        effectiveRailway = props.construction;
+        isPlannedRailway = true;
+      } else if (effectiveRailway === "planned" && props.planned) {
+        effectiveRailway = props.planned;
+        isPlannedRailway = true;
+      } else if (effectiveRailway === "proposed" && props.proposed) {
+        effectiveRailway = props.proposed;
+        isPlannedRailway = true;
+      } else if (effectiveRailway === "construction" || effectiveRailway === "planned" || effectiveRailway === "proposed") {
+        // No target type specified — treat as generic rail
+        effectiveRailway = "rail";
+        isPlannedRailway = true;
+      }
+
       if (trackTypes.includes(props.railway) || !props.railway) {
-        let color = getColor("railways", "rail");
+        // Regular rail color with red tint for planned/construction
+        let color = isPlannedRailway
+          ? { r: 180, g: 120, b: 120, a: 255 }
+          : getColor("railways", "rail");
 
         // Railway width based on type (controls spacing between rails and tie length)
         let width = 8; // Standard railway (~5-6m wide including tracks and bed)
         let minLOD = 0; // Long distance/regional rail: show at all zoom levels
 
-        if (props.railway === "tram") {
+        if (effectiveRailway === "tram") {
           width = 6; // Trams are narrower
           minLOD = 2; // Trams: only show at close zoom
         } else if (
-          props.railway === "light_rail" ||
-          props.railway === "subway"
+          effectiveRailway === "light_rail" ||
+          effectiveRailway === "subway"
         ) {
           width = 6; // Light rail/subway narrower than main rail
           minLOD = 1; // Subway/light rail: show at medium zoom
-        } else if (props.railway === "narrow_gauge") {
+        } else if (effectiveRailway === "narrow_gauge") {
           width = 6; // Narrow gauge railways
           minLOD = 0; // Still long distance, just narrower track
         }

@@ -40,24 +40,6 @@ def convert_pbf_to_geojson(args):
     work_dir.mkdir(exist_ok=True)
     geojson_path = work_dir / f"{pbf_path.stem}.geojson"
 
-    # Check if databases are cached with matching fingerprint (skip conversion entirely)
-    # We don't need GeoJSON if databases are already built
-    meta_path = work_dir / "meta.json"
-    if meta_path.exists():
-        import json
-
-        try:
-            meta = json.loads(meta_path.read_text())
-            fingerprint = f"{pbf_path.stat().st_size}:{pbf_path.stat().st_mtime_ns}"
-            if meta.get("fingerprint") == fingerprint and meta.get("tilesets_complete"):
-                return {
-                    "name": pbf_path.name,
-                    "status": "db_cached",
-                    "output": str(geojson_path),
-                }
-        except:
-            pass
-
     # Check if GeoJSON exists and is newer than PBF (skip conversion)
     if geojson_path.exists():
         pbf_mtime = pbf_path.stat().st_mtime
@@ -177,9 +159,6 @@ def main():
     for result in sorted(results, key=lambda x: x["name"]):
         if result["status"] == "success":
             print(f"  ✓ {result['name']} → {result['size_mb']:.1f} MB GeoJSON")
-            success_count += 1
-        elif result["status"] == "db_cached":
-            print(f"  ✓ {result['name']} → databases cached, skipping GeoJSON")
             success_count += 1
         elif result["status"] == "cached":
             print(
