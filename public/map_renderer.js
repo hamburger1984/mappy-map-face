@@ -1915,7 +1915,7 @@ class MapRenderer {
     }
   }
 
-  analyzeTileContent(tileData) {
+  analyzeTileContent(tileData, tileKey) {
     // Use pre-computed metadata if available (optimization)
     if (tileData && tileData._meta) {
       return {
@@ -1927,6 +1927,8 @@ class MapRenderer {
           (!tileData.features || tileData.features.length === 0),
       };
     }
+
+    console.warn("No tile metadata", tileKey);
 
     // Fallback: analyze tile features (for tiles without metadata)
     if (!tileData || !tileData.features || tileData.features.length === 0) {
@@ -1987,7 +1989,7 @@ class MapRenderer {
       // tile does not exist(?)
       if (!tileData) continue;
 
-      const analysis = this.analyzeTileContent(tileData);
+      const analysis = this.analyzeTileContent(tileData, tileKey);
       tileAnalyses.set(tileKey, analysis);
     }
 
@@ -2009,6 +2011,7 @@ class MapRenderer {
       // Coastline tiles get very light ocean color
       if (analysis.hasCoastline) {
         this.fillTileBounds(tileBounds, COASTLINE_COLOR, bounds);
+        // TODO: fill ocean side of coastline and revert to land background color
       }
       // Land tiles (no coastline) get land color
       else if (analysis.hasLandFeatures) {
@@ -2491,7 +2494,9 @@ class MapRenderer {
       if (featureInfo.color) {
         const c = featureInfo.color;
         const w = featureInfo.width || 1;
-        const dash = featureInfo.dashPattern ? `|d${featureInfo.dashPattern.join(",")}` : "";
+        const dash = featureInfo.dashPattern
+          ? `|d${featureInfo.dashPattern.join(",")}`
+          : "";
         featureInfo._lineKey = `${c.r},${c.g},${c.b},${c.a}|${w}${dash}`;
         featureInfo._fillKey = this._getRGBA(c.r, c.g, c.b, c.a / 255);
       }
@@ -2684,15 +2689,15 @@ class MapRenderer {
     this.renderLayer(layers.points, adjustedBounds, false);
     layerTimings.points = performance.now() - layerStart;
 
-    // 10b. Place labels (city/town/village names on top of everything except highlights)
-    layerStart = performance.now();
-    this.renderPlaceLabels(layers.place_labels, adjustedBounds);
-    layerTimings.placeLabels = performance.now() - layerStart;
-
-    // 10c. Water labels (lake/pond/canal/river names)
+    // 10b. Water labels (lake/pond/canal/river names)
     layerStart = performance.now();
     this.renderWaterLabels(layers.water_labels, adjustedBounds);
     layerTimings.waterLabels = performance.now() - layerStart;
+
+    // 10c. Place labels (city/town/village names on top of everything except highlights)
+    layerStart = performance.now();
+    this.renderPlaceLabels(layers.place_labels, adjustedBounds);
+    layerTimings.placeLabels = performance.now() - layerStart;
 
     // 10d. Building labels (house numbers, only at very high zoom)
     layerStart = performance.now();
@@ -3783,7 +3788,11 @@ class MapRenderer {
       } else if (effectiveRailway === "proposed" && props.proposed) {
         effectiveRailway = props.proposed;
         isPlannedRailway = true;
-      } else if (effectiveRailway === "construction" || effectiveRailway === "planned" || effectiveRailway === "proposed") {
+      } else if (
+        effectiveRailway === "construction" ||
+        effectiveRailway === "planned" ||
+        effectiveRailway === "proposed"
+      ) {
         // No target type specified — treat as generic rail
         effectiveRailway = "rail";
         isPlannedRailway = true;
@@ -3865,7 +3874,11 @@ class MapRenderer {
     }
 
     // Railway stations and halts
-    if (props.railway === "station" || props.railway === "halt" || props.public_transport === "station") {
+    if (
+      props.railway === "station" ||
+      props.railway === "halt" ||
+      props.public_transport === "station"
+    ) {
       if (type === "Polygon" || type === "MultiPolygon") {
         return {
           layer: "buildings",
@@ -4577,7 +4590,8 @@ class MapRenderer {
 
         for (const cf of constructionFlats) {
           // White base
-          this.ctx.strokeStyle = "rgba(255,255,255,1)";
+          //this.ctx.strokeStyle = "rgba(255,255,255,1)";
+          this.ctx.strokeStyle = "rgba(200,60,60,0.8)";
           this.ctx.lineWidth = cf.width;
           this.ctx.lineCap = "butt";
           this.ctx.lineJoin = "round";
@@ -4590,7 +4604,14 @@ class MapRenderer {
           this.ctx.stroke();
 
           // Red dashes
-          this.ctx.strokeStyle = "rgba(200,60,60,0.8)";
+          //this.ctx.strokeStyle = "rgba(200,60,60,0.8)";
+          //this.ctx.strokeStyle = cf.color;
+          this.ctx.strokeStyle = this._getRGBA(
+            cf.color.r,
+            cf.color.g,
+            cf.color.b,
+            cf.color.a / 255,
+          );
           this.ctx.lineWidth = cf.width;
           this.ctx.setLineDash([dashLen, dashLen]);
           this.ctx.beginPath();
@@ -4603,6 +4624,7 @@ class MapRenderer {
         this.ctx.setLineDash([]);
       }
 
+      /*
       // RENDERING PASS 3: Draw bicycle road markings (small bicycle pictograms)
       // Only at LOD 3+ (zoomed in enough to see details)
       const lod = this.getLOD();
@@ -4677,6 +4699,7 @@ class MapRenderer {
           }
         }
       }
+      */
     }
 
     // Restore alpha
@@ -5050,6 +5073,12 @@ class MapRenderer {
         this.ctx.moveTo(rightSideCoords[0].x, rightSideCoords[0].y);
         for (let i = 1; i < rightSideCoords.length; i++) {
           this.ctx.lineTo(rightSideCoords[i].x, rightSideCoords[i].y);
+          this.ctx.lineTo(rightSideCoords[i].x - 7, rightSideCoords[i].y - 7);
+          this.ctx.lineTo(rightSideCoords[i].x + 7, rightSideCoords[i].y + 7);
+          this.ctx.lineTo(rightSideCoords[i].x, rightSideCoords[i].y);
+          this.ctx.lineTo(rightSideCoords[i].x + 7, rightSideCoords[i].y - 7);
+          this.ctx.lineTo(rightSideCoords[i].x - 7, rightSideCoords[i].y + 7);
+          this.ctx.lineTo(rightSideCoords[i].x, rightSideCoords[i].y);
         }
         this.ctx.stroke();
 
@@ -5064,6 +5093,12 @@ class MapRenderer {
           this.ctx.lineTo(screenCoords[i].x, screenCoords[i].y);
         }
         this.ctx.stroke();
+
+        //this.ctx.beginPath();
+        //for (let i = 0; i < screenCoords.length; i++) {
+        //  this.ctx.circle(screenCoords[i].x, screenCoords[i].y, 7);
+        //}
+        //this.ctx.stroke();
 
         // Draw direction arrows along the line
         // Arrow every ~50 pixels

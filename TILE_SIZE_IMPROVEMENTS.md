@@ -1,45 +1,84 @@
 # Tile Size Analysis & Improvement Plan
 
-Based on statistics from 3 datapoints (see `tile_statistics_baseline.md`).
+Based on 4 datapoints (see `tile_statistics_baseline.md`).
 
-## Current state (3 regions: HH, SH, MV)
+## Growth across datapoints
 
-| Tileset | Disk size | Tiles | Scaling problem |
-|---------|-----------|-------|-----------------|
-| T1 | 4.74 GB | 469,057 | LineString duplication — dominates total |
-| T2 | 1.52 GB | 12,684 | Scales linearly, manageable |
-| T3 | 190 MB | 180 | Fine |
-| T4 | 28 MB | 56 | Fine |
-| **Total** | **~6.5 GB** | | |
+| Tileset | DP1 (2 regions) | DP2/3 (3 regions) | DP4 (5 regions) | DP2→DP4 |
+|---------|-----------------|-------------------|-----------------|---------|
+| T1 | 2.73 GB / 308K tiles | 4.74 GB / 469K tiles | 14.85 GB / 1.006M tiles | **3.1x** |
+| T2 | 1.23 GB / 8.5K tiles | 1.52 GB / 12.7K tiles | 5.73 GB / 50K tiles | **3.8x** |
+| T3 | 140 MB / 120 tiles | 190 MB / 180 tiles | 710 MB / 606 tiles | **3.7x** |
+| T4 | 22 MB / 36 tiles | 28 MB / 56 tiles | 82.5 MB / 177 tiles | **2.9x** |
+| **Total** | **~4.1 GB** | **~6.5 GB** | **~21.4 GB** | **3.3x** |
 
-## The fundamental problem: T1 LineString duplication
+Area roughly doubled (3→5 regions), but tile data grew 3-4x → **superlinear scaling confirms LineString duplication**.
 
-T1 uses epsilon_m=0.05 (5cm) simplification and **no clipping for LineStrings** (disabled to avoid gaps at tunnel-surface transitions). A river or boundary crossing 500 tiles is stored at full resolution in every tile.
+## Changes applied between DP2/3 and DP4
 
-| Type | Est. T1 size | Avg bytes/feature | Why so large |
-|------|-------------|-------------------|--------------|
-| boundary:administrative | 813 MB | 1,976 | State/country borders cross entire map |
-| waterway:river | 337 MB | 5,755 | Rivers span entire regions |
-| natural:coastline | 297 MB | 7,072 | Long coastlines, full coords per tile |
-| railway:rail | 155 MB | 1,967 | Rail lines span many tiles |
-| waterway:stream | 126 MB | 1,499 | Streams span many tiles |
-| boundary:maritime | 86 MB | 1,029 | Maritime borders along coast |
+1. **Tag matching fix** (`match_all` for boundaries) — reduced admin levels included from 5 (levels 2,4,6,7,8) to 3 (levels 2,4,6)
+2. **Building/platform clipping exclusion** — prevents tile-edge artifacts, negligible size impact
+3. **Area expansion** — added Niedersachsen + Denmark
 
-These 6 categories alone account for **~1.8 GB** of T1's 4.7 GB. Buildings (1 GB) and short roads scale linearly and are fine.
+## Effect of tag matching fix on boundaries
+
+| | DP2/3 (3 regions) | DP4 (5 regions) | Per-region avg |
+|---|---|---|---|
+| T1 boundary:administrative | 813 MB | 447 MB | 89 MB (was 271 MB) |
+| T1 boundary:maritime | 86 MB | (now separate) | — |
+| T2 boundary:administrative | 33 MB | 196 MB | 39 MB (was 11 MB) |
+
+T1 boundary size dropped from 813→447 MB despite adding 2 regions — the `match_all` fix eliminated admin levels 7/8 which were the bulk of the duplicate data. **Per-region boundary cost dropped 3x.** However, T2 boundary avg bytes jumped from 1277→7393, suggesting boundary LineString duplication is now the dominant T2 problem too.
+
+## Current state (5 regions: HH, SH, MV, NI, DK)
+
+| Tileset | Disk size | Tiles | Primary scaling problems |
+|---------|-----------|-------|------------------------|
+| T1 | 14.85 GB | 1,006,190 | Coastline (1.4 GB), rivers (1.25 GB), buildings (5.15 GB) |
+| T2 | 5.73 GB | 49,977 | Buildings (4.08 GB), boundary duplication (238 MB) |
+| T3 | 710 MB | 606 | Landuse (508 MB) — scales linearly, OK |
+| T4 | 82.5 MB | 177 | Fine |
+| **Total** | **~21.4 GB** | | |
+
+## The two fundamental problems
+
+### Problem 1: T1 LineString duplication (unchanged)
+
+LineStrings are not clipped to tile bounds. A river or coastline crossing 500 tiles is stored at full resolution in every tile.
+
+| Type | DP4 T1 size | Avg bytes/feature | Growth factor |
+|------|------------|-------------------|---------------|
+| natural:coastline | 1.39 GB | 8,404 | 4.7x from DP2/3 (Denmark!) |
+| waterway:river | 1.25 GB | 6,121 | 3.7x (Elbe, Weser, Danish rivers) |
+| boundary:administrative | 447 MB | 4,852 | 0.55x (match_all fix helped) |
+| railway:rail | 394 MB | 1,473 | 2.5x |
+| waterway:stream | 332 MB | 1,115 | 2.6x |
+| waterway:canal | 176 MB | 2,040 | 4.4x |
+
+These 6 categories = **4.0 GB** of T1's 14.85 GB. Coastline is now the #1 problem (Denmark has enormous coastline).
+
+### Problem 2: Buildings dominate T1+T2
+
+| Tileset | Building size | % of tileset |
+|---------|-------------|-------------|
+| T1 | 5.15 GB | 35% |
+| T2 | 4.08 GB | 71% |
+
+Buildings scale linearly (each building is in ~1 tile), so this is expected. But at 9.2 GB combined, property stripping and coordinate quantization would have significant absolute impact here.
 
 ## Projected size for target area
 
-Target: northern Germany + Denmark + Sweden (~4-5x more area, much more coastline)
+Target: add Sweden (~4x Denmark's coastline, large area)
 
-| | Current (3 regions) | Projected (7-8 regions) |
+| | Current (5 regions) | With Sweden (~7 regions) |
 |---|---|---|
-| T1 | 4.7 GB | **15-25 GB** |
-| T2 | 1.5 GB | 4-6 GB |
-| T3 | 190 MB | 500-800 MB |
-| T4 | 28 MB | 60-100 MB |
-| **Total** | **6.5 GB** | **20-32 GB** |
+| T1 | 14.85 GB | **25-35 GB** |
+| T2 | 5.73 GB | 9-12 GB |
+| T3 | 710 MB | 1.0-1.5 GB |
+| T4 | 82.5 MB | 120-180 MB |
+| **Total** | **21.4 GB** | **35-49 GB** |
 
-Sweden has ~7,600 km of coastline vs MV's ~1,700 km. Denmark is almost entirely coastline.
+Sweden's 7,600 km of coastline would make the coastline problem catastrophic without clipping.
 
 ---
 
@@ -47,88 +86,76 @@ Sweden has ~7,600 km of coastline vs MV's ~1,700 km. Denmark is almost entirely 
 
 ### 1. Clip LineStrings to tile bounds with generous buffer
 
-**Impact: 60-70% T1 reduction**
+**Impact: 60-70% T1 reduction (~9 GB saved)**
 **Effort: medium**
-**Affects: T1 primarily**
+**Affects: T1 primarily, also T2 boundaries**
 
-The current exemption for LineStrings was added because Shapely `intersection()` on LineStrings creates new endpoints at clip boundaries, causing visual gaps at tunnel-surface transitions where the geometry splits.
+The current exemption for LineStrings was added because Shapely `intersection()` creates new endpoints at clip boundaries, causing visual gaps at tunnel-surface transitions.
 
 Better approaches:
-- **Clip with generous buffer** (10-20% of tile size instead of 2%) for LineStrings — a 20% buffer on T1's 400m tiles = 80m, enough to cover most tunnel-surface transitions
-- **Coordinate-array truncation** — walk the coordinate array, keep all points within tile+buffer, add interpolated entry/exit points. This avoids Shapely's topology issues and preserves the original segment structure
-- **Selective clipping** — only clip features that span more than N tiles (e.g., >3). Short road segments that cross 1-2 tile boundaries don't need clipping
+- **Clip with generous buffer** (10-20% of tile size) — a 20% buffer on T1's 400m tiles = 80m, enough for tunnel-surface transitions
+- **Coordinate-array truncation** — walk the coordinate array, keep points within tile+buffer, interpolate entry/exit points. Preserves original segment structure
+- **Selective clipping** — only clip features spanning >3 tiles. Short road segments don't need clipping
 
-Boundaries alone would drop from ~800 MB to ~50 MB.
+Coastline alone would drop from 1.4 GB to ~100 MB. Rivers from 1.25 GB to ~80 MB.
 
-### 2. Increase T1 simplification for long linear features
+### 2. Strip unnecessary properties from tiles
 
-**Impact: 20-30% on top of clipping**
+**Impact: 15-25% all tilesets (~4 GB saved)**
+**Effort: low**
+**Affects: all tilesets, especially buildings**
+
+Features carry all OSM properties. Most are unused by the renderer. The `amenity` group at 93 MB in T1 and `shop` at 65 MB are almost entirely wasted properties on buildings.
+
+Keep only renderer-relevant tags:
+```
+highway, railway, name, tunnel, bridge, layer, building, natural, landuse,
+waterway, boundary, admin_level, maritime, place, population, amenity, shop,
+tourism, historic, construction, planned, proposed, public_transport, leisure,
+aeroway, water, bicycle_road, cyclestreet, tidal, sport, addr:housenumber,
+addr:street
+```
+
+With 9.2 GB of buildings, even 15% savings = 1.4 GB from buildings alone.
+
+### 3. Coordinate quantization
+
+**Impact: 15-25% all tilesets (~3-4 GB saved)**
+**Effort: low-medium**
+**Affects: all tilesets, especially coordinate-heavy LineStrings**
+
+Round coordinates to appropriate precision:
+- T1 (400m tiles): 6 decimal places (~0.11m)
+- T2 (2500m tiles): 5 decimal places (~1.1m)
+- T3 (25km tiles): 4 decimal places (~11m)
+- T4 (50km tiles): 4 decimal places
+
+Coordinates are stored as full float64 (e.g., `10.006123456789`). Truncating to 6 decimals saves 3-5 chars per coordinate × 2 (lon+lat) × hundreds of millions of coordinates.
+
+### 4. Increase T1 simplification for long linear features
+
+**Impact: 10-20% on top of clipping**
 **Effort: low (config change)**
 **Affects: T1**
 
-All T1 features currently use epsilon_m=0.05 (5cm). At T1's 100m-2km view range, boundaries and coastlines don't need centimeter precision.
+All T1 features use epsilon_m=0.05 (5cm). At T1's 100m-2km view range, coastlines and rivers don't need centimeter precision.
 
-Suggested per-feature overrides in `tileset_config.yaml`:
-
-| Feature type | Current epsilon | Suggested epsilon | Rationale |
-|-------------|----------------|-------------------|-----------|
-| boundary:administrative | 0.05m | 1.0m | Invisible at 100m+ view |
-| boundary:maritime | 0.05m | 1.0m | Same |
-| natural:coastline | 0.05m | 0.5m | Slightly more visible |
-| waterway:river | 0.05m | 0.3m | Preserve meandering |
-| waterway:stream | 0.05m | 0.3m | Same |
-| waterway:canal | 0.05m | 0.3m | Same |
-| railway:rail | 0.05m | 0.3m | Preserve curves |
-| roads | 0.05m | 0.05m | Keep — visible curves at close zoom |
-| buildings | 0.05m | 0.05m | Keep — rectangles are sensitive |
-
-### 3. Strip unnecessary properties from tiles
-
-**Impact: 10-15% all tilesets**
-**Effort: low**
-**Affects: all tilesets**
-
-Features carry all OSM properties. Most are unused by the renderer. Strip to only renderer-relevant tags during tile generation:
-
-```
-highway, railway, name, tunnel, bridge, layer, building, natural, landuse,
-waterway, boundary, admin_level, place, population, amenity, shop, tourism,
-historic, construction, planned, proposed, public_transport, leisure, aeroway,
-water, bicycle_road, cyclestreet, tidal
-```
-
-Implementation: add a `strip_properties()` step in `split_geojson_into_tiles()` after `_render` is set, before serialization.
-
-### 4. Coordinate quantization
-
-**Impact: 15-25% all tilesets**
-**Effort: low-medium**
-**Affects: all tilesets, especially coordinate-heavy features**
-
-Round coordinates to appropriate precision during serialization:
-- T1 (400m tiles): 6 decimal places (~0.11m) is sufficient
-- T2 (2500m tiles): 5 decimal places (~1.1m)
-- T3 (25000m tiles): 4 decimal places (~11m)
-- T4 (50000m tiles): 4 decimal places
-
-Currently coordinates are stored as full float64 (e.g., `10.006123456789`). Truncating to 6 decimals saves 3-5 characters per coordinate × 2 (lon+lat) × millions of coordinates.
-
-Implementation: custom JSON serializer that rounds coordinates, or post-process the coordinate arrays.
+| Feature type | Current epsilon | Suggested epsilon |
+|-------------|----------------|-------------------|
+| boundary:administrative | 0.05m | 1.0m |
+| maritime boundaries | 0.05m | 1.0m |
+| natural:coastline | 0.05m | 0.5m |
+| waterway:river/stream/canal | 0.05m | 0.3m |
+| railway:rail | 0.05m | 0.3m |
+| roads, buildings | 0.05m | 0.05m (keep) |
 
 ### 5. Compress tiles with gzip/brotli
 
 **Impact: 70-85% transfer size reduction**
 **Effort: low**
-**Affects: all tilesets (transfer only, not disk)**
+**Affects: transfer only, not disk**
 
-Serve `.json.gz` or `.json.br` files. JSON with repeated property keys and similar coordinate prefixes compresses very well. The browser handles decompression transparently with correct `Content-Encoding` header.
-
-Options:
-- Pre-compress during tile generation (save as `.json.gz` alongside `.json`)
-- Let the web server compress on-the-fly (nginx `gzip_static`, Apache `mod_deflate`)
-- For static hosting: pre-compress only
-
-This doesn't reduce disk usage but dramatically reduces load times. Can be combined with all other approaches.
+Pre-compress as `.json.gz`. JSON with repeated property keys and similar coordinate prefixes compresses extremely well. Transparent browser decompression.
 
 ### 6. Binary tile format (future)
 
@@ -136,24 +163,18 @@ This doesn't reduce disk usage but dramatically reduces load times. Can be combi
 **Effort: high**
 **Affects: all tilesets**
 
-JSON is inherently verbose (property keys repeated, coordinates as text). A compact binary format with:
-- Indexed string table for property keys/values
-- Fixed-point integer coordinates (quantized to tile precision)
-- Varint-encoded coordinate deltas
-
-Options: FlatGeobuf, protobuf/MVT, or a custom format. Requires renderer changes to decode. Best combined with compression (brotli on binary is extremely compact).
-
-This is the nuclear option — likely only needed if the target area grows to all of Europe.
+FlatGeobuf, protobuf/MVT, or custom format. Only needed for continental scale.
 
 ---
 
 ## Recommended implementation order
 
-1. **LineString clipping with generous buffer** — biggest single win, addresses root cause
-2. **Per-feature simplification in T1** — config-only change, quick follow-up
-3. **Property stripping** — small code change, helps all tilesets
-4. **Coordinate quantization** — moderate effort, good returns
-5. **Gzip compression** — easy win for transfer size
-6. **Binary format** — only if needed for continental scale
+1. **LineString clipping** — biggest single win, addresses root cause (~9 GB)
+2. **Property stripping** — easy, helps all tilesets (~4 GB)
+3. **Coordinate quantization** — moderate effort, good returns (~3 GB)
+4. **T1 simplification overrides** — config-only change
+5. **Gzip compression** — easy win for transfer
+6. **Binary format** — only if needed
 
-With improvements 1-4, the projected size for northern Germany + Denmark + Sweden should drop from 20-32 GB to approximately **5-10 GB**.
+With improvements 1-4, projected size for 5 regions: **~8-12 GB** (down from 21.4 GB).
+With improvements 1-4, projected size for 7 regions (+ Sweden): **~12-18 GB** (down from 35-49 GB).

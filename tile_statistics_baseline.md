@@ -763,4 +763,208 @@ Changes since datapoint 2: same regions and code, regenerated to verify reproduc
 
 ---
 
+# Datapoint 4 — 2026-02-23 05:43
+
+Regions: Hamburg, Schleswig-Holstein, Mecklenburg-Vorpommern, Niedersachsen, Denmark (5 regions)
+Changes since datapoint 3: added Niedersachsen + Denmark, fixed tag matching (match_all for boundaries), added state/district/maritime boundary types, excluded buildings/platforms from polygon clipping
+
+## T1
+
+- **Tiles:** 1,006,190
+- **Actual disk size:** 14.85 GB
+- **Sampled:** 1000 tiles (0.1%)
+- **Estimated feature data:** 16.07 GB
+
+### By group
+
+| Group | Est. Size | Features | Coordinates |
+|-------|----------|----------|-------------|
+| building | 5.15 GB | 14,140,994 | 101,704,679 |
+| highway | 3.87 GB | 8,142,089 | 85,576,459 |
+| waterway | 2.04 GB | 1,539,470 | 81,799,222 |
+| landuse | 2.01 GB | 4,594,263 | 48,667,397 |
+| natural | 1.89 GB | 1,186,298 | 75,723,847 |
+| railway | 454.4 MB | 349,147 | 13,134,804 |
+| boundary | 447.0 MB | 96,594 | 19,072,331 |
+| amenity | 93.4 MB | 226,392 | 491,020 |
+| shop | 65.3 MB | 189,163 | 189,163 |
+| leisure | 36.6 MB | 83,513 | 862,304 |
+| unknown | 35.5 MB | 78,482 | 197,213 |
+| place | 10.2 MB | 40,247 | 40,247 |
+| aeroway | 4.9 MB | 9,055 | 130,804 |
+| public_transport | 797 KB | 2,012 | 4,024 |
+
+### Top categories
+
+| Category | Est. Size | Features | Coordinates | Avg bytes |
+|----------|----------|----------|-------------|-----------|
+| building | 3.34 GB | 9,646,343 | 67,763,877 | 371 |
+| natural:coastline | 1.39 GB | 178,095 | 62,556,844 | 8404 |
+| waterway:river | 1.25 GB | 219,349 | 55,602,059 | 6121 |
+| landuse:farmland | 740.4 MB | 1,715,553 | 17,090,137 | 452 |
+| highway:track | 703.5 MB | 1,309,053 | 18,525,970 | 563 |
+| highway:service | 647.7 MB | 1,975,150 | 10,152,457 | 343 |
+| highway:path | 530.7 MB | 980,029 | 13,422,574 | 567 |
+| boundary:administrative | 447.0 MB | 96,594 | 19,072,331 | 4852 |
+| highway:residential | 439.8 MB | 1,006,190 | 6,698,206 | 458 |
+| building:house | 403.1 MB | 937,769 | 5,674,911 | 450 |
+| railway:rail | 394.4 MB | 280,727 | 11,496,726 | 1473 |
+| landuse:forest | 384.9 MB | 807,970 | 9,298,201 | 499 |
+| building:apartments | 379.0 MB | 776,778 | 6,569,414 | 511 |
+| landuse:meadow | 377.2 MB | 863,311 | 9,219,718 | 458 |
+| building:detached | 352.2 MB | 884,441 | 7,635,975 | 417 |
+| highway:unclassified | 348.2 MB | 484,983 | 10,029,701 | 752 |
+| waterway:stream | 331.7 MB | 311,918 | 12,442,545 | 1115 |
+| highway:footway | 308.0 MB | 956,886 | 4,802,544 | 337 |
+| highway:tertiary | 299.6 MB | 460,835 | 6,753,547 | 681 |
+| waterway:ditch | 212.5 MB | 648,992 | 4,849,835 | 343 |
+| natural:water | 198.0 MB | 353,172 | 5,589,385 | 587 |
+| waterway:canal | 176.2 MB | 90,557 | 7,011,131 | 2040 |
+| highway:secondary | 173.6 MB | 251,547 | 3,311,371 | 723 |
+| landuse:residential | 168.7 MB | 361,222 | 4,244,109 | 489 |
+| natural:scrub | 156.2 MB | 353,172 | 3,877,856 | 463 |
+| highway:cycleway | 149.0 MB | 211,299 | 4,296,431 | 739 |
+| landuse:grass | 133.6 MB | 287,770 | 3,582,036 | 486 |
+| building:residential | 119.0 MB | 287,770 | 1,833,278 | 433 |
+| building:garage | 114.1 MB | 375,308 | 2,098,912 | 318 |
+| highway:motorway | 111.8 MB | 94,581 | 2,778,090 | 1239 |
+
+## T2
+
+- **Tiles:** 49,977
+- **Actual disk size:** 5.73 GB
+- **Sampled:** 1000 tiles (2.0%)
+- **Estimated feature data:** 6.43 GB
+
+### By group
+
+| Group | Est. Size | Features | Coordinates |
+|-------|----------|----------|-------------|
+| building | 4.08 GB | 12,225,523 | 68,882,049 |
+| landuse | 902.7 MB | 1,947,153 | 25,333,091 |
+| highway | 583.9 MB | 1,395,607 | 5,604,120 |
+| natural | 317.5 MB | 630,709 | 9,280,229 |
+| waterway | 240.5 MB | 691,931 | 5,566,738 |
+| boundary | 237.8 MB | 52,126 | 10,064,518 |
+| railway | 67.9 MB | 118,595 | 581,182 |
+| leisure | 38.1 MB | 104,601 | 804,379 |
+| amenity | 13.1 MB | 23,289 | 207,354 |
+| place | 3.9 MB | 12,444 | 12,444 |
+| public_transport | 3.4 MB | 8,296 | 24,738 |
+| aeroway | 2.1 MB | 5,797 | 40,231 |
+| unknown | 580 KB | 1,599 | 10,745 |
+
+### Top categories
+
+| Category | Est. Size | Features | Coordinates | Avg bytes |
+|----------|----------|----------|-------------|-----------|
+| building | 2.25 GB | 7,348,768 | 41,353,168 | 329 |
+| building:house | 437.7 MB | 1,085,350 | 5,789,235 | 422 |
+| building:detached | 380.3 MB | 996,291 | 5,866,500 | 400 |
+| building:apartments | 334.4 MB | 760,350 | 4,370,788 | 461 |
+| landuse:farmland | 268.9 MB | 561,591 | 7,634,136 | 502 |
+| highway:residential | 260.1 MB | 683,285 | 2,386,501 | 399 |
+| boundary:administrative | 196.3 MB | 27,837 | 8,547,466 | 7393 |
+| landuse:meadow | 178.8 MB | 388,021 | 5,095,754 | 483 |
+| landuse:forest | 175.7 MB | 320,202 | 5,343,191 | 575 |
+| building:residential | 146.9 MB | 380,724 | 2,106,030 | 404 |
+| building:garage | 126.1 MB | 438,348 | 2,189,492 | 301 |
+| natural:water | 106.5 MB | 245,936 | 2,894,318 | 453 |
+| highway:tertiary | 100.7 MB | 217,699 | 945,165 | 484 |
+| natural:scrub | 97.9 MB | 235,891 | 2,540,730 | 435 |
+| waterway:ditch | 96.7 MB | 405,313 | 1,367,370 | 250 |
+| landuse:residential | 96.6 MB | 194,960 | 2,815,904 | 519 |
+| building:semidetached_house | 85.4 MB | 195,160 | 1,011,734 | 458 |
+| landuse:grass | 77.5 MB | 209,103 | 1,942,006 | 388 |
+| highway:unclassified | 72.3 MB | 175,969 | 1,088,199 | 430 |
+| highway:secondary | 62.4 MB | 128,240 | 419,456 | 510 |
+| waterway:river | 54.7 MB | 19,840 | 2,280,150 | 2893 |
+| waterway:stream | 52.6 MB | 131,039 | 1,304,699 | 421 |
+| landuse:farmyard | 49.8 MB | 138,086 | 1,204,745 | 378 |
+| railway:rail | 44.8 MB | 75,465 | 384,722 | 622 |
+| boundary:maritime | 41.5 MB | 24,288 | 1,517,051 | 1792 |
+| natural:wood | 37.2 MB | 77,914 | 1,075,005 | 500 |
+| natural:coastline | 34.6 MB | 9,545 | 1,467,624 | 3799 |
+
+## T3
+
+- **Tiles:** 606
+- **Actual disk size:** 709.6 MB
+- **Sampled:** 606 tiles (100.0%)
+- **Estimated feature data:** 707.6 MB
+
+### By group
+
+| Group | Est. Size | Features | Coordinates |
+|-------|----------|----------|-------------|
+| landuse | 507.8 MB | 1,576,632 | 10,893,675 |
+| highway | 93.4 MB | 205,502 | 440,724 |
+| natural | 54.0 MB | 135,723 | 1,183,255 |
+| railway | 25.5 MB | 52,347 | 115,787 |
+| leisure | 15.8 MB | 54,778 | 254,633 |
+| waterway | 6.2 MB | 19,624 | 100,716 |
+| boundary | 2.4 MB | 1,892 | 81,606 |
+| building | 1015 KB | 2,960 | 12,014 |
+| amenity | 1002 KB | 2,996 | 11,663 |
+| place | 330 KB | 666 | 666 |
+| unknown | 148 KB | 477 | 2,062 |
+| aeroway | 142 KB | 451 | 928 |
+| public_transport | 41 KB | 117 | 214 |
+
+### Top categories
+
+| Category | Est. Size | Features | Coordinates | Avg bytes |
+|----------|----------|----------|-------------|-----------|
+| landuse:farmland | 156.5 MB | 469,955 | 3,605,907 | 349 |
+| landuse:meadow | 108.0 MB | 354,402 | 2,294,932 | 319 |
+| landuse:forest | 86.1 MB | 215,549 | 1,960,197 | 418 |
+| landuse:residential | 50.1 MB | 155,356 | 1,089,875 | 338 |
+| landuse:grass | 45.7 MB | 168,030 | 832,473 | 284 |
+| highway:secondary | 45.1 MB | 102,902 | 220,713 | 459 |
+| landuse:farmyard | 40.3 MB | 146,321 | 729,703 | 288 |
+| highway:primary | 26.6 MB | 55,030 | 114,574 | 507 |
+| railway:rail | 21.4 MB | 43,353 | 97,593 | 516 |
+| natural:water | 17.8 MB | 47,666 | 361,442 | 390 |
+| natural:wood | 14.8 MB | 42,688 | 292,296 | 364 |
+| natural:scrub | 9.5 MB | 23,563 | 212,738 | 423 |
+| highway:motorway | 8.2 MB | 15,383 | 34,722 | 556 |
+| natural:wetland | 7.1 MB | 12,475 | 193,900 | 597 |
+| boundary:administrative | 2.0 MB | 1,541 | 67,027 | 1345 |
+| natural:coastline | 2.1 MB | 4,099 | 54,778 | 536 |
+
+## T4
+
+- **Tiles:** 177
+- **Actual disk size:** 82.5 MB
+- **Sampled:** 177 tiles (100.0%)
+- **Estimated feature data:** 82.3 MB
+
+### By group
+
+| Group | Est. Size | Features | Coordinates |
+|-------|----------|----------|-------------|
+| highway | 46.6 MB | 98,901 | 201,285 |
+| railway | 21.9 MB | 45,146 | 93,665 |
+| landuse | 9.6 MB | 13,478 | 303,658 |
+| natural | 3.5 MB | 7,530 | 84,426 |
+| boundary | 524 KB | 584 | 14,040 |
+| place | 69 KB | 46 | 46 |
+
+### Top categories
+
+| Category | Est. Size | Features | Coordinates | Avg bytes |
+|----------|----------|----------|-------------|-----------|
+| highway:primary | 26.4 MB | 54,788 | 111,128 | 506 |
+| railway:rail | 20.9 MB | 42,863 | 88,651 | 511 |
+| landuse:forest | 9.6 MB | 13,469 | 303,609 | 748 |
+| highway:motorway | 8.0 MB | 15,165 | 31,187 | 551 |
+| highway:motorway_link | 4.3 MB | 10,928 | 21,950 | 409 |
+| highway:trunk | 4.0 MB | 8,128 | 16,361 | 516 |
+| natural:water | 1.6 MB | 2,720 | 44,812 | 628 |
+| natural:coastline | 1.3 MB | 3,828 | 21,469 | 355 |
+| boundary:administrative | 413 KB | 447 | 10,963 | 946 |
+| boundary:maritime | 111 KB | 137 | 3,077 | 829 |
+
+---
+
 See `TILE_SIZE_IMPROVEMENTS.md` for analysis and improvement plan.
