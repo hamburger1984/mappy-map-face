@@ -107,6 +107,10 @@ export const THEMES = {
     // Boundaries and special lines
     boundaries: {
       country: { r: 128, g: 0, b: 128, a: 255 }, // Purple for country borders
+      state: { r: 160, g: 80, b: 160, a: 255 }, // Lighter purple for state borders
+      district: { r: 180, g: 120, b: 180, a: 200 }, // Faint purple for district borders
+      maritime: { r: 100, g: 140, b: 180, a: 150 }, // Blue-gray for territorial waters
+      eez: { r: 100, g: 140, b: 180, a: 120 }, // Fainter blue-gray for EEZ
       coastline: { r: 255, g: 0, b: 255, a: 255 }, // Magenta for coastline (debug)
       coastlineBorder: { r: 0, g: 150, b: 255, a: 255 }, // Blue for coastline border
     },

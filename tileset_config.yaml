@@ -502,6 +502,7 @@ feature_templates:
     name: "table_tennis"
     osm_match:
       geometry: ["Point"]
+      match_all: true
       tags:
         leisure: ["pitch"]
         sport: ["table_tennis"]
@@ -514,6 +515,7 @@ feature_templates:
     name: "beach_volleyball"
     osm_match:
       geometry: ["Polygon", "MultiPolygon"]
+      match_all: true
       tags:
         leisure: ["pitch"]
         sport: ["beachvolleyball"]
@@ -587,14 +589,77 @@ feature_templates:
     name: "country_borders"
     osm_match:
       geometry: ["LineString", "MultiLineString"]
+      match_all: true
       tags:
         boundary: ["administrative"]
         admin_level: ["2"]
+      tags_exclude:
+        maritime: ["yes"]
     render:
       layer: "boundaries"
       color: [128, 128, 128, 255]
       stroke_width_px: 2
       dash_pattern: [5, 5]
+
+  state_borders: &state_borders
+    name: "state_borders"
+    osm_match:
+      geometry: ["LineString", "MultiLineString"]
+      match_all: true
+      tags:
+        boundary: ["administrative"]
+        admin_level: ["4"]
+      tags_exclude:
+        maritime: ["yes"]
+    render:
+      layer: "boundaries"
+      color: [160, 160, 160, 255]
+      stroke_width_px: 1.5
+      dash_pattern: [4, 4]
+
+  district_borders: &district_borders
+    name: "district_borders"
+    osm_match:
+      geometry: ["LineString", "MultiLineString"]
+      match_all: true
+      tags:
+        boundary: ["administrative"]
+        admin_level: ["6"]
+      tags_exclude:
+        maritime: ["yes"]
+    render:
+      layer: "boundaries"
+      color: [180, 180, 180, 255]
+      stroke_width_px: 1
+      dash_pattern: [3, 3]
+
+  # Territorial waters (boundary=administrative + maritime=yes)
+  maritime_territorial: &maritime_territorial
+    name: "maritime_territorial"
+    osm_match:
+      geometry: ["LineString", "MultiLineString"]
+      match_all: true
+      tags:
+        boundary: ["administrative"]
+        maritime: ["yes"]
+    render:
+      layer: "boundaries"
+      color: [100, 140, 180, 150]
+      stroke_width_px: 1.5
+      dash_pattern: [6, 6]
+
+  # Exclusive economic zones (boundary=maritime)
+  maritime_eez: &maritime_eez
+    name: "maritime_eez"
+    osm_match:
+      geometry: ["LineString", "MultiLineString"]
+      tags:
+        boundary: ["maritime"]
+    render:
+      layer: "boundaries"
+      color: [100, 140, 180, 120]
+      stroke_width_px: 1
+      dash_pattern: [8, 8]
 
   # --- Labels ---
   cities: &cities
@@ -827,6 +892,10 @@ tilesets:
         simplification: { epsilon_m: 0.05 }
       - <<: *country_borders
         simplification: { epsilon_m: 0.05 }
+      - <<: *state_borders
+        simplification: { epsilon_m: 0.05 }
+      - <<: *district_borders
+        simplification: { epsilon_m: 0.05 }
       - <<: *cities
       - <<: *large_towns
       - <<: *towns
@@ -937,6 +1006,14 @@ tilesets:
       - <<: *buildings
         simplification: { epsilon_m: 3 }
       - <<: *country_borders
+        simplification: { epsilon_m: 3 }
+      - <<: *state_borders
+        simplification: { epsilon_m: 3 }
+      - <<: *district_borders
+        simplification: { epsilon_m: 3 }
+      - <<: *maritime_territorial
+        simplification: { epsilon_m: 3 }
+      - <<: *maritime_eez
         simplification: { epsilon_m: 3 }
       - <<: *cities
       - <<: *large_towns
@@ -1054,6 +1131,12 @@ tilesets:
         simplification: { epsilon_m: 50 }
       - <<: *country_borders
         simplification: { epsilon_m: 50 }
+      - <<: *state_borders
+        simplification: { epsilon_m: 50 }
+      - <<: *maritime_territorial
+        simplification: { epsilon_m: 50 }
+      - <<: *maritime_eez
+        simplification: { epsilon_m: 50 }
       - <<: *cities
       - <<: *large_towns
       - <<: *towns
@@ -1108,6 +1191,10 @@ tilesets:
       # NO subway/tram
       # NO landuse
       - <<: *country_borders
+        simplification: { epsilon_m: 200 }
+      - <<: *maritime_territorial
+        simplification: { epsilon_m: 200 }
+      - <<: *maritime_eez
         simplification: { epsilon_m: 200 }
       - <<: *cities
       - <<: *large_towns

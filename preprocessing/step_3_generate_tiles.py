@@ -141,12 +141,21 @@ def feature_matches_tileset(feature, tileset_config, props, geom_type):
         if not tags:
             continue
 
-        matches = False
-        for tag_key, tag_values in tags.items():
-            prop_value = props.get(tag_key)
-            if prop_value:
-                # Handle wildcard "*" or specific values
-                if tag_values == ["*"] or prop_value in tag_values:
+        # match_all: true → AND logic (all tags must match, e.g. boundaries)
+        # default → OR logic (any tag match is sufficient)
+        match_all = osm_match.get("match_all", False)
+        if match_all:
+            matches = True
+            for tag_key, tag_values in tags.items():
+                prop_value = props.get(tag_key)
+                if not prop_value or (tag_values != ["*"] and prop_value not in tag_values):
+                    matches = False
+                    break
+        else:
+            matches = False
+            for tag_key, tag_values in tags.items():
+                prop_value = props.get(tag_key)
+                if prop_value and (tag_values == ["*"] or prop_value in tag_values):
                     matches = True
                     break
 
@@ -286,6 +295,12 @@ def clip_feature_to_tile(feature, tile_x, tile_y, tile_size_m, buffer_pct=0.02):
     # Only clip polygon types — clipping LineStrings causes gaps at tile boundaries
     # where road/rail segments don't reconnect cleanly
     if geom["type"] in ("LineString", "MultiLineString"):
+        return feature
+
+    # Don't clip small structure polygons — they rarely span tiles,
+    # and clipping creates artificial edges visible at tile boundaries
+    props = feature.get("properties", {})
+    if props.get("building") or props.get("railway") == "platform" or props.get("public_transport") == "platform":
         return feature
 
     # Compute tile bounds in degrees

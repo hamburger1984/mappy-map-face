@@ -2491,7 +2491,8 @@ class MapRenderer {
       if (featureInfo.color) {
         const c = featureInfo.color;
         const w = featureInfo.width || 1;
-        featureInfo._lineKey = `${c.r},${c.g},${c.b},${c.a}|${w}`;
+        const dash = featureInfo.dashPattern ? `|d${featureInfo.dashPattern.join(",")}` : "";
+        featureInfo._lineKey = `${c.r},${c.g},${c.b},${c.a}|${w}${dash}`;
         featureInfo._fillKey = this._getRGBA(c.r, c.g, c.b, c.a / 255);
       }
 
@@ -2531,6 +2532,7 @@ class MapRenderer {
           showDirection: featureInfo.showDirection,
           pattern: featureInfo.pattern,
           bridgeLayer: featureInfo.bridgeLayer,
+          dashPattern: featureInfo.dashPattern,
           isBicycleRoad: featureInfo.isBicycleRoad,
           isRunway: featureInfo.isRunway,
           runwayRef: featureInfo.runwayRef,
@@ -4004,6 +4006,65 @@ class MapRenderer {
         }
       }
       return { layer: null, minLOD: 999, fill: false }; // Skip other points
+    }
+
+    // === ADMINISTRATIVE BOUNDARIES ===
+    if (props.boundary === "administrative" && props.admin_level) {
+      // Maritime admin boundaries (territorial waters) — subtler style
+      if (props.maritime === "yes") {
+        return {
+          layer: "boundaries",
+          color: getColor("boundaries", "maritime"),
+          minLOD: 0,
+          fill: false,
+          width: 1.5,
+          dashPattern: [6, 6],
+        };
+      }
+      const level = parseInt(props.admin_level);
+      if (level === 2) {
+        // Country borders — always visible, thick dashed line
+        return {
+          layer: "boundaries",
+          color: getColor("boundaries", "country"),
+          minLOD: 0,
+          fill: false,
+          width: 2.5,
+          dashPattern: [8, 4],
+        };
+      } else if (level === 4) {
+        // State borders (Bundesländer) — visible at medium zoom
+        return {
+          layer: "boundaries",
+          color: getColor("boundaries", "state"),
+          minLOD: 0,
+          fill: false,
+          width: 1.5,
+          dashPattern: [6, 4],
+        };
+      } else if (level === 6) {
+        // District borders (Kreise) — visible at closer zoom
+        return {
+          layer: "boundaries",
+          color: getColor("boundaries", "district"),
+          minLOD: 1,
+          fill: false,
+          width: 1,
+          dashPattern: [4, 4],
+        };
+      }
+    }
+
+    // EEZ / maritime boundaries
+    if (props.boundary === "maritime") {
+      return {
+        layer: "boundaries",
+        color: getColor("boundaries", "eez"),
+        minLOD: 0,
+        fill: false,
+        width: 1,
+        dashPattern: [8, 8],
+      };
     }
 
     // Default: skip
@@ -5784,6 +5845,7 @@ class MapRenderer {
                 width: width || 1,
                 borderWidth: item.borderWidth || 0,
                 borderColor: item.borderColor || null,
+                dashPattern: item.dashPattern || null,
                 lines: [],
                 features: [],
               });
@@ -6111,8 +6173,9 @@ class MapRenderer {
     for (const [key, batch] of lineBatches) {
       this.ctx.strokeStyle = `rgba(${batch.color.r},${batch.color.g},${batch.color.b},${batch.color.a / 255})`;
       this.ctx.lineWidth = batch.width;
-      this.ctx.lineCap = "round";
+      this.ctx.lineCap = batch.dashPattern ? "butt" : "round";
       this.ctx.lineJoin = "round";
+      this.ctx.setLineDash(batch.dashPattern || []);
       this.ctx.beginPath();
 
       for (const flat of batch.lines) {
@@ -6123,6 +6186,7 @@ class MapRenderer {
       }
 
       this.ctx.stroke();
+      if (batch.dashPattern) this.ctx.setLineDash([]);
     }
 
     // Render railways individually (they need special pattern rendering)
