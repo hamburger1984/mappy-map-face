@@ -734,6 +734,10 @@ def get_corners_between(t_from, t_to, bounds):
     ]
 
     result = []
+    # If exit and entry are at the same boundary position, no corners needed
+    if abs(t_to - t_from) < 1e-9:
+        return []
+
     # Walk clockwise from t_from to t_to, collecting corners in between
     if t_to <= t_from:
         t_to += 4  # Wrap around
@@ -866,7 +870,6 @@ def build_water_polygons_for_tile(coastline_features, tile_x, tile_y, tile_size_
     # From each exit, walking clockwise along the boundary to the next entry
     # traces the water side.
     water_polygons = []
-    island_holes_from_trace = []
 
     if snapped_segments:
         # Build sorted event list of all entries and exits by boundary parameter
@@ -930,20 +933,44 @@ def build_water_polygons_for_tile(coastline_features, tile_x, tile_y, tile_size_
             if len(ring) >= 4:
                 if ring[0] != ring[-1]:
                     ring.append(ring[0])
-                # Check winding: OSM coastline has water on right side.
-                # Counter-clockwise traced ring = water polygon.
-                # Clockwise traced ring = land polygon (water is outside it).
-                if is_clockwise(ring):
-                    # Land polygon — the water is the tile minus this land.
-                    # Treat it as an island hole in a tile-wide ocean.
-                    island_holes_from_trace.append(ring)
-                else:
+
+                # Validate: water must be on the RIGHT side of the coastline
+                # direction. Check if a test point to the right of the first
+                # segment's midpoint falls inside the traced polygon.
+                is_water_side = True
+                first_seg = snapped_segments[start_idx]
+                mid = len(first_seg) // 2
+                p1 = first_seg[mid]
+                p2 = first_seg[min(mid + 1, len(first_seg) - 1)]
+                dx, dy = p2[0] - p1[0], p2[1] - p1[1]
+                seg_len = (dx * dx + dy * dy) ** 0.5
+                if seg_len > 0:
+                    # Right-side normal in lon/lat: rotate (dx,dy) 90° CW → (dy,-dx)
+                    nx, ny = dy / seg_len, -dx / seg_len
+                    offset = min(max_lon - min_lon, max_lat - min_lat) * 0.001
+                    test_point = Point(p1[0] + nx * offset, p1[1] + ny * offset)
+                    try:
+                        ring_poly = Polygon(ring)
+                        if ring_poly.is_valid and not ring_poly.contains(test_point):
+                            # Traced ring is on the land side — invert it
+                            inverted = tile_box.difference(ring_poly)
+                            if not inverted.is_empty:
+                                if inverted.geom_type == "Polygon":
+                                    water_polygons.append(list(inverted.exterior.coords))
+                                elif inverted.geom_type == "MultiPolygon":
+                                    for geom in inverted.geoms:
+                                        water_polygons.append(list(geom.exterior.coords))
+                                is_water_side = False
+                    except Exception:
+                        pass
+
+                if is_water_side:
                     water_polygons.append(ring)
 
     # Handle closed rings (islands fully inside tile)
     # Clockwise ring = land (island in OSM convention) → hole in water
     # Counter-clockwise ring = enclosed water body
-    island_holes = list(island_holes_from_trace)  # start with land from traced coastlines
+    island_holes = []
     for ring in closed_rings:
         if is_clockwise(ring):
             island_holes.append(ring)
@@ -1144,6 +1171,9 @@ def finalize_tile(tile_jsonl_path, tile_json_path):
                 or props.get("water")
                 or props.get("waterway")
                 or landuse in ("basin", "reservoir")
+                or props.get("seamark:type")
+                or props.get("maritime") == "yes"
+                or (props.get("boundary") == "maritime")
             )
             if not is_water_related and (
                 props.get("highway")
@@ -1183,6 +1213,12 @@ def finalize_tile(tile_jsonl_path, tile_json_path):
                     water_feat, separators=(",", ":"), default=decimal_default
                 )
                 feature_strings.append(feat_str)
+            # If coastline didn't produce any ocean polygons (e.g. coastline
+            # assigned to tile but doesn't actually intersect it), don't
+            # mark the tile as having coastline — it would get land background
+            # with no ocean to paint over it.
+            if not water_polys:
+                has_coastline = False
         except Exception:
             pass
 

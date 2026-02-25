@@ -302,6 +302,7 @@ class MapRenderer {
     this.selectedFeature = null;
     this.hoverInfoEnabled = false; // Toggle for hover info mode
     this.showTileEdges = false; // Toggle for tile edge visualization
+    this.showCoastline = false; // Toggle for coastline debug visualization
     this.tileLabels = []; // Clickable tile label hit areas: { x, y, w, h, id }
 
     // POI category state and glyph cache
@@ -1987,7 +1988,10 @@ class MapRenderer {
         props.water ||
         props.waterway ||
         props.landuse === "basin" ||
-        props.landuse === "reservoir";
+        props.landuse === "reservoir" ||
+        props["seamark:type"] ||
+        props.maritime === "yes" ||
+        props.boundary === "maritime";
       if (
         !isWaterRelated &&
         (props.highway ||
@@ -2625,6 +2629,14 @@ class MapRenderer {
 
     perfTimings.clearCanvas = performance.now() - renderStart;
 
+    // Clear label occupancy for this frame — used for cross-category
+    // collision detection so more important labels suppress less important ones.
+    this.labelOccupancy = [];
+
+    // Pre-register place labels so that road/water labels yield to them.
+    // This computes positions and reserves space without rendering yet.
+    this.preregisterPlaceLabels(layers.place_labels, adjustedBounds);
+
     // Render all layers in correct z-order using Canvas2D
     // Background to foreground (bottom to top)
     const layerTimings = {};
@@ -2718,10 +2730,12 @@ class MapRenderer {
     this.renderLayer(layers.boundaries, adjustedBounds, false);
     layerTimings.boundaries = performance.now() - layerStart;
 
-    //// 9b. Coastline with direction arrows (for debugging/visualization)
-    //layerStart = performance.now();
-    //this.renderCoastlineWithArrows(layers.coastline, adjustedBounds);
-    //layerTimings.coastline = performance.now() - layerStart;
+    // 9b. Coastline with direction arrows (for debugging/visualization)
+    layerStart = performance.now();
+    if (this.showCoastline) {
+      this.renderCoastlineWithArrows(layers.coastline, adjustedBounds);
+    }
+    layerTimings.coastline = performance.now() - layerStart;
 
     // 9c. Aeroway lines (runways, taxiways — on top of roads but under labels/POIs)
     layerStart = performance.now();
@@ -4771,6 +4785,102 @@ class MapRenderer {
     this.ctx.globalAlpha = prevAlpha;
   }
 
+  // ── Global label occupancy system ──────────────────────────────────
+  // Prevents less-important labels from overlapping more-important ones.
+  // Each placed label registers a bounding rectangle; subsequent labels
+  // check against all existing rectangles before rendering.
+
+  labelOccupancyCheck(x, y, w, h) {
+    const hw = w / 2, hh = h / 2;
+    const l = x - hw, r = x + hw, t = y - hh, b = y + hh;
+    for (const rect of this.labelOccupancy) {
+      if (l < rect.r && r > rect.l && t < rect.b && b > rect.t) {
+        return true; // overlaps
+      }
+    }
+    return false;
+  }
+
+  labelOccupancyRegister(x, y, w, h) {
+    const hw = w / 2, hh = h / 2;
+    this.labelOccupancy.push({
+      l: x - hw, r: x + hw, t: y - hh, b: y + hh,
+    });
+  }
+
+  preregisterPlaceLabels(layerFeatures, bounds) {
+    // Compute place label positions and reserve them in occupancy
+    // so that road/water labels yield to place names.
+    if (!layerFeatures || layerFeatures.length === 0) return;
+    this._precomputedPlaceLabels = null;
+
+    const lod = this.getLOD();
+    const lonRange = bounds.maxLon - bounds.minLon;
+    const latRange = bounds.maxLat - bounds.minLat;
+    const scaleX = this.canvasWidth / lonRange;
+    const scaleY = this.canvasHeight / latRange;
+    const minLon = bounds.minLon;
+    const minLat = bounds.minLat;
+    const canvasHeight = this.canvasHeight;
+    const toScreenX = (lon) => (lon - minLon) * scaleX;
+    const toScreenY = (lat) => canvasHeight - (lat - minLat) * scaleY;
+
+    const places = [];
+    for (const item of layerFeatures) {
+      const { feature, props } = item;
+      const geom = feature.geometry;
+      if (!geom || !geom.coordinates) continue;
+      const [lon, lat] = geom.coordinates;
+      const sx = toScreenX(lon);
+      const sy = toScreenY(lat);
+      const margin = 50;
+      if (sx < -margin || sx > this.canvasWidth + margin ||
+          sy < -margin || sy > this.canvasHeight + margin) continue;
+      places.push({
+        name: props.name, x: sx, y: sy,
+        priority: item.placePriority || 9,
+        fontSize: item.fontSize || 12,
+        placeType: item.placeType || "unknown",
+        population: item.population || 0,
+      });
+    }
+    if (places.length === 0) return;
+
+    places.sort((a, b) => a.priority - b.priority);
+
+    let maxLabels;
+    if (lod === 0) maxLabels = 15;
+    else if (lod === 1) maxLabels = 30;
+    else if (lod === 2) maxLabels = 60;
+    else if (lod === 3) maxLabels = 100;
+    else maxLabels = 200;
+
+    const minSpacing = 30;
+    const accepted = [];
+    this.ctx.save();
+
+    for (const place of places) {
+      if (accepted.length >= maxLabels) break;
+      let tooClose = false;
+      for (const pos of accepted) {
+        const dx = place.x - pos.x, dy = place.y - pos.y;
+        if (Math.sqrt(dx * dx + dy * dy) < minSpacing) { tooClose = true; break; }
+      }
+      if (tooClose) continue;
+
+      const fontWeight = place.priority <= 6 ? "bold" : "";
+      this.ctx.font = `${fontWeight} ${place.fontSize}px Arial, sans-serif`.trim();
+      const tw = this.ctx.measureText(place.name).width;
+      const th = place.fontSize * 1.4;
+
+      // Register in global occupancy so road/water labels yield
+      this.labelOccupancyRegister(place.x, place.y, tw + 6, th + 4);
+      accepted.push(place);
+    }
+    this.ctx.restore();
+    this._precomputedPlaceLabels = accepted;
+  }
+
   renderStreetNames(layerFeatures, bounds) {
     // Render street names based on LOD:
     // LOD 0-1: Only major roads (motorway, primary)
@@ -4958,6 +5068,13 @@ class MapRenderer {
       // Use more lenient check to label more streets
       if (road.length < textWidth + 10) continue;
 
+      // Check label occupancy at road midpoint — skip if a more important
+      // label (e.g. place name) already occupies this space
+      const midPt = road.screenCoords[Math.floor(road.screenCoords.length / 2)];
+      if (this.labelOccupancyCheck(midPt.x, midPt.y, textWidth, fontSize * 1.4)) {
+        continue;
+      }
+
       // Draw curved text along the path
       // Check the overall direction of the road (start to end)
       const startPoint = road.screenCoords[0];
@@ -5045,6 +5162,9 @@ class MapRenderer {
         // Move to next character position
         currentDist += drawReversed ? -charWidth : charWidth;
       }
+
+      // Register in occupancy so water/building labels yield to road names
+      this.labelOccupancyRegister(midPt.x, midPt.y, textWidth, fontSize * 1.4);
     }
   }
 
@@ -5219,130 +5339,30 @@ class MapRenderer {
   }
 
   renderPlaceLabels(layerFeatures, bounds) {
-    // Render place names (cities, towns, villages) with smart density control
-    if (!layerFeatures || layerFeatures.length === 0) return;
+    // Render precomputed place labels (positions determined in preregisterPlaceLabels)
+    const places = this._precomputedPlaceLabels;
+    if (!places || places.length === 0) return;
 
-    const lod = this.getLOD();
-
-    // Pre-compute bounds scaling
-    const lonRange = bounds.maxLon - bounds.minLon;
-    const latRange = bounds.maxLat - bounds.minLat;
-    const scaleX = this.canvasWidth / lonRange;
-    const scaleY = this.canvasHeight / latRange;
-    const minLon = bounds.minLon;
-    const minLat = bounds.minLat;
-    const canvasHeight = this.canvasHeight;
-    const toScreenX = (lon) => (lon - minLon) * scaleX;
-    const toScreenY = (lat) => canvasHeight - (lat - minLat) * scaleY;
-
-    // Collect all places with their screen positions
-    const places = [];
-    for (const item of layerFeatures) {
-      const { feature, props } = item;
-      const geom = feature.geometry;
-      if (!geom || !geom.coordinates) continue;
-
-      const [lon, lat] = geom.coordinates;
-      const sx = toScreenX(lon);
-      const sy = toScreenY(lat);
-
-      // Skip if off-screen (with margin)
-      const margin = 50;
-      if (
-        sx < -margin ||
-        sx > this.canvasWidth + margin ||
-        sy < -margin ||
-        sy > this.canvasHeight + margin
-      ) {
-        continue;
-      }
-
-      places.push({
-        name: props.name,
-        x: sx,
-        y: sy,
-        priority: item.placePriority || 9,
-        fontSize: item.fontSize || 12,
-        placeType: item.placeType || "unknown",
-        population: item.population || 0,
-      });
-    }
-
-    if (places.length === 0) return;
-
-    // Sort by priority (lower = more important = render first)
-    places.sort((a, b) => a.priority - b.priority);
-
-    // Density control: limit number of labels based on zoom level
-    // This prevents overcrowding at lower zoom levels
-    let maxLabels;
-    if (lod === 0) {
-      maxLabels = 15; // Very zoomed out: only major cities
-    } else if (lod === 1) {
-      maxLabels = 30; // Medium zoom: cities + large towns
-    } else if (lod === 2) {
-      maxLabels = 60; // Zoomed in: add villages
-    } else if (lod === 3) {
-      maxLabels = 100; // More zoomed: add suburbs/boroughs
-    } else {
-      maxLabels = 200; // Very zoomed: show most places
-    }
-
-    // Additional density control: minimum spacing between labels
-    // Prevents labels from overlapping
-    const minSpacing = 30; // pixels
-    const renderedPositions = [];
-
-    let labelCount = 0;
     this.ctx.textAlign = "center";
     this.ctx.textBaseline = "middle";
 
     for (const place of places) {
-      if (labelCount >= maxLabels) break;
-
-      // Check spacing with already rendered labels
-      let tooClose = false;
-      for (const pos of renderedPositions) {
-        const dx = place.x - pos.x;
-        const dy = place.y - pos.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < minSpacing) {
-          tooClose = true;
-          break;
-        }
-      }
-
-      if (tooClose) continue;
-
-      // Render the label - bold for major places, normal weight for small places
       const fontWeight = place.priority <= 6 ? "bold" : "";
       this.ctx.font =
         `${fontWeight} ${place.fontSize}px Arial, sans-serif`.trim();
 
-      // White outline for readability
       const outlineColor = getColor("text", "outline");
-      this.ctx.strokeStyle = toRGBA({ ...outlineColor, a: 230 }); // 0.9 opacity = 230/255
+      this.ctx.strokeStyle = toRGBA({ ...outlineColor, a: 230 });
       this.ctx.lineWidth = 3;
       this.ctx.strokeText(place.name, place.x, place.y);
 
-      // Text color from theme
       const textColor = getColor("text", "places");
-      this.ctx.fillStyle = toRGBA({ ...textColor, a: 230 }); // 0.9 opacity = 230/255
+      this.ctx.fillStyle = toRGBA({ ...textColor, a: 230 });
       this.ctx.fillText(place.name, place.x, place.y);
-
-      // Optional: render place type or population for debugging
-      // if (place.population > 0) {
-      //   this.ctx.font = `10px Arial`;
-      //   this.ctx.fillStyle = "rgba(100, 100, 100, 0.7)";
-      //   this.ctx.fillText(`(${(place.population / 1000).toFixed(0)}k)`, place.x, place.y + place.fontSize);
-      // }
-
-      renderedPositions.push({ x: place.x, y: place.y });
-      labelCount++;
     }
 
     console.log(
-      `[PLACES] Rendered ${labelCount}/${places.length} labels (LOD ${lod}, max ${maxLabels})`,
+      `[PLACES] Rendered ${places.length} labels (LOD ${this.getLOD()})`,
     );
   }
 
@@ -5706,37 +5726,43 @@ class MapRenderer {
 
     if (waterLabels.length === 0) return;
 
-    // Render labels
+    // Render labels — skip if overlapping more important labels (roads, places)
     this.ctx.textAlign = "center";
     this.ctx.textBaseline = "middle";
+    let renderedCount = 0;
 
     for (const label of waterLabels) {
-      const fontSize = label.isLine ? 12 : 14; // Rivers slightly smaller
+      const fontSize = label.isLine ? 12 : 14;
       this.ctx.font = `italic ${fontSize}px Arial, sans-serif`;
+      const tw = this.ctx.measureText(label.name).width;
+      const th = fontSize * 1.4;
 
-      // Save context for rotation
+      // Check if a more important label already occupies this space
+      if (this.labelOccupancyCheck(label.x, label.y, tw, th)) {
+        continue;
+      }
+
       this.ctx.save();
-
-      // Translate to label position and rotate
       this.ctx.translate(label.x, label.y);
       this.ctx.rotate(label.angle);
 
-      // White outline for readability
       const outlineColor = getColor("text", "outline");
-      this.ctx.strokeStyle = toRGBA({ ...outlineColor, a: 230 }); // 0.9 opacity = 230/255
+      this.ctx.strokeStyle = toRGBA({ ...outlineColor, a: 230 });
       this.ctx.lineWidth = 3;
       this.ctx.strokeText(label.name, 0, 0);
 
-      // Blue text for water
       const textColor = getColor("text", "water");
-      this.ctx.fillStyle = toRGBA({ ...textColor, a: 230 }); // 0.9 opacity = 230/255
+      this.ctx.fillStyle = toRGBA({ ...textColor, a: 230 });
       this.ctx.fillText(label.name, 0, 0);
 
-      // Restore context
       this.ctx.restore();
+
+      // Register so building labels yield to water labels
+      this.labelOccupancyRegister(label.x, label.y, tw, th);
+      renderedCount++;
     }
 
-    console.log(`[WATER] Rendered ${waterLabels.length} water labels`);
+    console.log(`[WATER] Rendered ${renderedCount}/${waterLabels.length} water labels`);
   }
 
   renderBuildingLabels(layerFeatures, bounds, roadFeatures) {
@@ -5922,7 +5948,14 @@ class MapRenderer {
     this.ctx.textAlign = "center";
     this.ctx.textBaseline = "middle";
 
+    this.ctx.font = `${fontSize}px Arial, sans-serif`;
     for (const label of houseNumbers) {
+      // Skip if overlapping a more important label
+      const tw = this.ctx.measureText(label.number).width;
+      if (this.labelOccupancyCheck(label.x, label.y, tw, fontSize * 1.2)) {
+        continue;
+      }
+
       const c = label.color;
       const brightness = (c.r + c.g + c.b) / 3;
       let r, g, b;
@@ -6665,6 +6698,24 @@ class MapRenderer {
     }
   }
 
+  toggleCoastline() {
+    this.showCoastline = !this.showCoastline;
+    this.updateCoastlineUI();
+    this.renderMap();
+  }
+
+  updateCoastlineUI() {
+    const btn = document.getElementById("toggleCoastlineBtn");
+    if (!btn) return;
+    if (this.showCoastline) {
+      btn.textContent = "Coastline: ON";
+      btn.classList.remove("inactive");
+    } else {
+      btn.textContent = "Coastline: OFF";
+      btn.classList.add("inactive");
+    }
+  }
+
   drawTileEdges(bounds) {
     const visibleTiles = this.getVisibleTiles(bounds);
     if (!visibleTiles || visibleTiles.length === 0) return;
@@ -6891,9 +6942,16 @@ async function initApp() {
       renderer.toggleTileEdges();
     });
 
+  document
+    .getElementById("toggleCoastlineBtn")
+    .addEventListener("click", () => {
+      renderer.toggleCoastline();
+    });
+
   // Set initial UI state
   renderer.updateHoverUI();
   renderer.updateTileEdgesUI();
+  renderer.updateCoastlineUI();
 
   // Auto-render on load
   renderer.renderMap();
