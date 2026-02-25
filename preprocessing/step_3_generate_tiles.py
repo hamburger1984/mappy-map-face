@@ -866,6 +866,7 @@ def build_water_polygons_for_tile(coastline_features, tile_x, tile_y, tile_size_
     # From each exit, walking clockwise along the boundary to the next entry
     # traces the water side.
     water_polygons = []
+    island_holes_from_trace = []
 
     if snapped_segments:
         # Build sorted event list of all entries and exits by boundary parameter
@@ -929,12 +930,20 @@ def build_water_polygons_for_tile(coastline_features, tile_x, tile_y, tile_size_
             if len(ring) >= 4:
                 if ring[0] != ring[-1]:
                     ring.append(ring[0])
-                water_polygons.append(ring)
+                # Check winding: OSM coastline has water on right side.
+                # Counter-clockwise traced ring = water polygon.
+                # Clockwise traced ring = land polygon (water is outside it).
+                if is_clockwise(ring):
+                    # Land polygon — the water is the tile minus this land.
+                    # Treat it as an island hole in a tile-wide ocean.
+                    island_holes_from_trace.append(ring)
+                else:
+                    water_polygons.append(ring)
 
     # Handle closed rings (islands fully inside tile)
     # Clockwise ring = land (island in OSM convention) → hole in water
     # Counter-clockwise ring = enclosed water body
-    island_holes = []
+    island_holes = list(island_holes_from_trace)  # start with land from traced coastlines
     for ring in closed_rings:
         if is_clockwise(ring):
             island_holes.append(ring)
@@ -961,7 +970,15 @@ def build_water_polygons_for_tile(coastline_features, tile_x, tile_y, tile_size_
             if island_holes:
                 poly_shell = Polygon(poly_coords)
                 for i, hole in enumerate(island_holes):
-                    if poly_shell.contains(Point(hole[0][0], hole[0][1])):
+                    # Use representative_point of the hole polygon for a robust
+                    # containment check (first vertex may be on tile boundary
+                    # where contains() returns False)
+                    try:
+                        hole_poly = Polygon(hole)
+                        rep_pt = hole_poly.representative_point()
+                    except Exception:
+                        rep_pt = Point(hole[0][0], hole[0][1])
+                    if poly_shell.contains(rep_pt) or poly_shell.intersects(Polygon(hole)):
                         relevant_holes.append(hole)
                         assigned_holes.add(i)
 
@@ -1119,7 +1136,7 @@ def finalize_tile(tile_jsonl_path, tile_json_path):
             if props.get("natural") == "coastline":
                 has_coastline = True
                 coastline_features.append(feat)
-                continue
+                # Keep coastline in output (don't skip) for debugging
             natural = props.get("natural", "")
             landuse = props.get("landuse", "")
             is_water_related = (
