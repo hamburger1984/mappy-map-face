@@ -302,6 +302,7 @@ class MapRenderer {
     this.selectedFeature = null;
     this.hoverInfoEnabled = false; // Toggle for hover info mode
     this.showTileEdges = false; // Toggle for tile edge visualization
+    this.tileLabels = []; // Clickable tile label hit areas: { x, y, w, h, id }
 
     // POI category state and glyph cache
     this.glyphCache = {}; // categoryId -> { canvas, size }
@@ -408,7 +409,8 @@ class MapRenderer {
       picnic_site: this.createPicnicSitePattern(),
     };
 
-    // Convert canvases to CanvasPattern objects
+    // Store canvases (for pattern tile size lookup) and create CanvasPattern objects
+    this.patternCanvases = patterns;
     for (const [patternId, canvas] of Object.entries(patterns)) {
       this.patternCache[patternId] = this.ctx.createPattern(canvas, "repeat");
     }
@@ -1200,6 +1202,16 @@ class MapRenderer {
         // Schedule full redraw after user stops moving
         this.debouncedRender();
       } else {
+        // Check if hovering over a tile label
+        if (this.showTileEdges && this.tileLabels.length > 0) {
+          const rect = this.canvas.getBoundingClientRect();
+          const cx = e.clientX - rect.left;
+          const cy = e.clientY - rect.top;
+          const overLabel = this.tileLabels.some(
+            (l) => cx >= l.x && cx <= l.x + l.w && cy >= l.y && cy <= l.y + l.h,
+          );
+          this.canvas.style.cursor = overLabel ? "pointer" : "crosshair";
+        }
         // Check for feature hover (only if hover info is enabled and nothing is selected)
         if (this.hoverInfoEnabled && !this.selectedFeature) {
           this.checkFeatureHover(e);
@@ -1214,6 +1226,25 @@ class MapRenderer {
         Math.abs(e.clientX - mouseDownPos.x) < 5 &&
         Math.abs(e.clientY - mouseDownPos.y) < 5
       ) {
+        // Check if a tile label was clicked (copy tile ID to clipboard)
+        if (this.showTileEdges && this.tileLabels.length > 0) {
+          const rect = this.canvas.getBoundingClientRect();
+          const cx = e.clientX - rect.left;
+          const cy = e.clientY - rect.top;
+          const hitLabel = this.tileLabels.find(
+            (l) => cx >= l.x && cx <= l.x + l.w && cy >= l.y && cy <= l.y + l.h,
+          );
+          if (hitLabel) {
+            navigator.clipboard.writeText(hitLabel.id).then(() => {
+              this.showCopyToast(hitLabel.id);
+            });
+            this.isPanning = false;
+            this.canvas.style.cursor = "crosshair";
+            mouseDownPos = null;
+            return;
+          }
+        }
+
         // It's a click, not a drag
         if (this.hoveredFeature) {
           // Store the feature reference for persistent selection
@@ -1948,16 +1979,24 @@ class MapRenderer {
 
       // Check for land-specific features
       // Roads, buildings, landuse, etc indicate land
+      // Water-related features (wetland, waterway, basin) don't count
+      const isWaterRelated =
+        props.natural === "water" ||
+        props.natural === "coastline" ||
+        props.natural === "wetland" ||
+        props.water ||
+        props.waterway ||
+        props.landuse === "basin" ||
+        props.landuse === "reservoir";
       if (
-        props.highway ||
-        props.building ||
-        props.landuse ||
-        props.railway ||
-        props.amenity ||
-        props.shop ||
-        (props.natural &&
-          props.natural !== "coastline" &&
-          props.natural !== "water")
+        !isWaterRelated &&
+        (props.highway ||
+          props.building ||
+          props.landuse ||
+          props.railway ||
+          props.amenity ||
+          props.shop ||
+          props.natural)
       ) {
         hasLandFeatures = true;
       }
@@ -1979,7 +2018,6 @@ class MapRenderer {
     // Colors from theme
     const OCEAN_COLOR = toRGB(getColor("background", "ocean"));
     const LAND_COLOR = toRGB(getColor("background", "land"));
-    const COASTLINE_COLOR = toRGB(getColor("background", "coastline"));
 
     // Analyze tiles
     const tileAnalyses = new Map();
@@ -2008,10 +2046,9 @@ class MapRenderer {
 
       const tileBounds = this.getTileBounds(tile.tileset, tile.x, tile.y);
 
-      // Coastline tiles get very light ocean color
+      // Coastline tiles use land background — water polygons paint the ocean parts
       if (analysis.hasCoastline) {
-        this.fillTileBounds(tileBounds, COASTLINE_COLOR, bounds);
-        // TODO: fill ocean side of coastline and revert to land background color
+        this.fillTileBounds(tileBounds, LAND_COLOR, bounds);
       }
       // Land tiles (no coastline) get land color
       else if (analysis.hasLandFeatures) {
@@ -2434,6 +2471,7 @@ class MapRenderer {
         natural_background: [],
         forests: [],
         water_areas: [],
+        ocean_water: [], // Ocean polygons from coastline conversion
         islands: [],
         landuse_areas: [],
         buildings: [],
@@ -2536,6 +2574,7 @@ class MapRenderer {
           _fillKey: featureInfo._fillKey,
           showDirection: featureInfo.showDirection,
           pattern: featureInfo.pattern,
+          patternOnly: featureInfo.patternOnly,
           bridgeLayer: featureInfo.bridgeLayer,
           dashPattern: featureInfo.dashPattern,
           isBicycleRoad: featureInfo.isBicycleRoad,
@@ -2590,8 +2629,13 @@ class MapRenderer {
     // Background to foreground (bottom to top)
     const layerTimings = {};
 
-    // 1. Natural background (parks, farmland, meadows)
+    // 0. Ocean water (coastline-derived polygons — right after background fill)
     let layerStart = performance.now();
+    this.renderLayer(layers.ocean_water, adjustedBounds, true);
+    layerTimings.ocean = performance.now() - layerStart;
+
+    // 1. Natural background (parks, farmland, meadows, wetland)
+    layerStart = performance.now();
     this.renderLayer(layers.natural_background, adjustedBounds, true);
     layerTimings.natural = performance.now() - layerStart;
 
@@ -2674,10 +2718,10 @@ class MapRenderer {
     this.renderLayer(layers.boundaries, adjustedBounds, false);
     layerTimings.boundaries = performance.now() - layerStart;
 
-    // 9b. Coastline with direction arrows (for debugging/visualization)
-    layerStart = performance.now();
-    this.renderCoastlineWithArrows(layers.coastline, adjustedBounds);
-    layerTimings.coastline = performance.now() - layerStart;
+    //// 9b. Coastline with direction arrows (for debugging/visualization)
+    //layerStart = performance.now();
+    //this.renderCoastlineWithArrows(layers.coastline, adjustedBounds);
+    //layerTimings.coastline = performance.now() - layerStart;
 
     // 9c. Aeroway lines (runways, taxiways — on top of roads but under labels/POIs)
     layerStart = performance.now();
@@ -2940,8 +2984,17 @@ class MapRenderer {
 
     // === FILLED AREAS (polygons) ===
 
+    // Ocean water polygons (from coastline conversion — rendered after inland water)
+    if (props.water === "ocean") {
+      return {
+        layer: "ocean_water",
+        color: getColor("water", "ocean") || getColor("water", "area"),
+        minLOD: 0,
+        fill: true,
+      };
+    }
+
     // Water areas (filled polygons)
-    // Note: coastline is handled separately as a LineString with direction arrows
     if (
       props.natural === "water" ||
       props.water ||
@@ -2989,6 +3042,17 @@ class MapRenderer {
       };
     }
 
+    // Cliffs (directional line feature)
+    if (props.natural === "cliff" && (type === "LineString" || type === "MultiLineString")) {
+      return {
+        layer: "natural_background",
+        color: { r: 140, g: 120, b: 100, a: 255 },
+        minLOD: 1,
+        fill: false,
+        width: 1.5,
+      };
+    }
+
     // Wetlands (marshes, swamps, bogs)
     if (props.natural === "wetland") {
       const wetlandType = props.wetland; // marsh, swamp, bog, etc.
@@ -2998,6 +3062,7 @@ class MapRenderer {
         minLOD: 1,
         fill: true,
         pattern: "wetland", // Draw wetland pattern
+        patternOnly: true, // Skip opaque base fill, let underlying terrain show through
       };
     }
 
@@ -5301,10 +5366,28 @@ class MapRenderer {
 
     const waterLabels = [];
     const seenNames = new Map(); // Track names to avoid duplicates
+    const polygonCandidates = new Map(); // name -> best candidate for polygon labels
 
     // Set up canvas for text measurement
     this.ctx.textAlign = "center";
     this.ctx.textBaseline = "middle";
+
+    // Helper function: point-in-polygon test using ray casting (screen coords)
+    const isPointInPolygonScreen = (px, py, ring) => {
+      let inside = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const xi = toScreenX(ring[i][0]);
+        const yi = toScreenY(ring[i][1]);
+        const xj = toScreenX(ring[j][0]);
+        const yj = toScreenY(ring[j][1]);
+
+        const intersect =
+          yi > py !== yj > py &&
+          px < ((xj - xi) * (py - yi)) / (yj - yi) + xi;
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    };
 
     for (const item of layerFeatures) {
       const { feature, name, waterType } = item;
@@ -5322,7 +5405,7 @@ class MapRenderer {
 
       if (geom.type === "Polygon") {
         // For polygons (lakes, ponds), calculate centroid and bounds
-        const rings = geom.coordinates; // [outerRing, hole1, hole2, ...]
+        const rings = geom.coordinates;
         const outerRing = rings[0];
         const holes = rings.slice(1);
 
@@ -5334,99 +5417,170 @@ class MapRenderer {
           const sy = toScreenY(coord[1]);
           sumX += sx;
           sumY += sy;
-
-          // Track bounds
           if (sx < minX) minX = sx;
           if (sx > maxX) maxX = sx;
           if (sy < minY) minY = sy;
           if (sy > maxY) maxY = sy;
         }
 
-        centerX = sumX / outerRing.length;
-        centerY = sumY / outerRing.length;
+        // Find the point deepest inside the polygon (approximate pole of
+        // inaccessibility). Grid-search all candidate points, compute min
+        // distance to any polygon edge, and pick the one farthest from edges.
+        // This places labels on open water, not near shorelines or tile cuts.
 
-        // Helper function: point-in-polygon test using ray casting
-        const isPointInPolygon = (px, py, ring) => {
+        // Pre-compute outer ring in screen coords
+        const outerScreen = [];
+        for (const coord of outerRing) {
+          outerScreen.push(toScreenX(coord[0]), toScreenY(coord[1]));
+        }
+        const holeScreens = holes.map((hole) => {
+          const hs = [];
+          for (const coord of hole) {
+            hs.push(toScreenX(coord[0]), toScreenY(coord[1]));
+          }
+          return hs;
+        });
+
+        // Min distance from point to polygon edges (flat coord arrays)
+        const distToEdges = (px, py, ringFlat) => {
+          let minDist = Infinity;
+          for (let i = 0; i < ringFlat.length - 2; i += 2) {
+            const ax = ringFlat[i], ay = ringFlat[i + 1];
+            const bx = ringFlat[i + 2], by = ringFlat[i + 3];
+            const dx = bx - ax, dy = by - ay;
+            const lenSq = dx * dx + dy * dy;
+            let t = lenSq > 0 ? ((px - ax) * dx + (py - ay) * dy) / lenSq : 0;
+            if (t < 0) t = 0; else if (t > 1) t = 1;
+            const cx = ax + t * dx, cy = ay + t * dy;
+            const d = Math.sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
+            if (d < minDist) minDist = d;
+          }
+          return minDist;
+        };
+
+        // Point-in-polygon using flat screen coord array
+        const pipFlat = (px, py, ringFlat) => {
           let inside = false;
-          for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-            const xi = toScreenX(ring[i][0]);
-            const yi = toScreenY(ring[i][1]);
-            const xj = toScreenX(ring[j][0]);
-            const yj = toScreenY(ring[j][1]);
-
-            const intersect =
-              yi > py !== yj > py &&
-              px < ((xj - xi) * (py - yi)) / (yj - yi) + xi;
-            if (intersect) inside = !inside;
+          for (let i = 0, j = ringFlat.length - 2; i < ringFlat.length; j = i, i += 2) {
+            const yi = ringFlat[i + 1], yj = ringFlat[j + 1];
+            if ((yi > py) !== (yj > py)) {
+              const xi = ringFlat[i], xj = ringFlat[j];
+              if (px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
+                inside = !inside;
+              }
+            }
           }
           return inside;
         };
 
-        // Check if centroid is inside a hole (island)
-        let centroidInHole = false;
-        for (const hole of holes) {
-          if (isPointInPolygon(centerX, centerY, hole)) {
-            centroidInHole = true;
-            break;
+        const gridSize = 9;
+        const stepX = (maxX - minX) / (gridSize + 1);
+        const stepY = (maxY - minY) / (gridSize + 1);
+        let bestDist = -1;
+
+        // Also test centroid as a candidate
+        const centroidX = sumX / outerRing.length;
+        const centroidY = sumY / outerRing.length;
+        const candidates = [];
+        for (let gy = 1; gy <= gridSize; gy++) {
+          for (let gx = 1; gx <= gridSize; gx++) {
+            candidates.push(minX + gx * stepX, minY + gy * stepY);
+          }
+        }
+        candidates.push(centroidX, centroidY);
+
+        for (let ci = 0; ci < candidates.length; ci += 2) {
+          const px = candidates[ci], py = candidates[ci + 1];
+          if (!pipFlat(px, py, outerScreen)) continue;
+          let inHole = false;
+          for (const hs of holeScreens) {
+            if (pipFlat(px, py, hs)) { inHole = true; break; }
+          }
+          if (inHole) continue;
+
+          // Distance to nearest outer edge
+          let d = distToEdges(px, py, outerScreen);
+          // Also check distance to hole edges
+          for (const hs of holeScreens) {
+            const dh = distToEdges(px, py, hs);
+            if (dh < d) d = dh;
+          }
+          if (d > bestDist) {
+            bestDist = d;
+            centerX = px;
+            centerY = py;
           }
         }
 
-        // If centroid is in a hole, try to find a better position
-        if (centroidInHole) {
-          // Try positions in a grid pattern within the bounding box
-          let foundPosition = false;
-          const gridSize = 5;
-          const stepX = (maxX - minX) / (gridSize + 1);
-          const stepY = (maxY - minY) / (gridSize + 1);
-
-          for (let gy = 1; gy <= gridSize && !foundPosition; gy++) {
-            for (let gx = 1; gx <= gridSize && !foundPosition; gx++) {
-              const testX = minX + gx * stepX;
-              const testY = minY + gy * stepY;
-
-              // Check if this point is in outer ring but not in any hole
-              if (isPointInPolygon(testX, testY, outerRing)) {
-                let inAnyHole = false;
-                for (const hole of holes) {
-                  if (isPointInPolygon(testX, testY, hole)) {
-                    inAnyHole = true;
-                    break;
-                  }
-                }
-                if (!inAnyHole) {
-                  centerX = testX;
-                  centerY = testY;
-                  foundPosition = true;
-                }
-              }
-            }
-          }
-
-          // If still couldn't find a good position, skip this label
-          if (!foundPosition) {
-            continue;
-          }
-        }
+        if (bestDist < 0) continue; // No valid point found
 
         // Measure text to see if it fits within polygon bounds
         const fontSize = 14;
         this.ctx.font = `italic ${fontSize}px Arial, sans-serif`;
         const textMetrics = this.ctx.measureText(name);
         const textWidth = textMetrics.width;
-        const textHeight = fontSize * 1.2; // Approximate height with padding
+        const textHeight = fontSize * 1.2;
 
-        // Check if text fits within polygon bounds (with small margin)
-        const margin = 10;
+        const labelMargin = 10;
         const polygonWidth = maxX - minX;
         const polygonHeight = maxY - minY;
 
         if (
-          textWidth > polygonWidth - margin ||
-          textHeight > polygonHeight - margin
+          textWidth > polygonWidth - labelMargin ||
+          textHeight > polygonHeight - labelMargin
         ) {
-          // Text doesn't fit within polygon, skip this label
-          continue;
+          continue; // Text doesn't fit
         }
+
+        // Deduplicate polygon labels by name — keep best candidate.
+        // Prefer: label fully inside viewport > larger actual polygon area.
+        const viewMargin = 20;
+        const halfW = textWidth / 2;
+        const halfH = textHeight / 2;
+        const fullyInViewport =
+          centerX - halfW >= viewMargin &&
+          centerX + halfW <= this.canvasWidth - viewMargin &&
+          centerY - halfH >= viewMargin &&
+          centerY + halfH <= this.canvasHeight - viewMargin;
+        // Compute actual polygon area via shoelace formula (screen coords)
+        let polyArea = 0;
+        for (let i = 0, j = outerRing.length - 1; i < outerRing.length; j = i++) {
+          const xi = toScreenX(outerRing[i][0]);
+          const yi = toScreenY(outerRing[i][1]);
+          const xj = toScreenX(outerRing[j][0]);
+          const yj = toScreenY(outerRing[j][1]);
+          polyArea += (xj - xi) * (yj + yi);
+        }
+        polyArea = Math.abs(polyArea) / 2;
+
+        const existing = polygonCandidates.get(name);
+        if (existing) {
+          // Prefer fully-in-viewport; if tied, prefer larger polygon
+          if (
+            (!existing.fullyInViewport && fullyInViewport) ||
+            (existing.fullyInViewport === fullyInViewport &&
+              polyArea > existing.polyArea)
+          ) {
+            polygonCandidates.set(name, {
+              name,
+              waterType,
+              x: centerX,
+              y: centerY,
+              fullyInViewport,
+              polyArea,
+            });
+          }
+        } else {
+          polygonCandidates.set(name, {
+            name,
+            waterType,
+            x: centerX,
+            y: centerY,
+            fullyInViewport,
+            polyArea,
+          });
+        }
+        continue; // Collect all candidates, emit after loop
       } else if (geom.type === "LineString") {
         // For linestrings (rivers, canals), deduplicate by name
         // Only keep the one closest to screen center
@@ -5504,23 +5658,24 @@ class MapRenderer {
       } else {
         continue; // Skip other geometry types
       }
+    }
 
-      // Check if label position is in viewport
+    // Add the deduplicated polygon labels (one per water body name)
+    for (const [, data] of polygonCandidates) {
       const margin = 20;
       if (
-        centerX < -margin ||
-        centerX > this.canvasWidth + margin ||
-        centerY < -margin ||
-        centerY > this.canvasHeight + margin
+        data.x < -margin ||
+        data.x > this.canvasWidth + margin ||
+        data.y < -margin ||
+        data.y > this.canvasHeight + margin
       ) {
         continue;
       }
-
       waterLabels.push({
-        name,
-        waterType,
-        x: centerX,
-        y: centerY,
+        name: data.name,
+        waterType: data.waterType,
+        x: data.x,
+        y: data.y,
         angle: 0,
         isLine: false,
       });
@@ -5967,6 +6122,7 @@ class MapRenderer {
                 patternBatches.get(item.pattern).polygons.push({
                   outer: outerFlat,
                   holes: innerFlats,
+                  patternOnly: item.patternOnly,
                 });
               } else {
                 // Regular solid fill
@@ -6083,8 +6239,13 @@ class MapRenderer {
     }
 
     // Flush pattern batches (areas with textured fills like scrub/wetland)
-    // No pattern scaling — use native pattern size at all zoom levels
-    const patternScale = 1.0;
+    // Pin pattern origin to map coordinates so adjacent/overlapping polygons
+    // (e.g. wetlands spanning tile borders) share a seamless pattern.
+    // We pick a fixed reference longitude/latitude, project it to screen space,
+    // then mod by pattern size so the offset stays small (avoids float precision
+    // issues with huge translations).
+    const patternRefScreenX = toScreenX(0);
+    const patternRefScreenY = toScreenY(0);
 
     for (const [patternId, batch] of patternBatches) {
       const pattern = this.patternCache[patternId];
@@ -6097,8 +6258,14 @@ class MapRenderer {
         batch.baseColor.b,
         batch.baseColor.a / 255,
       );
+      // Get pattern tile size from cache canvas
+      const patternCanvas = this.patternCanvases[patternId];
+      const patSize = patternCanvas ? patternCanvas.width : 40;
+      // Mod to keep translation small; adjust for negative values
+      const tx = ((patternRefScreenX % patSize) + patSize) % patSize;
+      const ty = ((patternRefScreenY % patSize) + patSize) % patSize;
       pattern.setTransform(
-        new DOMMatrix().scaleSelf(patternScale, patternScale),
+        new DOMMatrix().translateSelf(tx, ty),
       );
 
       // Fill each polygon independently to avoid evenodd overlap artifacts
@@ -6106,22 +6273,24 @@ class MapRenderer {
         const outer = poly.outer;
         const holes = poly.holes || [];
 
-        // Base color fill
-        this.ctx.fillStyle = baseColorStr;
-        this.ctx.beginPath();
-        this.ctx.moveTo(outer[0], outer[1]);
-        for (let i = 2; i < outer.length; i += 2) {
-          this.ctx.lineTo(outer[i], outer[i + 1]);
-        }
-        this.ctx.closePath();
-        for (const hole of holes) {
-          this.ctx.moveTo(hole[hole.length - 2], hole[hole.length - 1]);
-          for (let i = hole.length - 4; i >= 0; i -= 2) {
-            this.ctx.lineTo(hole[i], hole[i + 1]);
+        // Base color fill (skip for patternOnly features like wetland)
+        if (!poly.patternOnly) {
+          this.ctx.fillStyle = baseColorStr;
+          this.ctx.beginPath();
+          this.ctx.moveTo(outer[0], outer[1]);
+          for (let i = 2; i < outer.length; i += 2) {
+            this.ctx.lineTo(outer[i], outer[i + 1]);
           }
           this.ctx.closePath();
+          for (const hole of holes) {
+            this.ctx.moveTo(hole[hole.length - 2], hole[hole.length - 1]);
+            for (let i = hole.length - 4; i >= 0; i -= 2) {
+              this.ctx.lineTo(hole[i], hole[i + 1]);
+            }
+            this.ctx.closePath();
+          }
+          this.ctx.fill("evenodd");
         }
-        this.ctx.fill("evenodd");
 
         // Pattern overlay
         this.ctx.fillStyle = pattern;
@@ -6514,6 +6683,9 @@ class MapRenderer {
     const toScreenX = (lon) => (lon - minLon) * scaleX;
     const toScreenY = (lat) => canvasHeight - (lat - minLat) * scaleY;
 
+    // Clear previous label hit areas and rebuild
+    this.tileLabels = [];
+
     // Draw each tile boundary with white line wrapped in two black lines
     for (const { tileset, x, y } of visibleTiles) {
       const tileBounds = this.getTileBounds(tileset, x, y);
@@ -6550,10 +6722,41 @@ class MapRenderer {
       // Draw white text
       this.ctx.fillStyle = "white";
       this.ctx.fillText(labelText, labelX, labelY);
+
+      // Store hit area for click-to-copy
+      const textWidth = this.ctx.measureText(labelText).width;
+      this.tileLabels.push({
+        x: labelX - 2,
+        y: labelY - 14,
+        w: textWidth + 4,
+        h: 18,
+        id: `${tileset}_${x}_${y}`,
+      });
+
       this.ctx.restore();
     }
 
     this.ctx.restore();
+  }
+
+  showCopyToast(text) {
+    let toast = document.getElementById("tileCopyToast");
+    if (!toast) {
+      toast = document.createElement("div");
+      toast.id = "tileCopyToast";
+      toast.style.cssText =
+        "position:fixed;bottom:20px;left:50%;transform:translateX(-50%);" +
+        "background:rgba(0,0,0,0.8);color:white;padding:8px 16px;" +
+        "border-radius:6px;font:13px monospace;z-index:9999;" +
+        "transition:opacity 0.3s;pointer-events:none;";
+      document.body.appendChild(toast);
+    }
+    toast.textContent = `Copied: ${text}`;
+    toast.style.opacity = "1";
+    clearTimeout(this._toastTimeout);
+    this._toastTimeout = setTimeout(() => {
+      toast.style.opacity = "0";
+    }, 1500);
   }
 
   initPOIToggles() {

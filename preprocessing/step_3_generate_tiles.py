@@ -59,8 +59,18 @@ MAJOR_RAIL = frozenset(["rail"])
 MEDIUM_RAIL = frozenset(["light_rail", "subway"])
 MINOR_RAIL = frozenset(["tram", "monorail", "narrow_gauge", "preserved"])
 ALL_RAIL_TYPES = frozenset(
-    ["rail", "light_rail", "subway", "tram", "monorail", "narrow_gauge", "preserved",
-     "construction", "planned", "proposed"]
+    [
+        "rail",
+        "light_rail",
+        "subway",
+        "tram",
+        "monorail",
+        "narrow_gauge",
+        "preserved",
+        "construction",
+        "planned",
+        "proposed",
+    ]
 )
 
 # Highway/road type classifications
@@ -109,6 +119,15 @@ SIMPLIFICATION_SETTINGS = TILESET_CONFIG["simplification_settings"]
 TILESET_IDS = [ts["id"] for ts in TILESETS]
 TILESET_TILE_SIZES = {ts["id"]: ts["tile_size_meters"] for ts in TILESETS}
 
+# Build coastline epsilon lookup per tileset (for simplifying ocean polygons)
+TILESET_COASTLINE_EPSILON = {}
+for _ts in TILESETS:
+    for _fd in _ts["features"]:
+        if _fd.get("name") == "coastline":
+            _eps = _fd.get("simplification", {}).get("epsilon_m")
+            if _eps:
+                TILESET_COASTLINE_EPSILON[_ts["id"]] = _eps
+            break
 
 
 # ============================================================================
@@ -148,7 +167,9 @@ def feature_matches_tileset(feature, tileset_config, props, geom_type):
             matches = True
             for tag_key, tag_values in tags.items():
                 prop_value = props.get(tag_key)
-                if not prop_value or (tag_values != ["*"] and prop_value not in tag_values):
+                if not prop_value or (
+                    tag_values != ["*"] and prop_value not in tag_values
+                ):
                     matches = False
                     break
         else:
@@ -300,7 +321,11 @@ def clip_feature_to_tile(feature, tile_x, tile_y, tile_size_m, buffer_pct=0.02):
     # Don't clip small structure polygons — they rarely span tiles,
     # and clipping creates artificial edges visible at tile boundaries
     props = feature.get("properties", {})
-    if props.get("building") or props.get("railway") == "platform" or props.get("public_transport") == "platform":
+    if (
+        props.get("building")
+        or props.get("railway") == "platform"
+        or props.get("public_transport") == "platform"
+    ):
         return feature
 
     # Compute tile bounds in degrees
@@ -596,7 +621,6 @@ def classify_feature_importance(props, geom_type):
     return (99, 0)  # Never show
 
 
-
 def get_work_dir(pbf_path):
     """Get the working directory for a PBF file's intermediate artifacts.
 
@@ -641,13 +665,410 @@ def get_pbf_bounds(pbf_file):
     return None
 
 
+def compute_tile_bounds(tile_x, tile_y, tile_size_m):
+    """Compute tile geographic bounds in degrees.
+
+    Returns (min_lon, min_lat, max_lon, max_lat).
+    """
+    lat_avg = tile_y * tile_size_m / 111320 + (tile_size_m / 111320 / 2)
+    meters_per_deg_lon = 111320 * math.cos(math.radians(lat_avg))
+    meters_per_deg_lat = 111320
+
+    tile_width_deg = tile_size_m / meters_per_deg_lon
+    tile_height_deg = tile_size_m / meters_per_deg_lat
+
+    min_lon = tile_x * tile_width_deg
+    min_lat = tile_y * tile_height_deg
+    max_lon = min_lon + tile_width_deg
+    max_lat = min_lat + tile_height_deg
+
+    return (min_lon, min_lat, max_lon, max_lat)
+
+
+def boundary_parameter(lon, lat, bounds):
+    """Convert a point on the tile boundary to a clockwise parameter t in [0, 4).
+
+    Traversal: East edge south [0,1), South edge west [1,2),
+               West edge north [2,3), North edge east [3,4).
+    bounds = (min_lon, min_lat, max_lon, max_lat)
+
+    Points must be snapped to the boundary first (one coordinate matches exactly).
+    """
+    min_lon, min_lat, max_lon, max_lat = bounds
+    w = max_lon - min_lon
+    h = max_lat - min_lat
+
+    # After snap_to_boundary, exactly one coordinate matches a boundary value.
+    # Check each edge by exact equality (assigned by snap, not computed).
+    if lon == max_lon:  # East edge, going south
+        return 0.0 + (max_lat - lat) / h
+    if lat == min_lat:  # South edge, going west
+        return 1.0 + (max_lon - lon) / w
+    if lon == min_lon:  # West edge, going north
+        return 2.0 + (lat - min_lat) / h
+    if lat == max_lat:  # North edge, going east
+        return 3.0 + (lon - min_lon) / w
+
+    # Fallback for floating-point near-misses: pick nearest edge
+    dists = [
+        (abs(lon - max_lon), 0.0 + (max_lat - lat) / h),
+        (abs(lat - min_lat), 1.0 + (max_lon - lon) / w),
+        (abs(lon - min_lon), 2.0 + (lat - min_lat) / h),
+        (abs(lat - max_lat), 3.0 + (lon - min_lon) / w),
+    ]
+    dists.sort(key=lambda x: x[0])
+    return dists[0][1]
+
+
+def get_corners_between(t_from, t_to, bounds):
+    """Get tile corner coordinates to traverse clockwise from t_from to t_to.
+
+    Corners at t=0: NE, t=1: SE, t=2: SW, t=3: NW.
+    """
+    min_lon, min_lat, max_lon, max_lat = bounds
+    corners = [
+        (0, (max_lon, max_lat)),  # NE
+        (1, (max_lon, min_lat)),  # SE
+        (2, (min_lon, min_lat)),  # SW
+        (3, (min_lon, max_lat)),  # NW
+    ]
+
+    result = []
+    # Walk clockwise from t_from to t_to, collecting corners in between
+    if t_to <= t_from:
+        t_to += 4  # Wrap around
+
+    for corner_t, corner_coord in corners:
+        ct = corner_t
+        if ct <= t_from:
+            ct += 4
+        if t_from < ct < t_to:
+            result.append(corner_coord)
+
+    return result
+
+
+def is_clockwise(coords):
+    """Check if a ring of coordinates is clockwise using the shoelace formula."""
+    area = 0
+    n = len(coords)
+    for i in range(n):
+        x1, y1 = coords[i]
+        x2, y2 = coords[(i + 1) % n]
+        area += (x2 - x1) * (y2 + y1)
+    return area > 0
+
+
+def build_water_polygons_for_tile(coastline_features, tile_x, tile_y, tile_size_m):
+    """Convert coastline LineStrings into water polygons for a tile.
+
+    OSM convention: coastline has water on the right side (land masses clockwise).
+    Algorithm: merge coastline segments, clip to tile, pair each exit with the
+    next entry clockwise around the tile boundary, trace polygon rings.
+
+    Returns list of water polygon GeoJSON features.
+    """
+    from shapely.geometry import Point, Polygon, box, mapping, shape
+    from shapely.ops import linemerge
+
+    bounds = compute_tile_bounds(tile_x, tile_y, tile_size_m)
+    min_lon, min_lat, max_lon, max_lat = bounds
+    tile_box = box(min_lon, min_lat, max_lon, max_lat)
+
+    # Collect all coastline geometries, deduplicating by coordinate tuple
+    # (overlapping regions can contribute identical coastline LineStrings)
+    seen_coords = set()
+    lines = []
+    for feat in coastline_features:
+        geom = feat.get("geometry", {})
+        try:
+            shp = shape(geom)
+            geoms = [shp] if shp.geom_type == "LineString" else (
+                list(shp.geoms) if shp.geom_type == "MultiLineString" else []
+            )
+            for line in geoms:
+                key = tuple(line.coords)
+                if key not in seen_coords:
+                    seen_coords.add(key)
+                    lines.append(line)
+        except Exception:
+            continue
+
+    if not lines:
+        return []
+
+    # Merge segments sharing endpoints
+    merged = linemerge(lines)
+    if merged.geom_type == "LineString":
+        merged_lines = [merged]
+    elif merged.geom_type == "MultiLineString":
+        merged_lines = list(merged.geoms)
+    else:
+        return []
+
+    # Clip to tile boundary
+    clipped_segments = []
+    closed_rings = []
+
+    for line in merged_lines:
+        try:
+            clipped = line.intersection(tile_box)
+        except Exception:
+            continue
+
+        if clipped.is_empty:
+            continue
+
+        if clipped.geom_type == "LineString":
+            parts = [clipped]
+        elif clipped.geom_type == "MultiLineString":
+            parts = list(clipped.geoms)
+        else:
+            continue
+
+        for part in parts:
+            coords = list(part.coords)
+            if len(coords) < 2:
+                continue
+
+            # Check if it's a closed ring (island fully inside tile)
+            first, last = coords[0], coords[-1]
+            dist_sq = (first[0] - last[0]) ** 2 + (first[1] - last[1]) ** 2
+            if dist_sq < 1e-16 and len(coords) >= 4:
+                closed_rings.append(coords)
+            else:
+                clipped_segments.append(coords)
+
+    if not clipped_segments and not closed_rings:
+        return []
+
+    def snap_to_boundary(lon, lat):
+        """Snap a point to the nearest tile edge (sets one coord exactly)."""
+        dists = [
+            (abs(lon - max_lon), (max_lon, lat)),  # east
+            (abs(lat - min_lat), (lon, min_lat)),   # south
+            (abs(lon - min_lon), (min_lon, lat)),   # west
+            (abs(lat - max_lat), (lon, max_lat)),   # north
+        ]
+        dists.sort(key=lambda x: x[0])
+        return dists[0][1]
+
+    # Snap segment endpoints to boundary
+    snapped_segments = []
+    for coords in clipped_segments:
+        entry = snap_to_boundary(coords[0][0], coords[0][1])
+        exit_pt = snap_to_boundary(coords[-1][0], coords[-1][1])
+        snapped = [entry] + coords[1:-1] + [exit_pt]
+        snapped_segments.append(snapped)
+
+    # Build water polygons by pairing exits to entries clockwise.
+    # Water is on the right side of coastline direction.
+    # From each exit, walking clockwise along the boundary to the next entry
+    # traces the water side.
+    water_polygons = []
+
+    if snapped_segments:
+        # Build sorted event list of all entries and exits by boundary parameter
+        events = []  # (t, type_order, seg_index)  type_order: 0=exit, 1=entry
+        for i, seg in enumerate(snapped_segments):
+            entry_t = boundary_parameter(seg[0][0], seg[0][1], bounds)
+            exit_t = boundary_parameter(seg[-1][0], seg[-1][1], bounds)
+            events.append((entry_t, 1, i))  # entry
+            events.append((exit_t, 0, i))   # exit
+
+        # Sort by t; exits before entries at same t
+        events.sort()
+
+        # Precompute: for each exit, find the next entry clockwise
+        exit_to_next_entry = {}
+        for j, (t, etype, idx) in enumerate(events):
+            if etype == 0:  # exit
+                for k in range(1, len(events) + 1):
+                    next_j = (j + k) % len(events)
+                    if events[next_j][1] == 1:  # entry
+                        exit_to_next_entry[idx] = events[next_j][2]
+                        break
+
+        # Trace polygon rings by following the exit→entry chain
+        used = set()
+        for start_idx in range(len(snapped_segments)):
+            if start_idx in used:
+                continue
+
+            ring = []
+            seg_idx = start_idx
+
+            for _ in range(len(snapped_segments) + 1):  # safety limit
+                if seg_idx in used and seg_idx != start_idx:
+                    break
+                used.add(seg_idx)
+                seg = snapped_segments[seg_idx]
+
+                # Add this segment's coastline coordinates (entry → exit)
+                ring.extend(seg)
+
+                # Find the next segment via exit→entry pairing
+                next_idx = exit_to_next_entry.get(seg_idx)
+                if next_idx is None:
+                    break
+
+                # Add tile boundary corners from this exit to next entry
+                exit_t = boundary_parameter(seg[-1][0], seg[-1][1], bounds)
+                next_seg = snapped_segments[next_idx]
+                entry_t = boundary_parameter(
+                    next_seg[0][0], next_seg[0][1], bounds
+                )
+                corners = get_corners_between(exit_t, entry_t, bounds)
+                ring.extend(corners)
+
+                if next_idx == start_idx:
+                    break
+
+                seg_idx = next_idx
+
+            if len(ring) >= 4:
+                if ring[0] != ring[-1]:
+                    ring.append(ring[0])
+                water_polygons.append(ring)
+
+    # Handle closed rings (islands fully inside tile)
+    # Clockwise ring = land (island in OSM convention) → hole in water
+    # Counter-clockwise ring = enclosed water body
+    island_holes = []
+    for ring in closed_rings:
+        if is_clockwise(ring):
+            island_holes.append(ring)
+        else:
+            water_polygons.append(ring)
+
+    # If we have island holes but no water polygons, the tile is mostly ocean
+    if island_holes and not water_polygons:
+        tile_ring = [
+            (min_lon, max_lat), (max_lon, max_lat),
+            (max_lon, min_lat), (min_lon, min_lat),
+            (min_lon, max_lat),
+        ]
+        water_polygons.append(tile_ring)
+
+    # Build GeoJSON features
+    result_features = []
+    assigned_holes = set()  # track which island holes got assigned
+
+    for poly_coords in water_polygons:
+        try:
+            # Only attach island holes that fall inside this polygon
+            relevant_holes = []
+            if island_holes:
+                poly_shell = Polygon(poly_coords)
+                for i, hole in enumerate(island_holes):
+                    if poly_shell.contains(Point(hole[0][0], hole[0][1])):
+                        relevant_holes.append(hole)
+                        assigned_holes.add(i)
+
+            if relevant_holes:
+                poly = Polygon(poly_coords, relevant_holes)
+            else:
+                poly = Polygon(poly_coords)
+
+            if poly.is_empty or not poly.is_valid:
+                poly = poly.buffer(0)
+                if poly.is_empty:
+                    continue
+
+            # Clip to tile bounds
+            poly = poly.intersection(tile_box)
+            if poly.is_empty:
+                continue
+
+            geom = mapping(poly)
+
+            def _make_ocean_feature(g):
+                return {
+                    "type": "Feature",
+                    "geometry": g,
+                    "properties": {"natural": "water", "water": "ocean"},
+                    "_render": {
+                        "layer": "ocean_water",
+                        "color": [80, 130, 210, 255],
+                        "fill": True,
+                        "minLOD": 0,
+                    },
+                }
+
+            if geom["type"] == "MultiPolygon":
+                for sub_coords in geom["coordinates"]:
+                    result_features.append(_make_ocean_feature({
+                        "type": "Polygon", "coordinates": sub_coords,
+                    }))
+            else:
+                result_features.append(_make_ocean_feature(geom))
+
+        except Exception:
+            continue
+
+    # Handle orphan island holes not contained by any water polygon.
+    # This happens when mainland coastline segments create water polygons that
+    # don't reach a distant island (e.g. Neuwerk in t3_22_240).
+    # Fill the tile with ocean and cut out the island.
+    if island_holes:
+        orphan_holes = [h for i, h in enumerate(island_holes) if i not in assigned_holes]
+        if orphan_holes:
+            tile_ring = [
+                (min_lon, max_lat), (max_lon, max_lat),
+                (max_lon, min_lat), (min_lon, min_lat),
+                (min_lon, max_lat),
+            ]
+            try:
+                ocean_poly = Polygon(tile_ring, orphan_holes)
+                if not ocean_poly.is_valid:
+                    ocean_poly = ocean_poly.buffer(0)
+                if not ocean_poly.is_empty:
+                    ocean_poly = ocean_poly.intersection(tile_box)
+                    if not ocean_poly.is_empty:
+                        geom = mapping(ocean_poly)
+
+                        def _make_ocean_feature2(g):
+                            return {
+                                "type": "Feature",
+                                "geometry": g,
+                                "properties": {"natural": "water", "water": "ocean"},
+                                "_render": {
+                                    "layer": "ocean_water",
+                                    "color": [80, 130, 210, 255],
+                                    "fill": True,
+                                    "minLOD": 0,
+                                },
+                            }
+
+                        if geom["type"] == "MultiPolygon":
+                            for sub_coords in geom["coordinates"]:
+                                result_features.append(_make_ocean_feature2({
+                                    "type": "Polygon", "coordinates": sub_coords,
+                                }))
+                        else:
+                            result_features.append(_make_ocean_feature2(geom))
+            except Exception:
+                pass
+
+    return result_features
+
+
 def finalize_tile(tile_jsonl_path, tile_json_path):
-    """Read a .jsonl tile, deduplicate, sort by importance, compute _meta, write final .json."""
+    """Read a .jsonl tile, deduplicate, sort by importance, compute _meta, write final .json.
+
+    Converts coastline LineStrings into water polygons during finalization.
+    """
     # Another parallel process may have already finalized this tile (border tiles)
     if not tile_jsonl_path.exists():
         if tile_json_path.exists():
             return tile_json_path.stat().st_size
         return 0
+
+    # Extract tile coordinates from path: .../tileset_id/x/y.jsonl
+    tile_y = int(tile_jsonl_path.stem)
+    tile_x = int(tile_jsonl_path.parent.name)
+    tileset_id = tile_jsonl_path.parent.parent.name
+    tile_size_m = TILESET_TILE_SIZES.get(tileset_id, 50000)
 
     # Read all lines
     with open(tile_jsonl_path, "r", encoding="utf-8") as f:
@@ -685,33 +1106,72 @@ def finalize_tile(tile_jsonl_path, tile_json_path):
     # Sort by importance descending
     entries.sort(key=lambda e: e[0], reverse=True)
 
-    # Analyze tile content for _meta
+    # Separate coastline features from other features
     has_coastline = False
     has_land_features = False
-    feature_strings = []
+    coastline_features = []
+    non_coastline_entries = []
 
-    for _, feat_str in entries:
-        feature_strings.append(feat_str)
+    for importance, feat_str in entries:
         try:
             feat = json.loads(feat_str)
             props = feat.get("properties", {})
             if props.get("natural") == "coastline":
                 has_coastline = True
-            if (
+                coastline_features.append(feat)
+                continue
+            natural = props.get("natural", "")
+            landuse = props.get("landuse", "")
+            is_water_related = (
+                natural in ("water", "coastline", "wetland")
+                or props.get("water")
+                or props.get("waterway")
+                or landuse in ("basin", "reservoir")
+            )
+            if not is_water_related and (
                 props.get("highway")
                 or props.get("building")
-                or props.get("landuse")
+                or landuse
                 or props.get("railway")
                 or props.get("amenity")
                 or props.get("shop")
-                or (
-                    props.get("natural")
-                    and props.get("natural") not in ["coastline", "water"]
-                )
+                or natural
             ):
                 has_land_features = True
         except:
             pass
+        non_coastline_entries.append((importance, feat_str))
+
+    # Convert coastline LineStrings to water polygons
+    feature_strings = []
+    if coastline_features:
+        try:
+            water_polys = build_water_polygons_for_tile(
+                coastline_features, tile_x, tile_y, tile_size_m
+            )
+            # Simplify ocean polygons using the tileset's coastline epsilon
+            epsilon_m = TILESET_COASTLINE_EPSILON.get(tileset_id)
+            if epsilon_m:
+                from shapely.geometry import shape as _shape, mapping as _mapping
+                epsilon_deg = epsilon_m / 111000
+                for water_feat in water_polys:
+                    try:
+                        sg = _shape(water_feat["geometry"])
+                        sg = sg.simplify(epsilon_deg, preserve_topology=True)
+                        water_feat["geometry"] = _mapping(sg)
+                    except Exception:
+                        pass
+            for water_feat in water_polys:
+                feat_str = json.dumps(
+                    water_feat, separators=(",", ":"), default=decimal_default
+                )
+                feature_strings.append(feat_str)
+        except Exception:
+            pass
+
+    # Add non-coastline features
+    for _, feat_str in non_coastline_entries:
+        feature_strings.append(feat_str)
 
     # Write final tile JSON
     tile_json_path.parent.mkdir(parents=True, exist_ok=True)
@@ -857,9 +1317,13 @@ def split_geojson_into_tiles(
                     continue
 
                 tileset_feature = copy.deepcopy(feature)
-                tileset_feature = simplify_feature_for_tileset(
-                    tileset_feature, tileset_id, feature_config
-                )
+                # Don't simplify coastlines — they need full precision for
+                # ocean polygon construction in finalize_tile.
+                # The resulting ocean polygons get simplified instead.
+                if props.get("natural") != "coastline":
+                    tileset_feature = simplify_feature_for_tileset(
+                        tileset_feature, tileset_id, feature_config
+                    )
                 tileset_feature["_render"] = feature_config["render"]
 
                 feature_tiles = get_tiles_for_feature_in_tileset(
@@ -1002,15 +1466,25 @@ def process_geojson_to_tiles(args):
         }
 
 
-
 def _categorize_feature(feature):
     """Categorize a feature by its primary OSM tag for statistics."""
     props = feature.get("properties", {})
     # Priority order for primary tag detection
     for key in (
-        "building", "highway", "railway", "waterway", "natural", "landuse",
-        "leisure", "amenity", "shop", "boundary", "place", "aeroway",
-        "public_transport", "man_made",
+        "building",
+        "highway",
+        "railway",
+        "waterway",
+        "natural",
+        "landuse",
+        "leisure",
+        "amenity",
+        "shop",
+        "boundary",
+        "place",
+        "aeroway",
+        "public_transport",
+        "man_made",
     ):
         val = props.get(key)
         if val:
@@ -1039,7 +1513,7 @@ def _count_coordinates(geometry):
 def _format_size(num_bytes):
     """Format bytes as human-readable string."""
     if num_bytes >= 1024 * 1024 * 1024:
-        return f"{num_bytes / (1024 ** 3):.2f} GB"
+        return f"{num_bytes / (1024**3):.2f} GB"
     elif num_bytes >= 1024 * 1024:
         return f"{num_bytes / (1024 * 1024):.1f} MB"
     elif num_bytes >= 1024:
@@ -1068,13 +1542,21 @@ def compute_tile_statistics(tile_dir, output_file=None, max_sample=1000):
     lines.append("## Methodology")
     lines.append("")
     lines.append(f"- Sampled up to {max_sample} random tiles per tileset")
-    lines.append("- For each sampled tile, parsed JSON and measured per-feature JSON size")
-    lines.append("- Categorized features by primary OSM tag (building, highway:residential, etc.)")
+    lines.append(
+        "- For each sampled tile, parsed JSON and measured per-feature JSON size"
+    )
+    lines.append(
+        "- Categorized features by primary OSM tag (building, highway:residential, etc.)"
+    )
     lines.append("- Extrapolated to full tileset using sample ratio")
-    lines.append("- Coordinate counts reflect total vertices across all geometry rings/lines")
+    lines.append(
+        "- Coordinate counts reflect total vertices across all geometry rings/lines"
+    )
     lines.append("")
 
-    for tileset_id in sorted(d.name for d in tile_dir.iterdir() if d.is_dir() and d.name.startswith("t")):
+    for tileset_id in sorted(
+        d.name for d in tile_dir.iterdir() if d.is_dir() and d.name.startswith("t")
+    ):
         tileset_path = tile_dir / tileset_id
         # Collect all tile files
         tile_files = list(tileset_path.rglob("*.json"))
@@ -1128,7 +1610,9 @@ def compute_tile_statistics(tile_dir, output_file=None, max_sample=1000):
 
         total_sampled_bytes = sum(s["bytes"] for s in group_stats.values())
         estimated_total = total_sampled_bytes * sample_ratio
-        lines.append(f"- **Estimated feature data:** {_format_size(int(estimated_total))}")
+        lines.append(
+            f"- **Estimated feature data:** {_format_size(int(estimated_total))}"
+        )
         lines.append("")
 
         # By group
@@ -1137,11 +1621,13 @@ def compute_tile_statistics(tile_dir, output_file=None, max_sample=1000):
         lines.append("| Group | Est. Size | Features | Coordinates |")
         lines.append("|-------|----------|----------|-------------|")
 
-        sorted_groups = sorted(group_stats.items(), key=lambda x: x[1]["bytes"], reverse=True)
+        sorted_groups = sorted(
+            group_stats.items(), key=lambda x: x[1]["bytes"], reverse=True
+        )
         for group, stats in sorted_groups:
             est_size = _format_size(int(stats["bytes"] * sample_ratio))
-            est_features = f'{int(stats["features"] * sample_ratio):,}'
-            est_coords = f'{int(stats["coords"] * sample_ratio):,}'
+            est_features = f"{int(stats['features'] * sample_ratio):,}"
+            est_coords = f"{int(stats['coords'] * sample_ratio):,}"
             lines.append(f"| {group} | {est_size} | {est_features} | {est_coords} |")
 
         lines.append("")
@@ -1152,13 +1638,17 @@ def compute_tile_statistics(tile_dir, output_file=None, max_sample=1000):
         lines.append("| Category | Est. Size | Features | Coordinates | Avg bytes |")
         lines.append("|----------|----------|----------|-------------|-----------|")
 
-        sorted_cats = sorted(category_stats.items(), key=lambda x: x[1]["bytes"], reverse=True)
+        sorted_cats = sorted(
+            category_stats.items(), key=lambda x: x[1]["bytes"], reverse=True
+        )
         for category, stats in sorted_cats[:30]:
             est_size = _format_size(int(stats["bytes"] * sample_ratio))
-            est_features = f'{int(stats["features"] * sample_ratio):,}'
-            est_coords = f'{int(stats["coords"] * sample_ratio):,}'
+            est_features = f"{int(stats['features'] * sample_ratio):,}"
+            est_coords = f"{int(stats['coords'] * sample_ratio):,}"
             avg_bytes = stats["bytes"] // max(stats["features"], 1)
-            lines.append(f"| {category} | {est_size} | {est_features} | {est_coords} | {avg_bytes} |")
+            lines.append(
+                f"| {category} | {est_size} | {est_features} | {est_coords} | {avg_bytes} |"
+            )
 
         lines.append("")
 

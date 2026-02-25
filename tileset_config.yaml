@@ -84,6 +84,17 @@ feature_templates:
       color: [200, 225, 210, 255]
       fill: true
 
+  cliff: &cliff
+    name: "cliff"
+    osm_match:
+      geometry: ["LineString", "MultiLineString"]
+      tags:
+        natural: ["cliff"]
+    render:
+      layer: "natural_background"
+      color: [140, 120, 100, 255]
+      stroke_width_px: 2
+
   beach: &beach
     name: "beach"
     osm_match:
@@ -811,6 +822,8 @@ tilesets:
       - <<: *wetland
         simplification: { epsilon_m: 0.05 }
       - <<: *beach
+        simplification: { epsilon_m: 0.05 }
+      - <<: *cliff
         simplification: { epsilon_m: 0.05 }
       - <<: *forests_all
         simplification: { epsilon_m: 0.05 }

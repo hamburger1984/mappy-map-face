@@ -17,6 +17,7 @@ export const THEMES = {
     // Water features
     water: {
       area: { r: 170, g: 211, b: 223, a: 255 }, // Lakes, ponds, riverbanks
+      ocean: { r: 150, g: 195, b: 215, a: 255 }, // Ocean — slightly darker than inland water
       line: { r: 170, g: 211, b: 223, a: 255 }, // Rivers, streams, canals
       border: { r: 140, g: 180, b: 195, a: 255 }, // Border for small waterways
     },
@@ -149,8 +150,8 @@ export const THEMES = {
     patterns: {
       scrubBush: { r: 120, g: 150, b: 90, a: 76 }, // Dark green, semi-transparent
       scrubStem: { r: 100, g: 130, b: 70, a: 102 }, // Darker green
-      wetlandWater: { r: 100, g: 150, b: 180, a: 64 }, // Light blue
-      wetlandGrass: { r: 80, g: 120, b: 90, a: 76 }, // Green
+      wetlandWater: { r: 100, g: 150, b: 180, a: 120 }, // Light blue
+      wetlandGrass: { r: 80, g: 120, b: 90, a: 140 }, // Green
       broadleafForest: { r: 100, g: 140, b: 80, a: 89 }, // Medium green
       needleleafForest: { r: 60, g: 100, b: 60, a: 102 }, // Darker green
       needleleafTrunk: { r: 80, g: 60, b: 40, a: 76 }, // Brown
