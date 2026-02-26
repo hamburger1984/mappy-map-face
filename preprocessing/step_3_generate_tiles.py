@@ -951,7 +951,13 @@ def build_water_polygons_for_tile(coastline_features, tile_x, tile_y, tile_size_
                     test_point = Point(p1[0] + nx * offset, p1[1] + ny * offset)
                     try:
                         ring_poly = Polygon(ring)
-                        if ring_poly.is_valid and not ring_poly.contains(test_point):
+                        tile_area = (max_lon - min_lon) * (max_lat - min_lat)
+                        ring_frac = ring_poly.area / tile_area if tile_area > 0 else 0
+                        # Only invert large polygons (>30% of tile). Small ones
+                        # are coastal inlets/channels where the test point can
+                        # land outside the sliver due to boundary proximity.
+                        if (ring_poly.is_valid and ring_frac > 0.3
+                                and not ring_poly.contains(test_point)):
                             # Traced ring is on the land side — invert it
                             inverted = tile_box.difference(ring_poly)
                             if not inverted.is_empty:
