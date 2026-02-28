@@ -138,12 +138,14 @@ for _ts in TILESETS:
 LAND_BG_COLOR = [242, 239, 233, 255]
 
 
-def load_land_polygons(data_dir: Path):
+def load_land_polygons(data_dir: Path, bbox=None):
     """Load land polygon GeoJSON and build a Shapely STRtree for fast lookup.
+
+    bbox: optional dict {minLon, minLat, maxLon, maxLat} to filter features.
     Returns (geoms, tree) or (None, None) if file not available.
     """
     try:
-        from shapely.geometry import shape
+        from shapely.geometry import box, shape
         from shapely.strtree import STRtree
     except ImportError:
         return None, None
@@ -152,14 +154,25 @@ def load_land_polygons(data_dir: Path):
     if not geojson_path.exists():
         return None, None
 
-    print(f"  Loading land polygons from {geojson_path}...")
+    filter_box = None
+    if bbox:
+        filter_box = box(bbox["minLon"], bbox["minLat"], bbox["maxLon"], bbox["maxLat"])
+
+    region_desc = (
+        f"{bbox['minLon']:.1f},{bbox['minLat']:.1f} → {bbox['maxLon']:.1f},{bbox['maxLat']:.1f}"
+        if bbox else "global"
+    )
+    print(f"  Loading land polygons ({region_desc})...")
     geoms = []
     try:
-        # Stream with ijson to handle potentially large files
+        # Stream with ijson to handle the large global file
         with open(geojson_path, "rb") as f:
             for feat in ijson.items(f, "features.item"):
                 try:
-                    geoms.append(shape(feat["geometry"]))
+                    geom = shape(feat["geometry"])
+                    if filter_box is not None and not geom.intersects(filter_box):
+                        continue
+                    geoms.append(geom)
                 except Exception:
                     continue
         tree = STRtree(geoms)
@@ -170,9 +183,21 @@ def load_land_polygons(data_dir: Path):
         return None, None
 
 
-# Module-level land polygon index (loaded once at startup)
+# Module-level land polygon index (lazy — initialized per worker via init_land_polygons)
 _DATA_DIR = Path(__file__).parent / "data"
-LAND_POLYGON_GEOMS, LAND_POLYGON_TREE = load_land_polygons(_DATA_DIR)
+LAND_POLYGON_GEOMS = None
+LAND_POLYGON_TREE = None
+
+
+def init_land_polygons(data_dir: Path, bbox=None):
+    """Initialize the land polygon index if not already loaded.
+
+    Called once per worker process before tile finalization, filtered to bbox.
+    """
+    global LAND_POLYGON_GEOMS, LAND_POLYGON_TREE
+    if LAND_POLYGON_TREE is not None:
+        return
+    LAND_POLYGON_GEOMS, LAND_POLYGON_TREE = load_land_polygons(data_dir, bbox)
 
 
 # ============================================================================
@@ -1727,6 +1752,9 @@ def split_geojson_into_tiles(
     )
 
     # Pass 2: Finalize each .jsonl into .json (deduplicate, sort, add _meta)
+    # Initialize land polygon index filtered to this region's bounds
+    init_land_polygons(_DATA_DIR, actual_bounds)
+
     total_tiles = sum(len(tiles) for tiles in tile_files_written.values())
     tile_count = 0
     total_bytes = 0
