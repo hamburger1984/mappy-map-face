@@ -400,6 +400,7 @@ class MapRenderer {
     const patterns = {
       scrub: this.createScrubPattern(),
       wetland: this.createWetlandPattern(),
+      wetland_tidal: this.createWetlandTidalPattern(),
       broadleaf_forest: this.createBroadleafForestPattern(),
       needleleaf_forest: this.createNeedleleafForestPattern(),
       mixed_forest: this.createMixedForestPattern(),
@@ -516,6 +517,30 @@ class MapRenderer {
         );
         ctx.stroke();
       }
+    }
+
+    return canvas;
+  }
+
+  createWetlandTidalPattern() {
+    // Tidalflat wetland: wavy water lines only, no grass (exposed sand/mud)
+    const size = 40;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+
+    ctx.strokeStyle = toRGBA(getColor("patterns", "wetlandWater"));
+    ctx.lineWidth = 1.5;
+
+    for (let y = 5; y < size; y += 12) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      for (let x = 0; x <= size; x += 1) {
+        const wave = Math.sin((x / size) * Math.PI * 3) * 1.5;
+        ctx.lineTo(x, y + wave);
+      }
+      ctx.stroke();
     }
 
     return canvas;
@@ -1984,7 +2009,7 @@ class MapRenderer {
       const isWaterRelated =
         props.natural === "water" ||
         props.natural === "coastline" ||
-        props.natural === "wetland" ||
+        (props.natural === "wetland" && props.wetland !== "tidalflat") ||
         props.water ||
         props.waterway ||
         props.landuse === "basin" ||
@@ -3069,14 +3094,14 @@ class MapRenderer {
 
     // Wetlands (marshes, swamps, bogs)
     if (props.natural === "wetland") {
-      const wetlandType = props.wetland; // marsh, swamp, bog, etc.
+      const wetlandType = props.wetland; // marsh, swamp, bog, tidalflat, etc.
       return {
         layer: "natural_background",
         color: getColor("natural", "wetland"),
         minLOD: 1,
         fill: true,
-        pattern: "wetland", // Draw wetland pattern
-        patternOnly: true, // Skip opaque base fill, let underlying terrain show through
+        pattern: wetlandType === "tidalflat" ? "wetland_tidal" : "wetland",
+        patternOnly: true,
       };
     }
 
@@ -4811,8 +4836,8 @@ class MapRenderer {
   preregisterPlaceLabels(layerFeatures, bounds) {
     // Compute place label positions and reserve them in occupancy
     // so that road/water labels yield to place names.
-    if (!layerFeatures || layerFeatures.length === 0) return;
     this._precomputedPlaceLabels = null;
+    if (!layerFeatures || layerFeatures.length === 0) return;
 
     const lod = this.getLOD();
     const lonRange = bounds.maxLon - bounds.minLon;

@@ -772,8 +772,7 @@ def build_water_polygons_for_tile(coastline_features, tile_x, tile_y, tile_size_
 
     Returns list of water polygon GeoJSON features.
     """
-    from shapely.geometry import Point, Polygon, box, mapping, shape
-    from shapely.ops import linemerge
+    from shapely.geometry import LineString, Point, Polygon, box, mapping, shape
 
     bounds = compute_tile_bounds(tile_x, tile_y, tile_size_m)
     min_lon, min_lat, max_lon, max_lat = bounds
@@ -801,14 +800,42 @@ def build_water_polygons_for_tile(coastline_features, tile_x, tile_y, tile_size_
     if not lines:
         return []
 
-    # Merge segments sharing endpoints
-    merged = linemerge(lines)
-    if merged.geom_type == "LineString":
-        merged_lines = [merged]
-    elif merged.geom_type == "MultiLineString":
-        merged_lines = list(merged.geoms)
-    else:
-        return []
+    # Merge segments sharing endpoints, preserving direction.
+    # Unlike shapely's linemerge which may reverse segments to connect them,
+    # this only connects A→B + B→C (endpoint matches startpoint) so that
+    # the OSM coastline direction (water on right) is preserved.
+    segments = [list(line.coords) for line in lines]
+    start_idx = {}
+    end_idx = {}
+    for i, seg in enumerate(segments):
+        start_idx.setdefault(seg[0], []).append(i)
+        end_idx.setdefault(seg[-1], []).append(i)
+
+    used = [False] * len(segments)
+    merged_lines = []
+    for i in range(len(segments)):
+        if used[i]:
+            continue
+        chain = list(segments[i])
+        used[i] = True
+        # Extend forward: find segments starting where chain ends
+        while True:
+            nxt = [j for j in start_idx.get(chain[-1], []) if not used[j]]
+            if not nxt:
+                break
+            j = nxt[0]
+            chain.extend(segments[j][1:])
+            used[j] = True
+        # Extend backward: find segments ending where chain starts
+        while True:
+            prv = [j for j in end_idx.get(chain[0], []) if not used[j]]
+            if not prv:
+                break
+            j = prv[0]
+            chain = segments[j][:-1] + chain
+            used[j] = True
+        if len(chain) >= 2:
+            merged_lines.append(LineString(chain))
 
     # Clip to tile boundary
     clipped_segments = []
@@ -857,11 +884,89 @@ def build_water_polygons_for_tile(coastline_features, tile_x, tile_y, tile_size_
         dists.sort(key=lambda x: x[0])
         return dists[0][1]
 
-    # Snap segment endpoints to boundary
+    def intersect_segment_boundary(p_inside, p_outside):
+        """Find where the segment from p_inside to p_outside crosses the tile boundary.
+
+        Returns the intersection point on the tile edge.  When the inside point
+        is already very close to an edge (<1e-6 deg) we just snap it.
+        """
+        x1, y1 = p_inside
+        x2, y2 = p_outside
+        # If already close to boundary, just snap
+        min_dist = min(abs(x1 - min_lon), abs(x1 - max_lon),
+                       abs(y1 - min_lat), abs(y1 - max_lat))
+        if min_dist < 1e-6:
+            return snap_to_boundary(x1, y1)
+        # Compute intersection with each tile edge
+        dx, dy = x2 - x1, y2 - y1
+        best = None
+        best_t = 2.0  # >1 means no hit
+        # East edge: x = max_lon
+        if abs(dx) > 1e-15:
+            t = (max_lon - x1) / dx
+            if 0 <= t <= 1:
+                iy = y1 + t * dy
+                if min_lat - 1e-9 <= iy <= max_lat + 1e-9:
+                    if t < best_t:
+                        best_t = t
+                        best = (max_lon, max(min_lat, min(max_lat, iy)))
+        # West edge: x = min_lon
+        if abs(dx) > 1e-15:
+            t = (min_lon - x1) / dx
+            if 0 <= t <= 1:
+                iy = y1 + t * dy
+                if min_lat - 1e-9 <= iy <= max_lat + 1e-9:
+                    if t < best_t:
+                        best_t = t
+                        best = (min_lon, max(min_lat, min(max_lat, iy)))
+        # North edge: y = max_lat
+        if abs(dy) > 1e-15:
+            t = (max_lat - y1) / dy
+            if 0 <= t <= 1:
+                ix = x1 + t * dx
+                if min_lon - 1e-9 <= ix <= max_lon + 1e-9:
+                    if t < best_t:
+                        best_t = t
+                        best = (max(min_lon, min(max_lon, ix)), max_lat)
+        # South edge: y = min_lat
+        if abs(dy) > 1e-15:
+            t = (min_lat - y1) / dy
+            if 0 <= t <= 1:
+                ix = x1 + t * dx
+                if min_lon - 1e-9 <= ix <= max_lon + 1e-9:
+                    if t < best_t:
+                        best_t = t
+                        best = (max(min_lon, min(max_lon, ix)), min_lat)
+        return best if best else snap_to_boundary(x1, y1)
+
+    # Snap/intersect segment endpoints to boundary
     snapped_segments = []
     for coords in clipped_segments:
         entry = snap_to_boundary(coords[0][0], coords[0][1])
         exit_pt = snap_to_boundary(coords[-1][0], coords[-1][1])
+        # If endpoint is far from boundary, it's inside the tile and
+        # snap_to_boundary creates a wrong point.  Use the original
+        # (pre-clip) line direction to find the real boundary crossing.
+        min_dist_entry = min(
+            abs(coords[0][0] - min_lon), abs(coords[0][0] - max_lon),
+            abs(coords[0][1] - min_lat), abs(coords[0][1] - max_lat))
+        min_dist_exit = min(
+            abs(coords[-1][0] - min_lon), abs(coords[-1][0] - max_lon),
+            abs(coords[-1][1] - min_lat), abs(coords[-1][1] - max_lat))
+        # For entry: the point before entry in the original line is outside
+        # the tile.  We don't have it here, but we can extrapolate using
+        # the direction from coords[1] → coords[0] (approaching the boundary).
+        if min_dist_entry > 1e-6 and len(coords) >= 2:
+            # Extrapolate beyond coords[0] in the reverse direction
+            dx = coords[0][0] - coords[1][0]
+            dy = coords[0][1] - coords[1][1]
+            p_outside = (coords[0][0] + dx * 100, coords[0][1] + dy * 100)
+            entry = intersect_segment_boundary(coords[0], p_outside)
+        if min_dist_exit > 1e-6 and len(coords) >= 2:
+            dx = coords[-1][0] - coords[-2][0]
+            dy = coords[-1][1] - coords[-2][1]
+            p_outside = (coords[-1][0] + dx * 100, coords[-1][1] + dy * 100)
+            exit_pt = intersect_segment_boundary(coords[-1], p_outside)
         snapped = [entry] + coords[1:-1] + [exit_pt]
         snapped_segments.append(snapped)
 
@@ -953,19 +1058,26 @@ def build_water_polygons_for_tile(coastline_features, tile_x, tile_y, tile_size_
                         ring_poly = Polygon(ring)
                         tile_area = (max_lon - min_lon) * (max_lat - min_lat)
                         ring_frac = ring_poly.area / tile_area if tile_area > 0 else 0
-                        # Only invert large polygons (>30% of tile). Small ones
-                        # are coastal inlets/channels where the test point can
-                        # land outside the sliver due to boundary proximity.
-                        if (ring_poly.is_valid and ring_frac > 0.3
-                                and not ring_poly.contains(test_point)):
-                            # Traced ring is on the land side — invert it
-                            inverted = tile_box.difference(ring_poly)
-                            if not inverted.is_empty:
-                                if inverted.geom_type == "Polygon":
-                                    water_polygons.append(list(inverted.exterior.coords))
-                                elif inverted.geom_type == "MultiPolygon":
-                                    for geom in inverted.geoms:
-                                        water_polygons.append(list(geom.exterior.coords))
+                        if ring_poly.is_valid and ring_frac > 0.02:
+                            contains_test = ring_poly.contains(test_point)
+                            if not contains_test or ring_frac > 0.85:
+                                if ring_frac > 0.30:
+                                    # Large polygon on wrong side — invert it
+                                    inverted = tile_box.difference(ring_poly)
+                                    if not inverted.is_empty:
+                                        if inverted.geom_type == "Polygon":
+                                            water_polygons.append(
+                                                list(inverted.exterior.coords))
+                                        elif inverted.geom_type == "MultiPolygon":
+                                            for geom in inverted.geoms:
+                                                water_polygons.append(
+                                                    list(geom.exterior.coords))
+                                else:
+                                    # Small polygon on wrong side — drop it.
+                                    # Inverting a small sliver would create a
+                                    # near-tile-filling polygon (wrong). These
+                                    # artifacts come from reversed coastline tags.
+                                    pass
                                 is_water_side = False
                     except Exception:
                         pass
@@ -974,23 +1086,75 @@ def build_water_polygons_for_tile(coastline_features, tile_x, tile_y, tile_size_
                     water_polygons.append(ring)
 
     # Handle closed rings (islands fully inside tile)
-    # Clockwise ring = land (island in OSM convention) → hole in water
-    # Counter-clockwise ring = enclosed water body
+    # OSM convention: coastline has water on the RIGHT side.
+    # For an island, walking with water on your right = CCW traversal.
+    # For an enclosed water body (lake), walking with water on right = CW.
+    # In our is_clockwise (shoelace): CW = positive, CCW = negative.
     island_holes = []
     for ring in closed_rings:
-        if is_clockwise(ring):
+        if not is_clockwise(ring):
+            # CCW = island (water outside, on right side of direction)
             island_holes.append(ring)
         else:
+            # CW = enclosed water body (water inside, on right side)
             water_polygons.append(ring)
 
-    # If we have island holes but no water polygons, the tile is mostly ocean
+    # If we have island holes but no water polygons, decide based on context
     if island_holes and not water_polygons:
-        tile_ring = [
-            (min_lon, max_lat), (max_lon, max_lat),
-            (max_lon, min_lat), (min_lon, min_lat),
-            (min_lon, max_lat),
-        ]
-        water_polygons.append(tile_ring)
+        if snapped_segments:
+            # Open coastline exists: CCW rings are real islands in an ocean tile
+            tile_ring = [
+                (min_lon, max_lat), (max_lon, max_lat),
+                (max_lon, min_lat), (min_lon, min_lat),
+                (min_lon, max_lat),
+            ]
+            water_polygons.append(tile_ring)
+        else:
+            # No open coastline: CCW closed rings are likely backwards-tagged
+            # enclosed water bodies (e.g. tidal Elbe). Flip winding and treat
+            # them as water polygons rather than filling the whole tile.
+            for hole in island_holes:
+                water_polygons.append(list(reversed(hole)))
+            island_holes = []
+
+    # Heuristic: detect inflated ocean polygons from coastlines barely
+    # clipping the tile.  If the total coastline boundary coverage is small
+    # relative to the tile perimeter, but the ocean polygon(s) cover most of
+    # the tile, the coastlines are from a distant shore and the ocean polygon
+    # is bogus.  Drop it (but keep closed-ring islands/water bodies).
+    if water_polygons and snapped_segments and not closed_rings:
+        tile_area = (max_lon - min_lon) * (max_lat - min_lat)
+        if tile_area > 0:
+            # Compute how much of the tile boundary the coastline segments
+            # span.  Each segment enters and exits the tile boundary; the
+            # boundary-parameter distance between entry and exit tells us
+            # how much of the perimeter (0–4 scale) is "used" by that segment.
+            total_coast_span = 0
+            for seg in snapped_segments:
+                entry_t = boundary_parameter(seg[0][0], seg[0][1], bounds)
+                exit_t = boundary_parameter(seg[-1][0], seg[-1][1], bounds)
+                dt = abs(exit_t - entry_t)
+                if dt > 2.0:
+                    dt = 4.0 - dt  # take shorter arc
+                total_coast_span += dt
+
+            coast_frac = total_coast_span / 4.0  # fraction of tile perimeter
+
+            # Compute total ocean area fraction
+            total_ocean_area = 0
+            for poly_coords in water_polygons:
+                try:
+                    p = Polygon(poly_coords)
+                    if p.is_valid:
+                        total_ocean_area += p.area
+                except Exception:
+                    pass
+            ocean_frac = total_ocean_area / tile_area
+
+            # If coastline spans <20% of perimeter but ocean >50% of tile,
+            # the ocean polygon is likely inflated from distant coastlines.
+            if coast_frac < 0.20 and ocean_frac > 0.50:
+                water_polygons = []
 
     # Build GeoJSON features
     result_features = []
@@ -1166,14 +1330,21 @@ def finalize_tile(tile_jsonl_path, tile_json_path):
         try:
             feat = json.loads(feat_str)
             props = feat.get("properties", {})
+            # when we have costline, we can be sure, we are at the edge of ocean and land (right?)
+            # when we don't have coastline, we have to use heuristics to determine if we are somewhere in the ocean or on land
             if props.get("natural") == "coastline":
                 has_coastline = True
                 coastline_features.append(feat)
                 # Keep coastline in output (don't skip) for debugging
             natural = props.get("natural", "")
             landuse = props.get("landuse", "")
+            is_wetland_water = (
+                natural == "wetland" and
+                (props.get("wetland") in ["tidalflat", "swamp"] or props.get("tidal") == "yes")
+            )
             is_water_related = (
-                natural in ("water", "coastline", "wetland")
+                natural in ("water", "coastline")
+                or is_wetland_water
                 or props.get("water")
                 or props.get("waterway")
                 or landuse in ("basin", "reservoir")
@@ -1181,7 +1352,8 @@ def finalize_tile(tile_jsonl_path, tile_json_path):
                 or props.get("maritime") == "yes"
                 or (props.get("boundary") == "maritime")
             )
-            if not is_water_related and (
+            is_tunnel = props.get("tunnel") not in (None, "no", "false", "0")
+            if not is_water_related and not is_tunnel and (
                 props.get("highway")
                 or props.get("building")
                 or landuse
