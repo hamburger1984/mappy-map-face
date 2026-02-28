@@ -27,6 +27,11 @@ except ImportError:
     sys.exit(1)
 
 
+# Land polygon sources (pre-computed land polygons for accurate coastline backgrounds)
+LAND_POLYGON_SOURCES = {
+    "global": "https://osmdata.openstreetmap.de/download/land-polygons-split-4326.zip"
+}
+
 # OSM data sources
 OSM_SOURCES = {
     "hamburg": "https://download.geofabrik.de/europe/germany/hamburg-latest.osm.pbf",
@@ -364,6 +369,24 @@ def main():
             print(
                 f"  ✓ {result['name']}: {result['size_mb']:.1f} MB (newly downloaded)"
             )
+        else:
+            print(f"  ✗ {result['name']}: {result.get('error', 'failed')}")
+
+    # Download land polygon data
+    print(f"\nDownloading land polygons ({len(LAND_POLYGON_SOURCES)} sources)...")
+    land_args = [(name, url, args.data_dir) for name, url in LAND_POLYGON_SOURCES.items()]
+    land_results = []
+    for land_arg in land_args:
+        land_results.append(download_and_convert_land_polygons(land_arg))
+
+    print("\nLand Polygons:")
+    for result in land_results:
+        if result["status"] == "cached":
+            print(f"  ✓ {result['name']}: {result['size_mb']:.1f} MB ({result['age']})")
+        elif result["status"] == "downloaded":
+            print(f"  ✓ {result['name']}: {result['size_mb']:.1f} MB (newly downloaded)")
+        elif result["status"] == "skipped":
+            print(f"  ⚠ {result['name']}: skipped ({result.get('reason', 'unknown')})")
         else:
             print(f"  ✗ {result['name']}: {result.get('error', 'failed')}")
 

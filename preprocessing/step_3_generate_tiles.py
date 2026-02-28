@@ -131,6 +131,51 @@ for _ts in TILESETS:
 
 
 # ============================================================================
+# LAND POLYGON DATA (pre-computed authoritative land polygons)
+# ============================================================================
+
+# Land background color (matches map_theme.js background.land)
+LAND_BG_COLOR = [242, 239, 233, 255]
+
+
+def load_land_polygons(data_dir: Path):
+    """Load land polygon GeoJSON and build a Shapely STRtree for fast lookup.
+    Returns (geoms, tree) or (None, None) if file not available.
+    """
+    try:
+        from shapely.geometry import shape
+        from shapely.strtree import STRtree
+    except ImportError:
+        return None, None
+
+    geojson_path = data_dir / "global-land-polygons.geojson"
+    if not geojson_path.exists():
+        return None, None
+
+    print(f"  Loading land polygons from {geojson_path}...")
+    geoms = []
+    try:
+        # Stream with ijson to handle potentially large files
+        with open(geojson_path, "rb") as f:
+            for feat in ijson.items(f, "features.item"):
+                try:
+                    geoms.append(shape(feat["geometry"]))
+                except Exception:
+                    continue
+        tree = STRtree(geoms)
+        print(f"  Loaded {len(geoms)} land polygons")
+        return geoms, tree
+    except Exception as e:
+        print(f"  Warning: could not load land polygons: {e}")
+        return None, None
+
+
+# Module-level land polygon index (loaded once at startup)
+_DATA_DIR = Path(__file__).parent / "data"
+LAND_POLYGON_GEOMS, LAND_POLYGON_TREE = load_land_polygons(_DATA_DIR)
+
+
+# ============================================================================
 # TILESET-BASED PROCESSING FUNCTIONS
 # ============================================================================
 
@@ -1267,6 +1312,68 @@ def build_water_polygons_for_tile(coastline_features, tile_x, tile_y, tile_size_
     return result_features
 
 
+def build_land_polygon_for_tile(tile_x, tile_y, tile_size_m, epsilon_m=None):
+    """Clip the global land polygon dataset to this tile's bounds.
+
+    Returns a GeoJSON feature with layer='base_land', or None for pure ocean.
+    """
+    if LAND_POLYGON_TREE is None:
+        return None
+
+    from shapely.geometry import box, mapping
+    from shapely.ops import unary_union
+
+    bounds = compute_tile_bounds(tile_x, tile_y, tile_size_m)
+    min_lon, min_lat, max_lon, max_lat = bounds
+    tile_box = box(min_lon, min_lat, max_lon, max_lat)
+
+    # Query index for candidate polygons intersecting tile
+    candidates = LAND_POLYGON_TREE.query(tile_box)
+    if len(candidates) == 0:
+        return None  # Pure ocean tile
+
+    # Get intersecting geometries
+    intersecting = [LAND_POLYGON_GEOMS[i] for i in candidates
+                    if LAND_POLYGON_GEOMS[i].intersects(tile_box)]
+    if not intersecting:
+        return None
+
+    # Union all land polygons and clip to tile
+    try:
+        if len(intersecting) == 1:
+            land = intersecting[0].intersection(tile_box)
+        else:
+            land = unary_union(intersecting).intersection(tile_box)
+    except Exception:
+        return None
+
+    if land.is_empty:
+        return None
+
+    # Simplify if epsilon provided
+    if epsilon_m:
+        epsilon_deg = epsilon_m / 111000
+        try:
+            land = land.simplify(epsilon_deg, preserve_topology=True)
+        except Exception:
+            pass
+
+    if land.is_empty:
+        return None
+
+    return {
+        "type": "Feature",
+        "geometry": mapping(land),
+        "properties": {"base_land": True},
+        "_render": {
+            "layer": "base_land",
+            "color": LAND_BG_COLOR,
+            "fill": True,
+            "minLOD": 0,
+        },
+    }
+
+
 def finalize_tile(tile_jsonl_path, tile_json_path):
     """Read a .jsonl tile, deduplicate, sort by importance, compute _meta, write final .json.
 
@@ -1404,6 +1511,21 @@ def finalize_tile(tile_jsonl_path, tile_json_path):
     for _, feat_str in non_coastline_entries:
         feature_strings.append(feat_str)
 
+    # Prepend base_land polygon (authoritative land area from land polygon dataset)
+    has_base_land = False
+    if LAND_POLYGON_TREE is not None:
+        epsilon_m = TILESET_COASTLINE_EPSILON.get(tileset_id)
+        try:
+            base_feat = build_land_polygon_for_tile(tile_x, tile_y, tile_size_m, epsilon_m)
+            if base_feat is not None:
+                has_base_land = True
+                has_land_features = True  # ensure land background fallback
+                feature_strings.insert(0, json.dumps(
+                    base_feat, separators=(",", ":"), default=decimal_default
+                ))
+        except Exception:
+            pass
+
     # Write final tile JSON
     tile_json_path.parent.mkdir(parents=True, exist_ok=True)
     with open(tile_json_path, "w", encoding="utf-8") as f:
@@ -1412,6 +1534,8 @@ def finalize_tile(tile_jsonl_path, tile_json_path):
         f.write("true" if has_coastline else "false")
         f.write(',"hasLandFeatures":')
         f.write("true" if has_land_features else "false")
+        f.write(',"hasBaseLand":')
+        f.write("true" if has_base_land else "false")
         f.write('},"features":[')
         f.write(",".join(feature_strings))
         f.write("]}")

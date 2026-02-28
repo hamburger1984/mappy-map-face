@@ -1978,9 +1978,11 @@ class MapRenderer {
       return {
         hasCoastline: tileData._meta.hasCoastline,
         hasLandFeatures: tileData._meta.hasLandFeatures,
+        hasBaseLand: tileData._meta.hasBaseLand || false,
         isEmpty:
           !tileData._meta.hasCoastline &&
           !tileData._meta.hasLandFeatures &&
+          !tileData._meta.hasBaseLand &&
           (!tileData.features || tileData.features.length === 0),
       };
     }
@@ -1989,14 +1991,19 @@ class MapRenderer {
 
     // Fallback: analyze tile features (for tiles without metadata)
     if (!tileData || !tileData.features || tileData.features.length === 0) {
-      return { hasCoastline: false, hasLandFeatures: false, isEmpty: true };
+      return { hasCoastline: false, hasLandFeatures: false, hasBaseLand: false, isEmpty: true };
     }
 
     let hasCoastline = false;
     let hasLandFeatures = false;
+    let hasBaseLand = false;
 
     for (const feature of tileData.features) {
       const props = feature.properties || {};
+
+      if (props.base_land) {
+        hasBaseLand = true;
+      }
 
       // Check for coastline
       if (props.natural === "coastline") {
@@ -2030,8 +2037,8 @@ class MapRenderer {
         hasLandFeatures = true;
       }
 
-      // Early exit if we found both
-      if (hasCoastline && hasLandFeatures) {
+      // Early exit if we found all
+      if (hasCoastline && hasLandFeatures && hasBaseLand) {
         break;
       }
     }
@@ -2039,6 +2046,7 @@ class MapRenderer {
     return {
       hasCoastline,
       hasLandFeatures,
+      hasBaseLand,
       isEmpty: false,
     };
   }
@@ -2075,8 +2083,12 @@ class MapRenderer {
 
       const tileBounds = this.getTileBounds(tile.tileset, tile.x, tile.y);
 
+      // Tiles with authoritative base_land polygon — the polygon layer handles color
+      if (analysis.hasBaseLand) {
+        // skip: base_land layer renders the correct land/ocean split
+      }
       // Coastline tiles use land background — water polygons paint the ocean parts
-      if (analysis.hasCoastline) {
+      else if (analysis.hasCoastline) {
         this.fillTileBounds(tileBounds, LAND_COLOR, bounds);
       }
       // Land tiles (no coastline) get land color
@@ -2497,6 +2509,7 @@ class MapRenderer {
     // Reuse layer arrays (avoid reallocating every frame)
     if (!this._layers) {
       this._layers = {
+        base_land: [], // Land polygons from authoritative land polygon dataset
         natural_background: [],
         forests: [],
         water_areas: [],
@@ -2666,8 +2679,13 @@ class MapRenderer {
     // Background to foreground (bottom to top)
     const layerTimings = {};
 
-    // 0. Ocean water (coastline-derived polygons — right after background fill)
+    // 0a. Base land polygons (authoritative land area — rendered before ocean water)
     let layerStart = performance.now();
+    this.renderLayer(layers.base_land, adjustedBounds, true);
+    layerTimings.baseLand = performance.now() - layerStart;
+
+    // 0b. Ocean water (coastline-derived polygons — painted over base land)
+    layerStart = performance.now();
     this.renderLayer(layers.ocean_water, adjustedBounds, true);
     layerTimings.ocean = performance.now() - layerStart;
 
@@ -3022,6 +3040,16 @@ class MapRenderer {
     const isIsland = props.place === "islet" || props.place === "island";
 
     // === FILLED AREAS (polygons) ===
+
+    // Base land polygons (from authoritative land polygon dataset — rendered first)
+    if (props.base_land) {
+      return {
+        layer: "base_land",
+        color: getColor("background", "land"),
+        minLOD: 0,
+        fill: true,
+      };
+    }
 
     // Ocean water polygons (from coastline conversion — rendered after inland water)
     if (props.water === "ocean") {
