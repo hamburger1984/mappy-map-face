@@ -1441,6 +1441,9 @@ def finalize_tile(tile_jsonl_path, tile_json_path):
             with open(tile_json_path, "r", encoding="utf-8") as f:
                 existing_tile = json.load(f)
                 for feat in existing_tile.get("features", []):
+                    # Skip stale base_land features — they'll be regenerated fresh
+                    if feat.get("properties", {}).get("base_land"):
+                        continue
                     feat_str = json.dumps(feat, separators=(",", ":"))
                     if feat_str not in seen:
                         seen.add(feat_str)
