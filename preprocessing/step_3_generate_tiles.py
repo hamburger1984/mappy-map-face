@@ -1499,40 +1499,8 @@ def finalize_tile(tile_jsonl_path, tile_json_path):
             pass
         non_coastline_entries.append((importance, feat_str))
 
-    # Convert coastline LineStrings to water polygons
-    feature_strings = []
-    if coastline_features:
-        try:
-            water_polys = build_water_polygons_for_tile(
-                coastline_features, tile_x, tile_y, tile_size_m
-            )
-            # Simplify ocean polygons using the tileset's coastline epsilon
-            epsilon_m = TILESET_COASTLINE_EPSILON.get(tileset_id)
-            if epsilon_m:
-                from shapely.geometry import shape as _shape, mapping as _mapping
-                epsilon_deg = epsilon_m / 111000
-                for water_feat in water_polys:
-                    try:
-                        sg = _shape(water_feat["geometry"])
-                        sg = sg.simplify(epsilon_deg, preserve_topology=True)
-                        water_feat["geometry"] = _mapping(sg)
-                    except Exception:
-                        pass
-            for water_feat in water_polys:
-                feat_str = json.dumps(
-                    water_feat, separators=(",", ":"), default=decimal_default
-                )
-                feature_strings.append(feat_str)
-            # If coastline didn't produce any ocean polygons (e.g. coastline
-            # assigned to tile but doesn't actually intersect it), don't
-            # mark the tile as having coastline — it would get land background
-            # with no ocean to paint over it.
-            if not water_polys:
-                has_coastline = False
-        except Exception:
-            pass
-
     # Add non-coastline features
+    feature_strings = []
     for _, feat_str in non_coastline_entries:
         feature_strings.append(feat_str)
 
@@ -1561,6 +1529,8 @@ def finalize_tile(tile_jsonl_path, tile_json_path):
         f.write("true" if has_land_features else "false")
         f.write(',"hasBaseLand":')
         f.write("true" if has_base_land else "false")
+        f.write(',"landPolygonsAvailable":')
+        f.write("true" if LAND_POLYGON_TREE is not None else "false")
         f.write('},"features":[')
         f.write(",".join(feature_strings))
         f.write("]}")
