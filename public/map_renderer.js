@@ -303,6 +303,7 @@ class MapRenderer {
     this.hoverInfoEnabled = false; // Toggle for hover info mode
     this.showTileEdges = false; // Toggle for tile edge visualization
     this.showCoastline = false; // Toggle for coastline debug visualization
+    this.showOcean = true; // Toggle for ocean rendering (base_land + ocean_water layers)
     this.tileLabels = []; // Clickable tile label hit areas: { x, y, w, h, id }
 
     // POI category state and glyph cache
@@ -2068,6 +2069,13 @@ class MapRenderer {
       tileAnalyses.set(tileKey, analysis);
     }
 
+    if (!this.showOcean) {
+      // Ocean hidden: fill everything with land color, no per-tile logic needed
+      this.ctx.fillStyle = LAND_COLOR;
+      this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
+      return;
+    }
+
     // Default background is always ocean
     this.ctx.fillStyle = OCEAN_COLOR;
     this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
@@ -2681,12 +2689,16 @@ class MapRenderer {
 
     // 0a. Base land polygons (authoritative land area — rendered before ocean water)
     let layerStart = performance.now();
-    this.renderLayer(layers.base_land, adjustedBounds, true);
+    if (this.showOcean) {
+      this.renderLayer(layers.base_land, adjustedBounds, true);
+    }
     layerTimings.baseLand = performance.now() - layerStart;
 
     // 0b. Ocean water (coastline-derived polygons — painted over base land)
     layerStart = performance.now();
-    this.renderLayer(layers.ocean_water, adjustedBounds, true);
+    if (this.showOcean) {
+      this.renderLayer(layers.ocean_water, adjustedBounds, true);
+    }
     layerTimings.ocean = performance.now() - layerStart;
 
     // 1. Natural background (parks, farmland, meadows, wetland)
@@ -6769,6 +6781,24 @@ class MapRenderer {
     }
   }
 
+  toggleOcean() {
+    this.showOcean = !this.showOcean;
+    this.updateOceanUI();
+    this.renderMap();
+  }
+
+  updateOceanUI() {
+    const btn = document.getElementById("toggleOceanBtn");
+    if (!btn) return;
+    if (this.showOcean) {
+      btn.textContent = "Ocean: ON";
+      btn.classList.remove("inactive");
+    } else {
+      btn.textContent = "Ocean: OFF";
+      btn.classList.add("inactive");
+    }
+  }
+
   drawTileEdges(bounds) {
     const visibleTiles = this.getVisibleTiles(bounds);
     if (!visibleTiles || visibleTiles.length === 0) return;
@@ -7001,10 +7031,17 @@ async function initApp() {
       renderer.toggleCoastline();
     });
 
+  document
+    .getElementById("toggleOceanBtn")
+    .addEventListener("click", () => {
+      renderer.toggleOcean();
+    });
+
   // Set initial UI state
   renderer.updateHoverUI();
   renderer.updateTileEdgesUI();
   renderer.updateCoastlineUI();
+  renderer.updateOceanUI();
 
   // Auto-render on load
   renderer.renderMap();
