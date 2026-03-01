@@ -2069,13 +2069,6 @@ class MapRenderer {
       tileAnalyses.set(tileKey, analysis);
     }
 
-    if (!this.showOcean) {
-      // Ocean hidden: fill everything with land color, no per-tile logic needed
-      this.ctx.fillStyle = LAND_COLOR;
-      this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
-      return;
-    }
-
     // Default background is always ocean
     this.ctx.fillStyle = OCEAN_COLOR;
     this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
@@ -2689,9 +2682,7 @@ class MapRenderer {
 
     // 0a. Base land polygons (authoritative land area — rendered before ocean water)
     let layerStart = performance.now();
-    if (this.showOcean) {
-      this.renderLayer(layers.base_land, adjustedBounds, true);
-    }
+    this.renderLayer(layers.base_land, adjustedBounds, true);
     layerTimings.baseLand = performance.now() - layerStart;
 
     // 0b. Ocean water (coastline-derived polygons — painted over base land)
