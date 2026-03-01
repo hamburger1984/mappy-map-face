@@ -3,38 +3,40 @@
     {
       "id": "t1",
       "name": "Detail",
-      "view_range_meters": [
-        100,
-        2000
-      ],
+      "view_range_meters": [100, 2000],
       "tile_size_meters": 400
     },
     {
       "id": "t2",
       "name": "City",
-      "view_range_meters": [
-        3000,
-        15000
-      ],
+      "view_range_meters": [3000, 15000],
       "tile_size_meters": 2500
     },
     {
       "id": "t3",
       "name": "Region",
-      "view_range_meters": [
-        20000,
-        150000
-      ],
+      "view_range_meters": [20000, 150000],
       "tile_size_meters": 25000
     },
     {
       "id": "t4",
       "name": "Overview",
-      "view_range_meters": [
-        200000,
-        1000000
-      ],
+      "view_range_meters": [200000, 1000000],
       "tile_size_meters": 50000
     }
+  ],
+  "poiCategoryPriority": [
+    "health",
+    "restaurant",
+    "cafe", "bakery", "ice_cream",
+    "tourism", "historic",
+    "theatre", "cinema",
+    "nightlife",
+    "supermarket", "shopping",
+    "education", "bank", "police", "library",
+    "transport",
+    "services", "recreation",
+    "swimming",
+    "toilets"
   ]
 }

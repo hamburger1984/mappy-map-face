@@ -106,6 +106,17 @@ feature_templates:
       color: [255, 241, 186, 255]
       fill: true
 
+  sand: &sand
+    name: "sand"
+    osm_match:
+      geometry: ["Polygon", "MultiPolygon"]
+      tags:
+        natural: ["sand"]
+    render:
+      layer: "natural_background"
+      color: [255, 241, 186, 255]
+      fill: true
+
   forests_all: &forests_all
     name: "forests_all"
     osm_match:
@@ -199,6 +210,34 @@ feature_templates:
       color: [255, 255, 255, 255]
       show_name: true
       name_priority: 5
+
+  service_roads: &service_roads
+    name: "service_roads"
+    osm_match:
+      geometry: ["LineString", "MultiLineString"]
+      tags:
+        highway: ["service", "busway"]
+      preserve_tags: ["name"]
+    render:
+      layer: "roads"
+      color: [255, 255, 255, 255]
+      show_name: true
+      name_priority: 6
+
+  tracks: &tracks
+    name: "tracks"
+    osm_match:
+      geometry: ["LineString", "MultiLineString"]
+      tags:
+        highway: ["track"]
+      preserve_tags: ["name"]
+    render:
+      layer: "roads"
+      color: [180, 170, 150, 255]
+      stroke_width_px: 1
+      dash_pattern: [4, 4]
+      show_name: true
+      name_priority: 7
 
   minor_roads: &minor_roads
     name: "minor_roads"
@@ -535,6 +574,44 @@ feature_templates:
       color: [255, 241, 186, 255]
       fill: true
 
+  # General sports pitches (tennis, soccer, hockey, basketball, etc.)
+  sports_pitch: &sports_pitch
+    name: "sports_pitch"
+    osm_match:
+      geometry: ["Polygon", "MultiPolygon"]
+      tags:
+        leisure: ["pitch"]
+      preserve_tags: ["sport"]
+    render:
+      layer: "recreation"
+      color: [180, 225, 200, 255]
+      fill: true
+
+  # Sports centres, sports halls, tracks (horse racing, athletics)
+  sports_facility: &sports_facility
+    name: "sports_facility"
+    osm_match:
+      geometry: ["Polygon", "MultiPolygon"]
+      tags:
+        leisure: ["sports_centre", "sports_hall", "track", "stadium"]
+      preserve_tags: ["sport"]
+    render:
+      layer: "recreation"
+      color: [200, 230, 210, 255]
+      fill: true
+
+  # Miniature golf
+  miniature_golf: &miniature_golf
+    name: "miniature_golf"
+    osm_match:
+      geometry: ["Polygon", "MultiPolygon"]
+      tags:
+        leisure: ["miniature_golf"]
+    render:
+      layer: "recreation"
+      color: [195, 235, 195, 255]
+      fill: true
+
   # --- Aeroways ---
   runways: &runways
     name: "runways"
@@ -823,6 +900,8 @@ tilesets:
         simplification: { epsilon_m: 0.05 }
       - <<: *beach
         simplification: { epsilon_m: 0.05 }
+      - <<: *sand
+        simplification: { epsilon_m: 0.05 }
       - <<: *cliff
         simplification: { epsilon_m: 0.05 }
       - <<: *forests_all
@@ -893,6 +972,12 @@ tilesets:
         simplification: { epsilon_m: 0.05 }
       - <<: *beach_volleyball
         simplification: { epsilon_m: 0.05 }
+      - <<: *sports_pitch
+        simplification: { epsilon_m: 0.05 }
+      - <<: *sports_facility
+        simplification: { epsilon_m: 0.05 }
+      - <<: *miniature_golf
+        simplification: { epsilon_m: 0.05 }
       - <<: *runways
         simplification: { epsilon_m: 0.05 }
       - <<: *taxiways
@@ -943,6 +1028,8 @@ tilesets:
         simplification: { epsilon_m: 3 }
       - <<: *beach
         simplification: { epsilon_m: 3 }
+      - <<: *sand
+        simplification: { epsilon_m: 3 }
       - <<: *forests_all
         simplification: { epsilon_m: 3 }
       - <<: *motorways
@@ -955,7 +1042,10 @@ tilesets:
         simplification: { epsilon_m: 3 }
       - <<: *residential_roads
         simplification: { epsilon_m: 3 }
-      # NO minor_roads
+      - <<: *tracks
+        simplification: { epsilon_m: 3 }
+      - <<: *service_roads
+        simplification: { epsilon_m: 3 }
       - <<: *major_rail
         simplification: { epsilon_m: 3 }
       - <<: *subway_light_rail
@@ -1009,6 +1099,12 @@ tilesets:
       - <<: *table_tennis
         simplification: { epsilon_m: 3 }
       - <<: *beach_volleyball
+        simplification: { epsilon_m: 3 }
+      - <<: *sports_pitch
+        simplification: { epsilon_m: 3 }
+      - <<: *sports_facility
+        simplification: { epsilon_m: 3 }
+      - <<: *miniature_golf
         simplification: { epsilon_m: 3 }
       - <<: *runways
         simplification: { epsilon_m: 3 }
@@ -1090,6 +1186,17 @@ tilesets:
           geometry: ["Polygon", "MultiPolygon"]
           tags:
             natural: ["beach"]
+          min_area_km2: 0.05
+        render:
+          layer: "natural_background"
+          color: [255, 241, 186, 255]
+          fill: true
+        simplification: { epsilon_m: 50 }
+      - name: "sand_medium_large"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["sand"]
           min_area_km2: 0.05
         render:
           layer: "natural_background"

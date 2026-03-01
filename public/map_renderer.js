@@ -150,14 +150,36 @@ const POI_CATEGORIES = {
       "highwater_mark",
     ]),
   },
+  theatre: {
+    label: "Theatres",
+    color: getColor("poi", "theatre"),
+    amenity: new Set(["theatre"]),
+  },
+  cinema: {
+    label: "Cinemas",
+    color: getColor("poi", "cinema"),
+    amenity: new Set(["cinema"]),
+  },
+  police: {
+    label: "Police",
+    color: getColor("poi", "police"),
+    amenity: new Set(["police"]),
+  },
+  bank: {
+    label: "Banks",
+    color: getColor("poi", "bank"),
+    amenity: new Set(["bank", "atm", "bureau_de_change"]),
+  },
+  library: {
+    label: "Libraries",
+    color: getColor("poi", "library"),
+    amenity: new Set(["library"]),
+  },
   services: {
     label: "Services",
     color: getColor("poi", "services"),
     amenity: new Set([
-      "bank",
       "post_office",
-      "library",
-      "police",
       "fire_station",
       "townhall",
       "courthouse",
@@ -165,15 +187,10 @@ const POI_CATEGORIES = {
       "community_centre",
       "social_facility",
       "place_of_worship",
-      "cinema",
-      "theatre",
       "arts_centre",
       "driving_school",
       "recycling",
       "post_box",
-      "atm",
-      "bureau_de_change",
-      "toilets",
       "events_venue",
       "childcare",
     ]),
@@ -226,6 +243,19 @@ const POI_CATEGORIES = {
     color: getColor("poi", "services"),
     sport: new Set(["table_tennis"]),
   },
+  toilets: {
+    label: "Toilets",
+    color: getColor("poi", "toilets"),
+    amenity: new Set(["toilets"]),
+    maxViewWidth: 1000,
+  },
+  swimming: {
+    label: "Swimming & Wellness",
+    color: getColor("poi", "swimming"),
+    amenity: new Set(["public_bath", "sauna"]),
+    leisure: new Set(["swimming_pool", "sauna", "spa", "water_park"]),
+    maxViewWidth: 1000,
+  },
 };
 
 // Classification priority order for amenity tags
@@ -238,6 +268,12 @@ const POI_AMENITY_PRIORITY = [
   "health",
   "education",
   "transport",
+  "theatre",
+  "cinema",
+  "police",
+  "bank",
+  "library",
+  "swimming",
   "services",
 ];
 
@@ -302,7 +338,6 @@ class MapRenderer {
     this.selectedFeature = null;
     this.hoverInfoEnabled = false; // Toggle for hover info mode
     this.showTileEdges = false; // Toggle for tile edge visualization
-    this.showCoastline = false; // Toggle for coastline debug visualization
     this.tileLabels = []; // Clickable tile label hit areas: { x, y, w, h, id }
 
     // POI category state and glyph cache
@@ -363,6 +398,10 @@ class MapRenderer {
       }
       const config = await response.json();
       this.tilesets = config.tilesets;
+      // Convert priority array (index = priority) to lookup map
+      this.poiCategoryPriority = Array.isArray(config.poiCategoryPriority)
+        ? Object.fromEntries(config.poiCategoryPriority.map((cat, i) => [cat, i]))
+        : null;
       console.log("Loaded tileset configuration:", this.tilesets);
 
       // Set up event listeners for zoom and pan
@@ -395,6 +434,21 @@ class MapRenderer {
     }
   }
 
+  _ensurePatternMaskCanvas() {
+    const w = this.canvasWidth;
+    const h = this.canvasHeight;
+    if (
+      !this._patternMaskCanvas ||
+      this._patternMaskCanvas.width !== w ||
+      this._patternMaskCanvas.height !== h
+    ) {
+      this._patternMaskCanvas = document.createElement("canvas");
+      this._patternMaskCanvas.width = w;
+      this._patternMaskCanvas.height = h;
+    }
+    return this._patternMaskCanvas;
+  }
+
   initPatternCache() {
     // Create pattern canvases for natural features
     const patterns = {
@@ -409,6 +463,7 @@ class MapRenderer {
       beach: this.createBeachPattern(),
       beach_volleyball: this.createBeachVolleyballPattern(),
       picnic_site: this.createPicnicSitePattern(),
+      military_hatch: this.createMilitaryHatchPattern(),
     };
 
     // Store canvases (for pattern tile size lookup) and create CanvasPattern objects
@@ -899,6 +954,31 @@ class MapRenderer {
     return canvas;
   }
 
+  createMilitaryHatchPattern() {
+    // Military zone: diagonal hatch overlay so underlying features show through
+    const size = 16;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+
+    // Light base tint
+    ctx.fillStyle = "rgba(220, 180, 180, 0.2)";
+    ctx.fillRect(0, 0, size, size);
+
+    // Diagonal lines at 45°
+    ctx.strokeStyle = "rgba(180, 100, 100, 0.35)";
+    ctx.lineWidth = 1.5;
+    for (let i = -size; i < size * 2; i += 7) {
+      ctx.beginPath();
+      ctx.moveTo(i, 0);
+      ctx.lineTo(i + size, size);
+      ctx.stroke();
+    }
+
+    return canvas;
+  }
+
   drawGlyph(ctx, categoryId, color, size) {
     const cx = size / 2;
     const cy = size / 2;
@@ -954,33 +1034,39 @@ class MapRenderer {
         break;
       }
       case "restaurant": {
-        // Plate with fork and knife (🍽️ style)
-        // Plate — filled circle
+        // Large fork (left) and knife (right) filling the glyph — no plate
+        const forkX = cx - r * 0.48;
+        const knifeX = cx + r * 0.48;
+        const top = cy - r;
+        const bot = cy + r;
+        const neckY = cy + r * 0.05; // where tines / blade meet handle
+
+        // Fork handle (thick stem from bottom to neck)
         ctx.beginPath();
-        ctx.arc(cx, cy, r * 0.75, 0, Math.PI * 2);
+        ctx.moveTo(forkX, bot);
+        ctx.lineTo(forkX, neckY);
+        haloStroke(r * 0.22);
+        // 3 tines (thinner, evenly spread)
+        const spread = r * 0.22;
+        for (let t = -1; t <= 1; t++) {
+          ctx.beginPath();
+          ctx.moveTo(forkX + t * spread, neckY);
+          ctx.lineTo(forkX + t * spread, top);
+          haloStroke(r * 0.12);
+        }
+
+        // Knife handle (thick stem)
+        ctx.beginPath();
+        ctx.moveTo(knifeX, bot);
+        ctx.lineTo(knifeX, neckY);
+        haloStroke(r * 0.22);
+        // Blade: straight spine on left, curved cutting edge on right
+        ctx.beginPath();
+        ctx.moveTo(knifeX, neckY);
+        ctx.lineTo(knifeX, top);
+        ctx.quadraticCurveTo(knifeX + r * 0.5, cy, knifeX, neckY);
+        ctx.closePath();
         haloFill();
-        // Fork — left side, 3 tines + handle
-        const forkX = cx - r * 1.15;
-        ctx.beginPath();
-        ctx.moveTo(forkX, cy + r);
-        ctx.lineTo(forkX, cy - r * 0.1);
-        // Tines
-        ctx.moveTo(forkX - r * 0.2, cy - r * 0.1);
-        ctx.lineTo(forkX - r * 0.2, cy - r * 0.7);
-        ctx.moveTo(forkX, cy - r * 0.1);
-        ctx.lineTo(forkX, cy - r * 0.7);
-        ctx.moveTo(forkX + r * 0.2, cy - r * 0.1);
-        ctx.lineTo(forkX + r * 0.2, cy - r * 0.7);
-        haloStroke(1.2);
-        // Knife — right side, blade + handle
-        const knifeX = cx + r * 1.15;
-        ctx.beginPath();
-        ctx.moveTo(knifeX, cy + r);
-        ctx.lineTo(knifeX, cy - r * 0.2);
-        // Blade widens slightly
-        ctx.lineTo(knifeX + r * 0.15, cy - r * 0.5);
-        ctx.lineTo(knifeX, cy - r * 0.8);
-        haloStroke(1.2);
         break;
       }
       case "ice_cream": {
@@ -1182,6 +1268,18 @@ class MapRenderer {
         haloStroke(1.2);
         break;
       }
+      case "toilets": {
+        // Circle with "WC" text
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.9, 0, Math.PI * 2);
+        haloFill();
+        ctx.fillStyle = "white";
+        ctx.font = `bold ${Math.round(r * 0.85)}px Arial`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("WC", cx, cy + r * 0.05);
+        break;
+      }
       case "recreation": {
         // Table tennis paddle
         const pr = r * 0.6;
@@ -1198,6 +1296,158 @@ class MapRenderer {
         haloFill();
         break;
       }
+      case "swimming": {
+        // Single bold wave: crest then trough spanning the full glyph width
+        const wR = r * 0.55;
+        ctx.beginPath();
+        ctx.moveTo(cx - wR * 2, cy);
+        ctx.arc(cx - wR,  cy, wR, Math.PI, 0, false); // crest (via top)
+        ctx.arc(cx + wR,  cy, wR, Math.PI, 0, true);  // trough (via bottom)
+        haloStroke(r * 0.22);
+        break;
+      }
+      case "theatre": {
+        // Comedy/tragedy masks — two overlapping ovals with expressions
+        const mr = r * 0.52;
+        // Left mask (tragedy, frown)
+        ctx.beginPath();
+        ctx.ellipse(cx - r * 0.3, cy - r * 0.05, mr * 0.72, mr, 0, 0, Math.PI * 2);
+        haloFill();
+        // Frown
+        ctx.beginPath();
+        ctx.arc(cx - r * 0.3, cy + mr * 0.15, mr * 0.38, Math.PI * 0.15, Math.PI * 0.85);
+        haloStroke(1.2);
+        // Right mask (comedy, smile) — offset right and slightly up
+        ctx.beginPath();
+        ctx.ellipse(cx + r * 0.3, cy + r * 0.05, mr * 0.72, mr, 0, 0, Math.PI * 2);
+        haloFill();
+        // Smile
+        ctx.beginPath();
+        ctx.arc(cx + r * 0.3, cy - mr * 0.15, mr * 0.38, Math.PI * 0.15, Math.PI * 0.85, true);
+        haloStroke(1.2);
+        break;
+      }
+      case "cinema": {
+        // Clapperboard — rectangle body with striped top bar
+        const bw = r * 1.5, bh = r * 1.1;
+        const bx = cx - bw / 2, by = cy - bh / 2 + r * 0.15;
+        // Board body
+        ctx.beginPath();
+        ctx.rect(bx, by, bw, bh);
+        haloFill();
+        // Top clapper bar
+        const barH = bh * 0.3;
+        ctx.beginPath();
+        ctx.rect(bx, by - barH, bw, barH);
+        haloFill();
+        // Diagonal stripes on bar (white lines on colored bar)
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(bx, by - barH, bw, barH);
+        ctx.clip();
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = 1.5;
+        for (let i = -1; i <= 3; i++) {
+          const ox = i * (bw * 0.35);
+          ctx.beginPath();
+          ctx.moveTo(bx + ox, by - barH);
+          ctx.lineTo(bx + ox + barH * 0.8, by);
+          ctx.stroke();
+        }
+        ctx.restore();
+        break;
+      }
+      case "police": {
+        // Badge / shield shape
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - r);
+        ctx.lineTo(cx + r * 0.85, cy - r * 0.45);
+        ctx.lineTo(cx + r * 0.85, cy + r * 0.2);
+        ctx.quadraticCurveTo(cx + r * 0.85, cy + r * 1.05, cx, cy + r);
+        ctx.quadraticCurveTo(cx - r * 0.85, cy + r * 1.05, cx - r * 0.85, cy + r * 0.2);
+        ctx.lineTo(cx - r * 0.85, cy - r * 0.45);
+        ctx.closePath();
+        haloFill();
+        // Star in center — 5-point
+        ctx.beginPath();
+        const sr = r * 0.38, ir = r * 0.16;
+        for (let i = 0; i < 10; i++) {
+          const angle = (i * Math.PI) / 5 - Math.PI / 2;
+          const rad = i % 2 === 0 ? sr : ir;
+          if (i === 0) ctx.moveTo(cx + rad * Math.cos(angle), cy + rad * Math.sin(angle) + r * 0.05);
+          else ctx.lineTo(cx + rad * Math.cos(angle), cy + rad * Math.sin(angle) + r * 0.05);
+        }
+        ctx.closePath();
+        ctx.fillStyle = "white";
+        ctx.fill();
+        break;
+      }
+      case "library": {
+        // Open book — two pages spreading from a center spine
+        const bh = r * 1.4, bw = r * 0.85;
+        // Left page
+        ctx.beginPath();
+        ctx.moveTo(cx - r * 0.1, cy - bh / 2);
+        ctx.lineTo(cx - r * 0.1 - bw, cy - bh / 2 + r * 0.2);
+        ctx.lineTo(cx - r * 0.1 - bw, cy + bh / 2);
+        ctx.lineTo(cx - r * 0.1, cy + bh / 2);
+        ctx.closePath();
+        haloFill();
+        // Right page (mirror)
+        ctx.beginPath();
+        ctx.moveTo(cx + r * 0.1, cy - bh / 2);
+        ctx.lineTo(cx + r * 0.1 + bw, cy - bh / 2 + r * 0.2);
+        ctx.lineTo(cx + r * 0.1 + bw, cy + bh / 2);
+        ctx.lineTo(cx + r * 0.1, cy + bh / 2);
+        ctx.closePath();
+        haloFill();
+        // Spine (center gap line)
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - bh / 2);
+        ctx.lineTo(cx, cy + bh / 2);
+        haloStroke(r * 0.15);
+        // Text lines on left page (2 lines)
+        for (let i = 0; i < 2; i++) {
+          const ly = cy - r * 0.2 + i * r * 0.45;
+          ctx.beginPath();
+          ctx.moveTo(cx - r * 0.15, ly);
+          ctx.lineTo(cx - r * 0.15 - bw * 0.7, ly + r * 0.06);
+          haloStroke(r * 0.1);
+        }
+        // Text lines on right page (2 lines)
+        for (let i = 0; i < 2; i++) {
+          const ly = cy - r * 0.2 + i * r * 0.45;
+          ctx.beginPath();
+          ctx.moveTo(cx + r * 0.15, ly);
+          ctx.lineTo(cx + r * 0.15 + bw * 0.7, ly + r * 0.06);
+          haloStroke(r * 0.1);
+        }
+        break;
+      }
+      case "bank": {
+        // Classic bank building — base, columns, pediment
+        const bw2 = r * 1.5, bh2 = r * 0.65;
+        // Base
+        ctx.beginPath();
+        ctx.rect(cx - bw2 / 2, cy + r * 0.35, bw2, r * 0.3);
+        haloFill();
+        // Columns (3)
+        const colW = bw2 * 0.18, colH = bh2;
+        for (let i = 0; i < 3; i++) {
+          const colX = cx - bw2 / 2 + bw2 * 0.15 + i * (bw2 * 0.35);
+          ctx.beginPath();
+          ctx.rect(colX, cy - r * 0.3, colW, colH);
+          haloFill();
+        }
+        // Pediment (triangle top)
+        ctx.beginPath();
+        ctx.moveTo(cx - bw2 / 2, cy - r * 0.3);
+        ctx.lineTo(cx, cy - r);
+        ctx.lineTo(cx + bw2 / 2, cy - r * 0.3);
+        ctx.closePath();
+        haloFill();
+        break;
+      }
     }
   }
 
@@ -1205,7 +1455,14 @@ class MapRenderer {
     // Mouse drag for pan
     let mouseDownPos = null;
 
+    this.canvas.addEventListener("mouseleave", () => {
+      this._lastMousePos = null;
+      if (this._hoveredPOI) { this._hoveredPOI = null; this.debouncedRender(); }
+      this.hideTooltip();
+    });
+
     this.canvas.addEventListener("mousedown", (e) => {
+      this.hideTooltip();
       this.isPanning = true;
       this.lastPanX = e.clientX;
       this.lastPanY = e.clientY;
@@ -1214,6 +1471,8 @@ class MapRenderer {
     });
 
     this.canvas.addEventListener("mousemove", (e) => {
+      const rect2 = this.canvas.getBoundingClientRect();
+      this._lastMousePos = { x: e.clientX - rect2.left, y: e.clientY - rect2.top };
       if (this.isPanning) {
         const dx = e.clientX - this.lastPanX;
         const dy = e.clientY - this.lastPanY;
@@ -1241,6 +1500,12 @@ class MapRenderer {
         // Check for feature hover (only if hover info is enabled and nothing is selected)
         if (this.hoverInfoEnabled && !this.selectedFeature) {
           this.checkFeatureHover(e);
+        }
+        // POI tooltip when hover info is off and we're in t1
+        if (!this.hoverInfoEnabled && this.getTilesetForView() === "t1") {
+          this.checkPOIHover(e);
+        } else if (!this.hoverInfoEnabled) {
+          this.hideTooltip();
         }
       }
     });
@@ -1616,6 +1881,85 @@ class MapRenderer {
     if (tooltip) tooltip.style.display = "none";
   }
 
+  checkPOIHover(e) {
+    if (!this._renderedPOIs || this._renderedPOIs.length === 0) {
+      if (this._hoveredPOI) { this._hoveredPOI = null; this.debouncedRender(); }
+      this.hideTooltip();
+      return;
+    }
+    const rect = this.canvas.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+    for (const poi of this._renderedPOIs) {
+      if (this.poiCategoryState[poi.category] === false) continue;
+      const dx = cx - poi.x;
+      const dy = cy - poi.y;
+      if (dx * dx + dy * dy <= poi.hitRadius * poi.hitRadius) {
+        // Update hover state and trigger re-render if it changed
+        const changed = !this._hoveredPOI ||
+          this._hoveredPOI.x !== poi.x || this._hoveredPOI.y !== poi.y;
+        this._hoveredPOI = poi;
+        if (changed) this.debouncedRender();
+        this.showPOITooltip(poi, e.clientX, e.clientY);
+        return;
+      }
+    }
+    // No POI hovered — clear if was set
+    if (this._hoveredPOI) { this._hoveredPOI = null; this.debouncedRender(); }
+    this.hideTooltip();
+  }
+
+  showPOITooltip(poi, x, y) {
+    let tooltip = document.getElementById("mapTooltip");
+    if (!tooltip) {
+      tooltip = document.createElement("div");
+      tooltip.id = "mapTooltip";
+      tooltip.style.cssText = `
+        position: fixed;
+        background: rgba(0,0,0,0.85);
+        color: white;
+        padding: 8px 12px;
+        border-radius: 4px;
+        font-size: 12px;
+        pointer-events: none;
+        z-index: 1000;
+        max-width: 220px;
+        line-height: 1.5;
+      `;
+      document.body.appendChild(tooltip);
+    }
+
+    const props = poi.props || {};
+    const catDef = POI_CATEGORIES[poi.category];
+
+    // Tags to skip — geometry/internal fields and things already shown as category
+    const SKIP = new Set([
+      "name", "type", "layer", "level", "indoor", "tunnel", "bridge",
+      "access", "source", "note", "fixme", "survey:date",
+    ]);
+
+    let html = "";
+    if (props.name) {
+      html += `<strong style="font-size:13px">${props.name}</strong><br>`;
+    }
+    if (catDef) {
+      html += `<span style="color:#aaa;font-size:11px">${catDef.label}</span><br>`;
+    }
+
+    // Show all remaining non-technical tags
+    for (const [key, val] of Object.entries(props)) {
+      if (!val || SKIP.has(key) || key.startsWith("_") || key.startsWith("ref:")) continue;
+      const label = key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+      html += `<span style="color:#ccc">${label}:</span> ${val}<br>`;
+    }
+
+    if (!html) html = `<em style="color:#aaa">(no details)</em>`;
+    tooltip.innerHTML = html;
+    tooltip.style.left = x + 15 + "px";
+    tooltip.style.top = y + 10 + "px";
+    tooltip.style.display = "block";
+  }
+
   updateInfoPanel(feature) {
     const panel = document.getElementById("infoPanel");
     if (!panel) return;
@@ -1879,28 +2223,38 @@ class MapRenderer {
   }
 
   getVisibleTiles(bounds) {
-    // Calculate which tiles are visible in the current viewport using custom tile sizes
+    // Calculate which tiles are visible in the current viewport using custom tile sizes.
+    // Tile width in degrees varies by latitude (tile generator uses each row's own center
+    // latitude), so we compute per-row X ranges to match tile boundaries exactly.
     const tilesetId = this.getTilesetForView();
     const tileset = this.tilesets.find((ts) => ts.id === tilesetId);
     const tileSizeM = tileset.tile_size_meters;
 
-    // Convert bounds to tile coordinates using custom tile size
-    const latAvg = (bounds.minLat + bounds.maxLat) / 2;
-    const metersPerDegLon = 111320 * Math.cos((latAvg * Math.PI) / 180);
     const metersPerDegLat = 111320;
-
-    const tileWidthDeg = tileSizeM / metersPerDegLon;
     const tileHeightDeg = tileSizeM / metersPerDegLat;
 
-    const minX = Math.floor(bounds.minLon / tileWidthDeg);
-    const maxX = Math.floor(bounds.maxLon / tileWidthDeg);
-    const minY = Math.floor(bounds.minLat / tileHeightDeg);
-    const maxY = Math.floor(bounds.maxLat / tileHeightDeg);
+    // Y range from viewport bounds (same for all rows)
+    const minY = Math.floor(bounds.minLat / tileHeightDeg) - 1;
+    const maxY = Math.floor(bounds.maxLat / tileHeightDeg) + 1;
 
+    const seen = new Set();
     const tiles = [];
-    for (let x = minX; x <= maxX; x++) {
-      for (let y = minY; y <= maxY; y++) {
-        tiles.push({ tileset: tilesetId, x, y });
+    for (let y = minY; y <= maxY; y++) {
+      // Use this row's center latitude to compute tile width — matches tile generator
+      const rowCenterLat = (y + 0.5) * tileHeightDeg;
+      const metersPerDegLon =
+        111320 * Math.cos((rowCenterLat * Math.PI) / 180);
+      const tileWidthDeg = tileSizeM / metersPerDegLon;
+
+      const minX = Math.floor(bounds.minLon / tileWidthDeg) - 1;
+      const maxX = Math.floor(bounds.maxLon / tileWidthDeg) + 1;
+
+      for (let x = minX; x <= maxX; x++) {
+        const key = `${x},${y}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          tiles.push({ tileset: tilesetId, x, y });
+        }
       }
     }
     return tiles;
@@ -1976,12 +2330,10 @@ class MapRenderer {
     // Use pre-computed metadata if available (optimization)
     if (tileData && tileData._meta) {
       return {
-        hasCoastline: tileData._meta.hasCoastline,
         hasLandFeatures: tileData._meta.hasLandFeatures,
         hasBaseLand: tileData._meta.hasBaseLand || false,
         landPolygonsAvailable: tileData._meta.landPolygonsAvailable || false,
         isEmpty:
-          !tileData._meta.hasCoastline &&
           !tileData._meta.hasLandFeatures &&
           !tileData._meta.hasBaseLand &&
           (!tileData.features || tileData.features.length === 0),
@@ -1992,10 +2344,13 @@ class MapRenderer {
 
     // Fallback: analyze tile features (for tiles without metadata)
     if (!tileData || !tileData.features || tileData.features.length === 0) {
-      return { hasCoastline: false, hasLandFeatures: false, hasBaseLand: false, isEmpty: true };
+      return {
+        hasLandFeatures: false,
+        hasBaseLand: false,
+        isEmpty: true,
+      };
     }
 
-    let hasCoastline = false;
     let hasLandFeatures = false;
     let hasBaseLand = false;
 
@@ -2006,17 +2361,11 @@ class MapRenderer {
         hasBaseLand = true;
       }
 
-      // Check for coastline
-      if (props.natural === "coastline") {
-        hasCoastline = true;
-      }
-
       // Check for land-specific features
       // Roads, buildings, landuse, etc indicate land
       // Water-related features (wetland, waterway, basin) don't count
       const isWaterRelated =
         props.natural === "water" ||
-        props.natural === "coastline" ||
         (props.natural === "wetland" && props.wetland !== "tidalflat") ||
         props.water ||
         props.waterway ||
@@ -2038,14 +2387,10 @@ class MapRenderer {
         hasLandFeatures = true;
       }
 
-      // Early exit if we found all
-      if (hasCoastline && hasLandFeatures && hasBaseLand) {
-        break;
-      }
+      if (hasLandFeatures && hasBaseLand) break;
     }
 
     return {
-      hasCoastline,
       hasLandFeatures,
       hasBaseLand,
       isEmpty: false,
@@ -2084,17 +2429,13 @@ class MapRenderer {
 
       const tileBounds = this.getTileBounds(tile.tileset, tile.x, tile.y);
 
-      // Land polygon data was used during tile generation: trust it over heuristics
-      if (analysis.landPolygonsAvailable) {
-        if (analysis.hasBaseLand) {
-          // base_land polygon handles the color — nothing to fill here
-        }
-        // hasBaseLand=false + landPolygonsAvailable = confirmed ocean, leave as ocean bg
+      if (analysis.hasBaseLand) {
+        // base_land polygon handles land coloring — ocean background covers water
+      } else if (analysis.landPolygonsAvailable) {
+        // landPolygonsAvailable=true + hasBaseLand=false = confirmed ocean, leave as ocean bg
       }
-      // Fallback heuristics for tiles generated without land polygon data
-      else if (analysis.hasCoastline) {
-        this.fillTileBounds(tileBounds, LAND_COLOR, bounds);
-      } else if (analysis.hasLandFeatures) {
+      // Fallback heuristic for tiles generated without land polygon data
+      else if (analysis.hasLandFeatures) {
         this.fillTileBounds(tileBounds, LAND_COLOR, bounds);
       }
     }
@@ -2521,12 +2862,12 @@ class MapRenderer {
         tunnels: [],
         waterways: [],
         tunnel_waterways: [],
+        steps: [],
         surface_roads: [],
         bridge_roads: [],
         surface_railways: [],
         bridge_railways: [],
         boundaries: [],
-        coastline: [], // Coastline visualization (magenta with arrows)
         points: [],
         place_labels: [], // City/town/village names
         water_labels: [], // Lake/pond/canal/river names
@@ -2593,6 +2934,10 @@ class MapRenderer {
         lodCulledCount++;
         continue;
       }
+      if (featureInfo.maxViewWidth && this.viewWidthMeters > featureInfo.maxViewWidth) {
+        lodCulledCount++;
+        continue;
+      }
 
       // Add to appropriate layer
       if (featureInfo.layer) {
@@ -2619,6 +2964,12 @@ class MapRenderer {
           patternOnly: featureInfo.patternOnly,
           bridgeLayer: featureInfo.bridgeLayer,
           dashPattern: featureInfo.dashPattern,
+          noCasing: featureInfo.noCasing,
+          casingColor: featureInfo.casingColor,
+          tunnelGradient: featureInfo.tunnelGradient,
+          gradientStartAlpha: featureInfo.gradientStartAlpha,
+          gradientEndAlpha: featureInfo.gradientEndAlpha,
+          dualDashColor: featureInfo.dualDashColor,
           isBicycleRoad: featureInfo.isBicycleRoad,
           isRunway: featureInfo.isRunway,
           runwayRef: featureInfo.runwayRef,
@@ -2652,6 +3003,27 @@ class MapRenderer {
             number: featureInfo.houseNumber.number,
             color: featureInfo.color,
           });
+        }
+
+        // Generate centroid POI for named area features (e.g. named swimming pools)
+        if (
+          featureInfo.areaPoiCategory &&
+          props.name &&
+          (type === "Polygon" || type === "MultiPolygon") &&
+          this.poiCategoryState[featureInfo.areaPoiCategory] !== false
+        ) {
+          const centroid = this.getPolygonCentroid(feature.geometry);
+          if (centroid) {
+            const catDef = POI_CATEGORIES[featureInfo.areaPoiCategory];
+            layers.points.push({
+              feature: { geometry: { type: "Point", coordinates: centroid }, properties: props },
+              props,
+              type: "Point",
+              color: catDef.color,
+              fill: false,
+              poiCategory: featureInfo.areaPoiCategory,
+            });
+          }
         }
       }
     }
@@ -2734,20 +3106,25 @@ class MapRenderer {
     this.renderLayer(layers.tunnel_waterways, adjustedBounds, false);
     layerTimings.tunnelWaterways = performance.now() - layerStart;
 
-    // 7. Surface roads (sorted by priority, with outlines)
+    // 7. Surface railways (platforms + rail lines — before roads so roads draw on top)
+    layerStart = performance.now();
+    this.renderLayer(layers.surface_railways, adjustedBounds, true);
+    layerTimings.railways = performance.now() - layerStart;
+
+    // 7b. Steps (between tunnel roads and surface roads)
+    layerStart = performance.now();
+    this.renderRoadLayer(layers.steps, adjustedBounds);
+    layerTimings.steps = performance.now() - layerStart;
+
+    // 7c. Surface roads (sorted by priority, with outlines)
     layerStart = performance.now();
     this.renderRoadLayer(layers.surface_roads, adjustedBounds);
     layerTimings.roads = performance.now() - layerStart;
 
-    // 7b. Street names (rendered on top of roads)
+    // 7c. Street names (rendered on top of roads)
     layerStart = performance.now();
     this.renderStreetNames(layers.surface_roads, adjustedBounds);
     layerTimings.streetNames = performance.now() - layerStart;
-
-    // 8. Surface railways
-    layerStart = performance.now();
-    this.renderLayer(layers.surface_railways, adjustedBounds, false);
-    layerTimings.railways = performance.now() - layerStart;
 
     // 8b. Bridge roads and railways — rendered on top of surface, sorted by ascending layer value
     layerStart = performance.now();
@@ -2767,13 +3144,6 @@ class MapRenderer {
     layerStart = performance.now();
     this.renderLayer(layers.boundaries, adjustedBounds, false);
     layerTimings.boundaries = performance.now() - layerStart;
-
-    // 9b. Coastline with direction arrows (for debugging/visualization)
-    layerStart = performance.now();
-    if (this.showCoastline) {
-      this.renderCoastlineWithArrows(layers.coastline, adjustedBounds);
-    }
-    layerTimings.coastline = performance.now() - layerStart;
 
     // 9c. Aeroway lines (runways, taxiways — on top of roads but under labels/POIs)
     layerStart = performance.now();
@@ -2953,11 +3323,24 @@ class MapRenderer {
     return 4;
   }
 
+  getPolygonCentroid(geometry) {
+    let ring;
+    if (geometry.type === "Polygon") ring = geometry.coordinates[0];
+    else if (geometry.type === "MultiPolygon") ring = geometry.coordinates[0][0];
+    else return null;
+    if (!ring || ring.length < 3) return null;
+    const n = ring.length - 1; // last point closes the ring, skip it
+    let sumLon = 0, sumLat = 0;
+    for (let i = 0; i < n; i++) { sumLon += ring[i][0]; sumLat += ring[i][1]; }
+    return [sumLon / n, sumLat / n];
+  }
+
   classifyPOI(props) {
     const amenity = props.amenity;
     const shop = props.shop;
     const tourism = props.tourism;
     const historic = props.historic;
+    const leisure = props.leisure;
 
     // Check amenity tags first (highest priority)
     if (amenity) {
@@ -2984,6 +3367,12 @@ class MapRenderer {
     if (historic) {
       if (POI_CATEGORIES.historic.historic.has(historic)) return "historic";
       return "historic"; // fallback
+    }
+    // Check leisure tags
+    if (leisure) {
+      for (const [catId, catDef] of Object.entries(POI_CATEGORIES)) {
+        if (catDef.leisure && catDef.leisure.has(leisure)) return catId;
+      }
     }
     // Unmatched amenity -> services
     if (amenity) return "services";
@@ -3072,8 +3461,8 @@ class MapRenderer {
       return result;
     }
 
-    // Beach (sandy areas)
-    if (props.natural === "beach") {
+    // Beach / Sand (sandy areas and sandbanks)
+    if (props.natural === "beach" || props.natural === "sand") {
       return {
         layer: "natural_background",
         color: getColor("natural", "beach"),
@@ -3095,7 +3484,10 @@ class MapRenderer {
     }
 
     // Cliffs (directional line feature)
-    if (props.natural === "cliff" && (type === "LineString" || type === "MultiLineString")) {
+    if (
+      props.natural === "cliff" &&
+      (type === "LineString" || type === "MultiLineString")
+    ) {
       return {
         layer: "natural_background",
         color: { r: 140, g: 120, b: 100, a: 255 },
@@ -3299,13 +3691,15 @@ class MapRenderer {
       };
     }
 
-    // Landuse areas - military
-    if (props.landuse === "military") {
+    // Landuse areas - military (crosshatch overlay so roads/forests inside remain visible)
+    if (props.landuse === "military" || props.military) {
       return {
         layer: "landuse_areas",
         color: getColor("landuse", "military"),
         minLOD: 1,
         fill: true,
+        pattern: "military_hatch",
+        patternOnly: true,
       };
     }
 
@@ -3403,14 +3797,14 @@ class MapRenderer {
 
     // Table tennis is handled as a Point marker, not a polygon
 
-    // Swimming pools and public baths
+    // Swimming pools and public baths — subtle blue-tinted fill, no pattern
     if (props.leisure === "swimming_pool" || props.amenity === "public_bath") {
       return {
         layer: "landuse_areas",
-        color: getColor("recreation", "swimmingPool"),
+        color: getColor("buildings", "public"),
         minLOD: 2,
         fill: true,
-        pattern: "swimming_pool",
+        areaPoiCategory: "swimming",
       };
     }
 
@@ -3432,16 +3826,59 @@ class MapRenderer {
       };
     }
 
-    // Leisure areas - recreation grounds, gardens, sports (without specific patterns)
-    if (
-      props.landuse === "recreation_ground" ||
-      props.leisure === "garden" ||
-      props.leisure === "pitch" ||
-      props.leisure === "sports_centre"
-    ) {
+    // Leisure areas - recreation grounds and gardens
+    if (props.landuse === "recreation_ground" || props.leisure === "garden") {
       return {
         layer: "landuse_areas",
         color: getColor("specialPurpose", "recreation"),
+        minLOD: 1,
+        fill: true,
+      };
+    }
+
+    // Sports pitches - sport-specific colors
+    if (props.leisure === "pitch") {
+      const sport = props.sport || "";
+      let color;
+      if (sport === "basketball" || sport === "skateboard" || sport === "multi") {
+        color = getColor("recreation", "pitchHard");
+      } else if (
+        sport === "soccer" ||
+        sport === "field_hockey" ||
+        sport === "rugby" ||
+        sport === "american_football"
+      ) {
+        color = getColor("recreation", "pitchBall");
+      } else {
+        // tennis, volleyball, other
+        color = getColor("recreation", "pitchTennis");
+      }
+      return { layer: "landuse_areas", color, minLOD: 1, fill: true };
+    }
+
+    // Sports centres, halls, tracks, stadiums
+    if (
+      props.leisure === "sports_centre" ||
+      props.leisure === "sports_hall" ||
+      props.leisure === "track" ||
+      props.leisure === "stadium"
+    ) {
+      const sport = props.sport || "";
+      const isSwimFacility = sport === "swimming" || sport === "diving" || sport === "water_polo";
+      return {
+        layer: "landuse_areas",
+        color: getColor("recreation", "sportsFacility"),
+        minLOD: 1,
+        fill: true,
+        areaPoiCategory: isSwimFacility ? "swimming" : null,
+      };
+    }
+
+    // Miniature golf
+    if (props.leisure === "miniature_golf") {
+      return {
+        layer: "landuse_areas",
+        color: getColor("recreation", "miniatureGolf"),
         minLOD: 1,
         fill: true,
       };
@@ -3574,22 +4011,6 @@ class MapRenderer {
 
     // === LINEAR FEATURES (lines) ===
 
-    // Coastline (for visualization and debugging)
-    if (
-      props.natural === "coastline" &&
-      type !== "Polygon" &&
-      type !== "MultiPolygon"
-    ) {
-      return {
-        layer: "coastline",
-        color: getColor("boundaries", "coastline"),
-        minLOD: 0,
-        fill: false,
-        width: 3,
-        showDirection: true, // Draw direction arrows
-      };
-    }
-
     // Waterways (rivers, streams, ditches as lines)
     if (props.waterway && props.waterway !== "riverbank") {
       // Classify by waterway type for importance and width
@@ -3702,6 +4123,11 @@ class MapRenderer {
       let roadPriority; // Lower = drawn first (underneath), higher = drawn on top
       let lanes = props.lanes;
       let laneWidth;
+      let dashPattern = null;
+      let fixedWidthPx = null; // if set, bypasses zoom-based width calculation
+      let noCasing = false;
+      let casingColor = null; // null = auto-compute from fill color
+      let dualDashColor = null; // if set, draw interleaved dashes of a second color
 
       if (
         effectiveHighway === "motorway" ||
@@ -3737,7 +4163,7 @@ class MapRenderer {
         roadPriority = 5;
       } else if (
         effectiveHighway === "tertiary" ||
-        effectiveHighway === "ternary_link"
+        effectiveHighway === "tertiary_link"
       ) {
         // was: 6m, 2 lanes
         color = getColor("roads", "tertiary");
@@ -3762,11 +4188,15 @@ class MapRenderer {
         lanes = lanes || 1.5;
         minLOD = 2;
         roadPriority = 3;
-      } else if (
-        effectiveHighway === "service" ||
-        effectiveHighway === "track"
-      ) {
-        // was: 3.5m, 1 lane
+      } else if (effectiveHighway === "track") {
+        const grade = parseInt(props.tracktype?.replace("grade", "") || "1");
+        color = getColor("roads", "track");
+        fixedWidthPx = 1.5;
+        dashPattern = [4, 4];
+        casingColor = { r: 255, g: 255, b: 255, a: 255 };
+        minLOD = grade >= 4 ? 3 : 2;
+        roadPriority = grade >= 4 ? 1 : 2;
+      } else if (effectiveHighway === "service") {
         color = getColor("roads", "service");
         laneWidth = 2.8;
         lanes = lanes || 1.1;
@@ -3780,30 +4210,49 @@ class MapRenderer {
         minLOD = 2;
         roadPriority = 2;
       } else if (
-        effectiveHighway === "footway" ||
         effectiveHighway === "path" ||
+        effectiveHighway === "footway" ||
         effectiveHighway === "pedestrian" ||
         effectiveHighway === "steps" ||
         effectiveHighway === "corridor"
       ) {
-        color = getColor("roads", "footway");
-        laneWidth = 2;
-        // Steps/corridors: ignore OSM width/lanes when zoomed out (>500m) to avoid oversized rendering
-        if (
-          (effectiveHighway === "steps" || effectiveHighway === "corridor") &&
-          this.viewWidthMeters > 500
-        ) {
-          realWidthMeters = null;
-          lanes = 1;
+        const bicycleDesignated = props.bicycle === "designated" || props.bicycle === "yes";
+        // Foot access is implied on foot-priority ways unless explicitly denied
+        const footImplied = effectiveHighway === "path" || effectiveHighway === "footway" || effectiveHighway === "pedestrian";
+        const footAccessible = props.foot === "designated" || props.foot === "yes" || (footImplied && props.foot !== "no");
+        if (bicycleDesignated && footAccessible) {
+          // Mixed cycling+foot: interleaved dual-color dashes
+          color = getColor("roads", "cycleway");
+          dualDashColor = getColor("roads", "footway");
+        } else if (bicycleDesignated) {
+          // Bicycle-only path (foot explicitly denied)
+          color = getColor("roads", "cycleway");
         } else {
-          lanes = lanes || 1;
+          color = getColor("roads", "footway");
         }
+        laneWidth = 2;
+        fixedWidthPx = 1.5;
+        if (
+          effectiveHighway === "path" ||
+          effectiveHighway === "footway" ||
+          effectiveHighway === "pedestrian"
+        ) {
+          dashPattern = [4, 4];
+          casingColor = { r: 255, g: 255, b: 255, a: 255 };
+        }
+        lanes = lanes || 1;
         minLOD = 2;
         roadPriority = 0;
       } else if (effectiveHighway === "cycleway") {
-        // was: 2m
+        const footAccessible2 = props.foot === "designated" || props.foot === "yes";
         color = getColor("roads", "cycleway");
+        if (footAccessible2) {
+          dualDashColor = getColor("roads", "footway");
+        }
         laneWidth = 2;
+        fixedWidthPx = 1.5;
+        dashPattern = [4, 4];
+        casingColor = { r: 255, g: 255, b: 255, a: 255 };
         lanes = lanes || 1;
         minLOD = 2;
         roadPriority = 1;
@@ -3843,26 +4292,90 @@ class MapRenderer {
       const metersPerPixel = this.viewWidthMeters / this.canvasWidth;
       const calculatedWidth = realWidthMeters / metersPerPixel;
       // TODO: allow higher max width in more zoomed in views.
-      let width = Math.max(1, Math.min(10, calculatedWidth)); // Clamp between 1-10px
+      let width = fixedWidthPx ?? Math.max(1, Math.min(10, calculatedWidth));
+
+      // Detect underground/mixed-level steps from `level` tag (floor levels in stations).
+      // `level: "-1;0"` means the step spans from underground (-1) to surface (0).
+      let stepGradientStartAlpha = null;
+      let stepGradientEndAlpha = null;
+      let stepsFullyUnderground = false;
+      if (
+        !isTunnel &&
+        (effectiveHighway === "steps" || effectiveHighway === "footway") &&
+        props.level
+      ) {
+        const levels = props.level
+          .split(";")
+          .map((s) => parseFloat(s.trim()))
+          .filter((n) => !isNaN(n));
+        if (levels.length > 0) {
+          const anyUnderground = levels.some((l) => l < 0);
+          const anySurface = levels.some((l) => l >= 0);
+          if (anyUnderground && !anySurface) {
+            stepsFullyUnderground = true;
+          } else if (!anyUnderground && levels.some((l) => l > 0) && effectiveHighway === "steps") {
+            // Steps going upward from ground level — render with full step pattern, fully opaque
+            stepGradientStartAlpha = 255;
+            stepGradientEndAlpha = 255;
+          } else if (anyUnderground && anySurface) {
+            // Determine which end of the geometry is underground.
+            // The `level` tag order is unreliable; use `incline` instead:
+            //   incline=up   → geometry runs low→high (first coord = underground)
+            //   incline=down → geometry runs high→low (first coord = surface)
+            //   numeric > 0  → uphill (same as "up")
+            //   fallback     → use level tag order
+            const minLevel = Math.min(...levels);
+            const maxLevel = Math.max(...levels);
+            let firstIsLower = null; // true = first coord is more underground
+            const incline = props.incline;
+            if (incline === "up") {
+              firstIsLower = true;
+            } else if (incline === "down") {
+              firstIsLower = false;
+            } else if (incline && incline !== "0") {
+              const v = parseFloat(incline);
+              if (!isNaN(v)) firstIsLower = v > 0;
+            }
+            if (firstIsLower === null) {
+              // Fallback: use level tag order
+              firstIsLower = levels[0] < levels[levels.length - 1];
+            }
+            stepGradientStartAlpha =
+              (firstIsLower ? minLevel : maxLevel) < 0
+                ? TUNNEL_ROAD_ALPHA
+                : 255;
+            stepGradientEndAlpha =
+              (firstIsLower ? maxLevel : minLevel) < 0
+                ? TUNNEL_ROAD_ALPHA
+                : 255;
+          }
+        }
+      }
 
       // Assign to appropriate layer based on vertical position
-      if (isTunnel) {
+      const isStep = effectiveHighway === "steps";
+      if (isTunnel || stepsFullyUnderground) {
         return {
-          layer: "tunnels",
-          color,
+          layer: isStep ? "steps" : "tunnels",
+          // Bake tunnel alpha into color for steps (steps layer has no globalAlpha override)
+          color: isStep ? { ...color, a: TUNNEL_ROAD_ALPHA } : color,
           minLOD,
           width,
           fill: false,
           roadPriority,
           isConstruction,
+          dashPattern,
+          casingColor,
+          dualDashColor,
         };
       } else {
         // Check for bicycle_road marking
         const isBicycleRoad =
           props.bicycle_road === "yes" || props.cyclestreet === "yes";
+        const hasGradient = stepGradientStartAlpha !== null;
 
         const result = {
-          layer: isBridge ? "bridge_roads" : "surface_roads",
+          layer: isStep ? "steps" : isBridge ? "bridge_roads" : "surface_roads",
           color,
           minLOD,
           width,
@@ -3870,6 +4383,13 @@ class MapRenderer {
           roadPriority,
           isConstruction,
           isBicycleRoad,
+          dashPattern,
+          noCasing: noCasing || hasGradient, // gradient steps skip casing
+          casingColor,
+          dualDashColor,
+          tunnelGradient: hasGradient,
+          gradientStartAlpha: stepGradientStartAlpha,
+          gradientEndAlpha: stepGradientEndAlpha,
         };
         if (isBridge) {
           result.bridgeLayer = parseInt(props.layer) || 1;
@@ -3967,21 +4487,27 @@ class MapRenderer {
 
     // Railway platforms (polygon or line)
     if (props.railway === "platform" || props.public_transport === "platform") {
+      const isUnderground =
+        (props.level !== undefined && parseFloat(props.level) < 0) ||
+        props.tunnel === "yes" ||
+        props.indoor === "yes" ||
+        (props.layer !== undefined && parseInt(props.layer) < 0);
+      const platformAlpha = isUnderground ? TUNNEL_ROAD_ALPHA : 255;
       if (type === "Polygon" || type === "MultiPolygon") {
         return {
           layer: "surface_railways",
-          color: { r: 160, g: 160, b: 160, a: 255 },
+          color: { r: 160, g: 160, b: 160, a: platformAlpha },
           minLOD: 2,
           fill: true,
-          stroke: true,
-          strokeColor: { r: 120, g: 120, b: 120, a: 255 },
+          stroke: !isUnderground,
+          strokeColor: { r: 120, g: 120, b: 120, a: platformAlpha },
           strokeWidth: 1,
           isPlatform: true,
         };
       } else if (type === "LineString" || type === "MultiLineString") {
         return {
           layer: "surface_railways",
-          color: { r: 140, g: 140, b: 140, a: 255 },
+          color: { r: 140, g: 140, b: 140, a: platformAlpha },
           minLOD: 2,
           width: 3,
           fill: false,
@@ -3990,12 +4516,10 @@ class MapRenderer {
       }
     }
 
-    // Railway stations and halts
-    if (
-      props.railway === "station" ||
-      props.railway === "halt" ||
-      props.public_transport === "station"
-    ) {
+    // Railway stations and halts — require railway=station/halt to avoid labelling
+    // ferry piers, bus hubs and other public_transport=station nodes that have no
+    // rendered geometry.
+    if (props.railway === "station" || props.railway === "halt") {
       if (type === "Polygon" || type === "MultiPolygon") {
         return {
           layer: "buildings",
@@ -4007,15 +4531,27 @@ class MapRenderer {
           strokeWidth: 1,
         };
       } else if (type === "Point" && props.name) {
-        // Station points rendered as place labels
+        const stationType = props.station || "";
+        // Minor: halts, and stations serving only metro/tram/light-rail/funicular traffic
+        const isMinor =
+          props.railway === "halt" ||
+          stationType === "subway" ||
+          stationType === "light_rail" ||
+          stationType === "tram" ||
+          stationType === "monorail" ||
+          stationType === "funicular" ||
+          stationType === "miniature";
+        // Main-line / intercity stations get a small priority boost
+        const isMain = props.usage === "main" || stationType === "main";
         return {
           layer: "place_labels",
           color: { r: 80, g: 80, b: 80, a: 255 },
           minLOD: 1,
           fill: false,
           placeType: "station",
-          placePriority: 7,
-          fontSize: 11,
+          placePriority: isMinor ? 6 : isMain ? 4 : 8,
+          fontSize: isMinor ? 10 : 11,
+          maxViewWidth: isMinor ? 1500 : null,
         };
       }
     }
@@ -4113,10 +4649,21 @@ class MapRenderer {
         };
       }
 
+      // Toilets — render even without a name
+      if (props.amenity === "toilets") {
+        return {
+          layer: "points",
+          color: getColor("poi", "toilets"),
+          minLOD: 3,
+          fill: false,
+          poiCategory: "toilets",
+        };
+      }
+
       // Categorize named POIs
       if (
         props.name &&
-        (props.amenity || props.shop || props.tourism || props.historic)
+        (props.amenity || props.shop || props.tourism || props.historic || props.leisure)
       ) {
         const poiCategory = this.classifyPOI(props);
         if (poiCategory) {
@@ -4573,6 +5120,13 @@ class MapRenderer {
             width: width || 1,
             isConstruction: item.isConstruction,
             isBicycleRoad: item.isBicycleRoad,
+            dashPattern: item.dashPattern || null,
+            noCasing: item.noCasing || false,
+            casingColor: item.casingColor || null,
+            dualDashColor: item.dualDashColor || null,
+            tunnelGradient: item.tunnelGradient || false,
+            gradientStartAlpha: item.gradientStartAlpha ?? null,
+            gradientEndAlpha: item.gradientEndAlpha ?? null,
           });
           if (screenCoords) {
             this.renderedFeatures.push({
@@ -4611,11 +5165,20 @@ class MapRenderer {
         // Blend factor: 0 at width=1 (pure darkened color), 1 at width>=6 (pure black)
         const borderBatches = new Map();
         for (const fc of roadFeatures) {
-          const t = Math.min(1, Math.max(0, (fc.width - 1) / 5));
-          const r = Math.round(Math.max(0, fc.color.r - 40) * (1 - t));
-          const g = Math.round(Math.max(0, fc.color.g - 40) * (1 - t));
-          const b = Math.round(Math.max(0, fc.color.b - 40) * (1 - t));
-          const a = (0.6 + 0.4 * t) * (fc.color.a / 255);
+          if (fc.noCasing) continue;
+          let r, g, b, a;
+          if (fc.casingColor) {
+            r = fc.casingColor.r;
+            g = fc.casingColor.g;
+            b = fc.casingColor.b;
+            a = fc.casingColor.a / 255;
+          } else {
+            const t = Math.min(1, Math.max(0, (fc.width - 1) / 5));
+            r = Math.round(Math.max(0, fc.color.r - 40) * (1 - t));
+            g = Math.round(Math.max(0, fc.color.g - 40) * (1 - t));
+            b = Math.round(Math.max(0, fc.color.b - 40) * (1 - t));
+            a = (0.6 + 0.4 * t) * (fc.color.a / 255);
+          }
           const outlineWidth = fc.width + 2;
           const key = `${r},${g},${b},${a.toFixed(2)}|${outlineWidth}`;
           if (!borderBatches.has(key))
@@ -4669,13 +5232,19 @@ class MapRenderer {
       const { roadFeatures, constructionFlats } = data;
 
       if (roadFeatures.length > 0) {
+        const gradientFeatures = roadFeatures.filter((fc) => fc.tunnelGradient);
+        const dualDashFeatures = roadFeatures.filter((fc) => !fc.tunnelGradient && fc.dualDashColor);
+        const normalFeatures = roadFeatures.filter((fc) => !fc.tunnelGradient && !fc.dualDashColor);
+
         const fillBatches = new Map();
-        for (const fc of roadFeatures) {
-          const key = `${fc.color.r},${fc.color.g},${fc.color.b},${fc.color.a}|${fc.width}`;
+        for (const fc of normalFeatures) {
+          const dash = fc.dashPattern ? fc.dashPattern.join(",") : "";
+          const key = `${fc.color.r},${fc.color.g},${fc.color.b},${fc.color.a}|${fc.width}|${dash}`;
           if (!fillBatches.has(key))
             fillBatches.set(key, {
               color: fc.color,
               width: fc.width,
+              dashPattern: fc.dashPattern || null,
               flats: [],
             });
           fillBatches.get(key).flats.push(fc.flat);
@@ -4688,8 +5257,9 @@ class MapRenderer {
             batch.color.a / 255,
           );
           this.ctx.lineWidth = batch.width;
-          this.ctx.lineCap = "round";
+          this.ctx.lineCap = batch.dashPattern ? "butt" : "round";
           this.ctx.lineJoin = "round";
+          if (batch.dashPattern) this.ctx.setLineDash(batch.dashPattern);
           this.ctx.beginPath();
           for (const flat of batch.flats) {
             this.ctx.moveTo(flat[0], flat[1]);
@@ -4698,6 +5268,108 @@ class MapRenderer {
             }
           }
           this.ctx.stroke();
+          if (batch.dashPattern) this.ctx.setLineDash([]);
+        }
+
+        // Render dual-dash features (segregated bike+foot paths): interleaved colored dashes
+        for (const fc of dualDashFeatures) {
+          const drawPath = () => {
+            this.ctx.beginPath();
+            this.ctx.moveTo(fc.flat[0], fc.flat[1]);
+            for (let i = 2; i < fc.flat.length; i += 2)
+              this.ctx.lineTo(fc.flat[i], fc.flat[i + 1]);
+            this.ctx.stroke();
+          };
+          this.ctx.lineWidth = fc.width;
+          this.ctx.lineCap = "butt";
+          this.ctx.lineJoin = "round";
+          this.ctx.setLineDash([4, 4]);
+          // Primary color (e.g. cycleway blue)
+          this.ctx.lineDashOffset = 0;
+          this.ctx.strokeStyle = this._getRGBA(fc.color.r, fc.color.g, fc.color.b, fc.color.a / 255);
+          drawPath();
+          // Secondary color (e.g. footway salmon), offset by 4 to fill the gaps
+          const dc = fc.dualDashColor;
+          this.ctx.lineDashOffset = 4;
+          this.ctx.strokeStyle = this._getRGBA(dc.r, dc.g, dc.b, dc.a / 255);
+          drawPath();
+          this.ctx.setLineDash([]);
+          this.ctx.lineDashOffset = 0;
+        }
+
+        // Render gradient features (steps transitioning underground): casing + fill + ticks
+        for (const fc of gradientFeatures) {
+          const { flat, color, width, gradientStartAlpha, gradientEndAlpha } =
+            fc;
+          const x0 = flat[0],
+            y0 = flat[1];
+          const x1 = flat[flat.length - 2],
+            y1 = flat[flat.length - 1];
+          const startA = gradientStartAlpha ?? 255;
+          const endA = gradientEndAlpha ?? 255;
+
+          // Helper: create a gradient for this feature's color with given alphas
+          const makeGrad = (r, g, b, aStart, aEnd) => {
+            const grad = this.ctx.createLinearGradient(x0, y0, x1, y1);
+            grad.addColorStop(0, `rgba(${r},${g},${b},${aStart / 255})`);
+            grad.addColorStop(1, `rgba(${r},${g},${b},${aEnd / 255})`);
+            return grad;
+          };
+
+          // Casing — same darkening formula as Pass 1
+          const t = Math.min(1, Math.max(0, (width - 1) / 5));
+          const cr = Math.round(Math.max(0, color.r - 40) * (1 - t));
+          const cg = Math.round(Math.max(0, color.g - 40) * (1 - t));
+          const cb = Math.round(Math.max(0, color.b - 40) * (1 - t));
+          const casingFactor = 0.6 + 0.4 * t;
+          this.ctx.strokeStyle = makeGrad(
+            cr,
+            cg,
+            cb,
+            startA * casingFactor,
+            endA * casingFactor,
+          );
+          this.ctx.lineWidth = width + 2;
+          this.ctx.lineCap = "butt";
+          this.ctx.lineJoin = "round";
+          this.ctx.setLineDash([]);
+          this.ctx.beginPath();
+          this.ctx.moveTo(flat[0], flat[1]);
+          for (let i = 2; i < flat.length; i += 2)
+            this.ctx.lineTo(flat[i], flat[i + 1]);
+          this.ctx.stroke();
+
+          // Fill
+          const fillGrad = makeGrad(
+            color.r,
+            color.g,
+            color.b,
+            startA,
+            endA,
+          );
+          this.ctx.strokeStyle = fillGrad;
+          this.ctx.lineWidth = width;
+          this.ctx.lineCap = "butt";
+          this.ctx.lineJoin = "round";
+          this.ctx.beginPath();
+          this.ctx.moveTo(flat[0], flat[1]);
+          for (let i = 2; i < flat.length; i += 2)
+            this.ctx.lineTo(flat[i], flat[i + 1]);
+          this.ctx.stroke();
+
+          // Step riser marks: 1px stripe every 5px along the line, spanning casing width
+          // Uses the same gradient → fades identically with casing and fill
+          const riserGrad = makeGrad(cr, cg, cb, startA * casingFactor, endA * casingFactor);
+          this.ctx.strokeStyle = riserGrad;
+          this.ctx.lineWidth = width + 2;
+          this.ctx.lineCap = "butt";
+          this.ctx.setLineDash([1, 4]);
+          this.ctx.beginPath();
+          this.ctx.moveTo(flat[0], flat[1]);
+          for (let i = 2; i < flat.length; i += 2)
+            this.ctx.lineTo(flat[i], flat[i + 1]);
+          this.ctx.stroke();
+          this.ctx.setLineDash([]);
         }
       }
 
@@ -4829,8 +5501,12 @@ class MapRenderer {
   // check against all existing rectangles before rendering.
 
   labelOccupancyCheck(x, y, w, h) {
-    const hw = w / 2, hh = h / 2;
-    const l = x - hw, r = x + hw, t = y - hh, b = y + hh;
+    const hw = w / 2,
+      hh = h / 2;
+    const l = x - hw,
+      r = x + hw,
+      t = y - hh,
+      b = y + hh;
     for (const rect of this.labelOccupancy) {
       if (l < rect.r && r > rect.l && t < rect.b && b > rect.t) {
         return true; // overlaps
@@ -4840,9 +5516,13 @@ class MapRenderer {
   }
 
   labelOccupancyRegister(x, y, w, h) {
-    const hw = w / 2, hh = h / 2;
+    const hw = w / 2,
+      hh = h / 2;
     this.labelOccupancy.push({
-      l: x - hw, r: x + hw, t: y - hh, b: y + hh,
+      l: x - hw,
+      r: x + hw,
+      t: y - hh,
+      b: y + hh,
     });
   }
 
@@ -4872,10 +5552,17 @@ class MapRenderer {
       const sx = toScreenX(lon);
       const sy = toScreenY(lat);
       const margin = 50;
-      if (sx < -margin || sx > this.canvasWidth + margin ||
-          sy < -margin || sy > this.canvasHeight + margin) continue;
+      if (
+        sx < -margin ||
+        sx > this.canvasWidth + margin ||
+        sy < -margin ||
+        sy > this.canvasHeight + margin
+      )
+        continue;
       places.push({
-        name: props.name, x: sx, y: sy,
+        name: props.name,
+        x: sx,
+        y: sy,
         priority: item.placePriority || 9,
         fontSize: item.fontSize || 12,
         placeType: item.placeType || "unknown",
@@ -4901,13 +5588,18 @@ class MapRenderer {
       if (accepted.length >= maxLabels) break;
       let tooClose = false;
       for (const pos of accepted) {
-        const dx = place.x - pos.x, dy = place.y - pos.y;
-        if (Math.sqrt(dx * dx + dy * dy) < minSpacing) { tooClose = true; break; }
+        const dx = place.x - pos.x,
+          dy = place.y - pos.y;
+        if (Math.sqrt(dx * dx + dy * dy) < minSpacing) {
+          tooClose = true;
+          break;
+        }
       }
       if (tooClose) continue;
 
       const fontWeight = place.priority <= 6 ? "bold" : "";
-      this.ctx.font = `${fontWeight} ${place.fontSize}px Arial, sans-serif`.trim();
+      this.ctx.font =
+        `${fontWeight} ${place.fontSize}px Arial, sans-serif`.trim();
       const tw = this.ctx.measureText(place.name).width;
       const th = place.fontSize * 1.4;
 
@@ -5109,7 +5801,9 @@ class MapRenderer {
       // Check label occupancy at road midpoint — skip if a more important
       // label (e.g. place name) already occupies this space
       const midPt = road.screenCoords[Math.floor(road.screenCoords.length / 2)];
-      if (this.labelOccupancyCheck(midPt.x, midPt.y, textWidth, fontSize * 1.4)) {
+      if (
+        this.labelOccupancyCheck(midPt.x, midPt.y, textWidth, fontSize * 1.4)
+      ) {
         continue;
       }
 
@@ -5206,176 +5900,6 @@ class MapRenderer {
     }
   }
 
-  renderCoastlineWithArrows(layerFeatures, bounds) {
-    // Render coastlines with direction arrows to visualize topology
-    if (!layerFeatures || layerFeatures.length === 0) return;
-
-    // Pre-compute bounds scaling
-    const lonRange = bounds.maxLon - bounds.minLon;
-    const latRange = bounds.maxLat - bounds.minLat;
-    const scaleX = this.canvasWidth / lonRange;
-    const scaleY = this.canvasHeight / latRange;
-    const minLon = bounds.minLon;
-    const minLat = bounds.minLat;
-    const canvasHeight = this.canvasHeight;
-    const toScreenX = (lon) => (lon - minLon) * scaleX;
-    const toScreenY = (lat) => canvasHeight - (lat - minLat) * scaleY;
-
-    for (const item of layerFeatures) {
-      const { feature, props, type, color, width } = item;
-      const geom = feature.geometry;
-      if (!geom || !geom.coordinates) continue;
-
-      const coordArrays =
-        type === "LineString"
-          ? [geom.coordinates]
-          : type === "MultiLineString"
-            ? geom.coordinates
-            : null;
-
-      if (!coordArrays) continue;
-
-      for (const coords of coordArrays) {
-        if (coords.length < 2) continue;
-
-        // Convert to screen coordinates
-        const screenCoords = coords.map((c) => ({
-          x: toScreenX(c[0]),
-          y: toScreenY(c[1]),
-        }));
-
-        // Draw blue border on the right side of the coastline
-        // (perpendicular offset to the right of the direction)
-        const offsetDistance = 5; // pixels to the right
-        const rightSideCoords = [];
-
-        for (let i = 0; i < screenCoords.length; i++) {
-          let dx, dy;
-
-          if (i === 0) {
-            // First point: use direction to next point
-            dx = screenCoords[i + 1].x - screenCoords[i].x;
-            dy = screenCoords[i + 1].y - screenCoords[i].y;
-          } else if (i === screenCoords.length - 1) {
-            // Last point: use direction from previous point
-            dx = screenCoords[i].x - screenCoords[i - 1].x;
-            dy = screenCoords[i].y - screenCoords[i - 1].y;
-          } else {
-            // Middle points: average direction from both segments
-            const dx1 = screenCoords[i].x - screenCoords[i - 1].x;
-            const dy1 = screenCoords[i].y - screenCoords[i - 1].y;
-            const dx2 = screenCoords[i + 1].x - screenCoords[i].x;
-            const dy2 = screenCoords[i + 1].y - screenCoords[i].y;
-            dx = dx1 + dx2;
-            dy = dy1 + dy2;
-          }
-
-          // Normalize direction
-          const len = Math.sqrt(dx * dx + dy * dy);
-          if (len > 0) {
-            dx /= len;
-            dy /= len;
-          }
-
-          // Perpendicular to the right (rotate 90° counter-clockwise)
-          const perpX = -dy;
-          const perpY = dx;
-
-          rightSideCoords.push({
-            x: screenCoords[i].x + perpX * offsetDistance,
-            y: screenCoords[i].y + perpY * offsetDistance,
-          });
-        }
-
-        // Draw the blue border line on the right side
-        this.ctx.strokeStyle = "rgba(0, 150, 255, 0.7)"; // Blue
-        this.ctx.lineWidth = 3;
-        this.ctx.lineCap = "round";
-        this.ctx.lineJoin = "round";
-        this.ctx.beginPath();
-        this.ctx.moveTo(rightSideCoords[0].x, rightSideCoords[0].y);
-        for (let i = 1; i < rightSideCoords.length; i++) {
-          this.ctx.lineTo(rightSideCoords[i].x, rightSideCoords[i].y);
-          this.ctx.lineTo(rightSideCoords[i].x - 7, rightSideCoords[i].y - 7);
-          this.ctx.lineTo(rightSideCoords[i].x + 7, rightSideCoords[i].y + 7);
-          this.ctx.lineTo(rightSideCoords[i].x, rightSideCoords[i].y);
-          this.ctx.lineTo(rightSideCoords[i].x + 7, rightSideCoords[i].y - 7);
-          this.ctx.lineTo(rightSideCoords[i].x - 7, rightSideCoords[i].y + 7);
-          this.ctx.lineTo(rightSideCoords[i].x, rightSideCoords[i].y);
-        }
-        this.ctx.stroke();
-
-        // Draw the coastline as a thick magenta line (center line)
-        this.ctx.strokeStyle = `rgba(${color.r},${color.g},${color.b},${color.a / 255})`;
-        this.ctx.lineWidth = width || 3;
-        this.ctx.lineCap = "round";
-        this.ctx.lineJoin = "round";
-        this.ctx.beginPath();
-        this.ctx.moveTo(screenCoords[0].x, screenCoords[0].y);
-        for (let i = 1; i < screenCoords.length; i++) {
-          this.ctx.lineTo(screenCoords[i].x, screenCoords[i].y);
-        }
-        this.ctx.stroke();
-
-        //this.ctx.beginPath();
-        //for (let i = 0; i < screenCoords.length; i++) {
-        //  this.ctx.circle(screenCoords[i].x, screenCoords[i].y, 7);
-        //}
-        //this.ctx.stroke();
-
-        // Draw direction arrows along the line
-        // Arrow every ~50 pixels
-        const arrowSpacing = 50;
-        let accumulatedDistance = 0;
-
-        for (let i = 1; i < screenCoords.length; i++) {
-          const p1 = screenCoords[i - 1];
-          const p2 = screenCoords[i];
-          const dx = p2.x - p1.x;
-          const dy = p2.y - p1.y;
-          const segmentLength = Math.sqrt(dx * dx + dy * dy);
-
-          // Walk along this segment placing arrows
-          let distanceInSegment =
-            arrowSpacing - (accumulatedDistance % arrowSpacing);
-
-          while (distanceInSegment < segmentLength) {
-            const t = distanceInSegment / segmentLength;
-            const arrowX = p1.x + dx * t;
-            const arrowY = p1.y + dy * t;
-
-            // Calculate arrow direction (tangent to line)
-            const angle = Math.atan2(dy, dx);
-
-            // Draw arrow (simple triangle pointing in direction)
-            const arrowSize = 8;
-            this.ctx.save();
-            this.ctx.translate(arrowX, arrowY);
-            this.ctx.rotate(angle);
-
-            this.ctx.fillStyle = "rgba(255, 255, 255, 0.9)"; // White fill
-            this.ctx.strokeStyle = `rgba(${color.r},${color.g},${color.b},1)`;
-            this.ctx.lineWidth = 1;
-
-            this.ctx.beginPath();
-            this.ctx.moveTo(arrowSize, 0); // Tip
-            this.ctx.lineTo(-arrowSize / 2, -arrowSize / 2); // Top wing
-            this.ctx.lineTo(-arrowSize / 2, arrowSize / 2); // Bottom wing
-            this.ctx.closePath();
-            this.ctx.fill();
-            this.ctx.stroke();
-
-            this.ctx.restore();
-
-            distanceInSegment += arrowSpacing;
-          }
-
-          accumulatedDistance += segmentLength;
-        }
-      }
-    }
-  }
-
   renderPlaceLabels(layerFeatures, bounds) {
     // Render precomputed place labels (positions determined in preregisterPlaceLabels)
     const places = this._precomputedPlaceLabels;
@@ -5440,8 +5964,7 @@ class MapRenderer {
         const yj = toScreenY(ring[j][1]);
 
         const intersect =
-          yi > py !== yj > py &&
-          px < ((xj - xi) * (py - yi)) / (yj - yi) + xi;
+          yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi;
         if (intersect) inside = !inside;
       }
       return inside;
@@ -5503,13 +6026,18 @@ class MapRenderer {
         const distToEdges = (px, py, ringFlat) => {
           let minDist = Infinity;
           for (let i = 0; i < ringFlat.length - 2; i += 2) {
-            const ax = ringFlat[i], ay = ringFlat[i + 1];
-            const bx = ringFlat[i + 2], by = ringFlat[i + 3];
-            const dx = bx - ax, dy = by - ay;
+            const ax = ringFlat[i],
+              ay = ringFlat[i + 1];
+            const bx = ringFlat[i + 2],
+              by = ringFlat[i + 3];
+            const dx = bx - ax,
+              dy = by - ay;
             const lenSq = dx * dx + dy * dy;
             let t = lenSq > 0 ? ((px - ax) * dx + (py - ay) * dy) / lenSq : 0;
-            if (t < 0) t = 0; else if (t > 1) t = 1;
-            const cx = ax + t * dx, cy = ay + t * dy;
+            if (t < 0) t = 0;
+            else if (t > 1) t = 1;
+            const cx = ax + t * dx,
+              cy = ay + t * dy;
             const d = Math.sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
             if (d < minDist) minDist = d;
           }
@@ -5519,10 +6047,16 @@ class MapRenderer {
         // Point-in-polygon using flat screen coord array
         const pipFlat = (px, py, ringFlat) => {
           let inside = false;
-          for (let i = 0, j = ringFlat.length - 2; i < ringFlat.length; j = i, i += 2) {
-            const yi = ringFlat[i + 1], yj = ringFlat[j + 1];
-            if ((yi > py) !== (yj > py)) {
-              const xi = ringFlat[i], xj = ringFlat[j];
+          for (
+            let i = 0, j = ringFlat.length - 2;
+            i < ringFlat.length;
+            j = i, i += 2
+          ) {
+            const yi = ringFlat[i + 1],
+              yj = ringFlat[j + 1];
+            if (yi > py !== yj > py) {
+              const xi = ringFlat[i],
+                xj = ringFlat[j];
               if (px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
                 inside = !inside;
               }
@@ -5548,11 +6082,15 @@ class MapRenderer {
         candidates.push(centroidX, centroidY);
 
         for (let ci = 0; ci < candidates.length; ci += 2) {
-          const px = candidates[ci], py = candidates[ci + 1];
+          const px = candidates[ci],
+            py = candidates[ci + 1];
           if (!pipFlat(px, py, outerScreen)) continue;
           let inHole = false;
           for (const hs of holeScreens) {
-            if (pipFlat(px, py, hs)) { inHole = true; break; }
+            if (pipFlat(px, py, hs)) {
+              inHole = true;
+              break;
+            }
           }
           if (inHole) continue;
 
@@ -5602,7 +6140,11 @@ class MapRenderer {
           centerY + halfH <= this.canvasHeight - viewMargin;
         // Compute actual polygon area via shoelace formula (screen coords)
         let polyArea = 0;
-        for (let i = 0, j = outerRing.length - 1; i < outerRing.length; j = i++) {
+        for (
+          let i = 0, j = outerRing.length - 1;
+          i < outerRing.length;
+          j = i++
+        ) {
           const xi = toScreenX(outerRing[i][0]);
           const yi = toScreenY(outerRing[i][1]);
           const xj = toScreenX(outerRing[j][0]);
@@ -5800,7 +6342,9 @@ class MapRenderer {
       renderedCount++;
     }
 
-    console.log(`[WATER] Rendered ${renderedCount}/${waterLabels.length} water labels`);
+    console.log(
+      `[WATER] Rendered ${renderedCount}/${waterLabels.length} water labels`,
+    );
   }
 
   renderBuildingLabels(layerFeatures, bounds, roadFeatures) {
@@ -6050,6 +6594,7 @@ class MapRenderer {
               x: sx,
               y: sy,
               category: item.poiCategory,
+              props,
             });
           } else {
             // Non-categorized points: batch as colored circles
@@ -6309,77 +6854,88 @@ class MapRenderer {
       }
     }
 
-    // Flush pattern batches (areas with textured fills like scrub/wetland)
+    // Flush pattern batches (areas with textured fills like scrub/wetland/military)
     // Pin pattern origin to map coordinates so adjacent/overlapping polygons
     // (e.g. wetlands spanning tile borders) share a seamless pattern.
-    // We pick a fixed reference longitude/latitude, project it to screen space,
-    // then mod by pattern size so the offset stays small (avoids float precision
-    // issues with huge translations).
     const patternRefScreenX = toScreenX(0);
     const patternRefScreenY = toScreenY(0);
 
-    for (const [patternId, batch] of patternBatches) {
-      const pattern = this.patternCache[patternId];
-      if (!pattern) continue;
+    // Offscreen mask canvas: used to draw the pattern union in a single pass so
+    // overlapping polygons in the same batch never cause transparency to double-up.
+    const maskCanvas = this._ensurePatternMaskCanvas();
+    const maskCtx = maskCanvas.getContext("2d");
 
-      // First fill with base color
+    // Helper: append one polygon's path (outer ring + reversed holes) to a context
+    const buildPolyPath = (ctx, poly) => {
+      const outer = poly.outer;
+      const holes = poly.holes || [];
+      ctx.moveTo(outer[0], outer[1]);
+      for (let i = 2; i < outer.length; i += 2) {
+        ctx.lineTo(outer[i], outer[i + 1]);
+      }
+      ctx.closePath();
+      for (const hole of holes) {
+        ctx.moveTo(hole[hole.length - 2], hole[hole.length - 1]);
+        for (let i = hole.length - 4; i >= 0; i -= 2) {
+          ctx.lineTo(hole[i], hole[i + 1]);
+        }
+        ctx.closePath();
+      }
+    };
+
+    for (const [patternId, batch] of patternBatches) {
+      const patternCanvas = this.patternCanvases[patternId];
+      if (!patternCanvas) continue;
+
+      const patSize = patternCanvas.width;
+      // Mod to keep translation small; adjust for negative values
+      const tx = ((patternRefScreenX % patSize) + patSize) % patSize;
+      const ty = ((patternRefScreenY % patSize) + patSize) % patSize;
+
       const baseColorStr = this._getRGBA(
         batch.baseColor.r,
         batch.baseColor.g,
         batch.baseColor.b,
         batch.baseColor.a / 255,
       );
-      // Get pattern tile size from cache canvas
-      const patternCanvas = this.patternCanvases[patternId];
-      const patSize = patternCanvas ? patternCanvas.width : 40;
-      // Mod to keep translation small; adjust for negative values
-      const tx = ((patternRefScreenX % patSize) + patSize) % patSize;
-      const ty = ((patternRefScreenY % patSize) + patSize) % patSize;
-      pattern.setTransform(
-        new DOMMatrix().translateSelf(tx, ty),
-      );
 
-      // Fill each polygon independently to avoid evenodd overlap artifacts
-      for (const poly of batch.polygons) {
-        const outer = poly.outer;
-        const holes = poly.holes || [];
-
-        // Base color fill (skip for patternOnly features like wetland)
-        if (!poly.patternOnly) {
-          this.ctx.fillStyle = baseColorStr;
+      // Draw base color fills on main canvas (opaque, no alpha doubling issue)
+      if (batch.polygons.some((p) => !p.patternOnly)) {
+        this.ctx.fillStyle = baseColorStr;
+        for (const poly of batch.polygons) {
+          if (poly.patternOnly) continue;
           this.ctx.beginPath();
-          this.ctx.moveTo(outer[0], outer[1]);
-          for (let i = 2; i < outer.length; i += 2) {
-            this.ctx.lineTo(outer[i], outer[i + 1]);
-          }
-          this.ctx.closePath();
-          for (const hole of holes) {
-            this.ctx.moveTo(hole[hole.length - 2], hole[hole.length - 1]);
-            for (let i = hole.length - 4; i >= 0; i -= 2) {
-              this.ctx.lineTo(hole[i], hole[i + 1]);
-            }
-            this.ctx.closePath();
-          }
+          buildPolyPath(this.ctx, poly);
           this.ctx.fill("evenodd");
         }
-
-        // Pattern overlay
-        this.ctx.fillStyle = pattern;
-        this.ctx.beginPath();
-        this.ctx.moveTo(outer[0], outer[1]);
-        for (let i = 2; i < outer.length; i += 2) {
-          this.ctx.lineTo(outer[i], outer[i + 1]);
-        }
-        this.ctx.closePath();
-        for (const hole of holes) {
-          this.ctx.moveTo(hole[hole.length - 2], hole[hole.length - 1]);
-          for (let i = hole.length - 4; i >= 0; i -= 2) {
-            this.ctx.lineTo(hole[i], hole[i + 1]);
-          }
-          this.ctx.closePath();
-        }
-        this.ctx.fill("evenodd");
       }
+
+      // Draw pattern overlay via offscreen mask canvas to prevent transparency
+      // accumulation when overlapping polygons share the same pattern batch:
+      //
+      //  1. Draw opaque union mask of all polygons onto mask canvas
+      //  2. Apply pattern using source-in composite (only paints over opaque mask)
+      //  3. Composite result onto main canvas
+      //
+      // This ensures each pixel is painted with the pattern exactly once.
+      maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+      maskCtx.globalCompositeOperation = "source-over";
+      maskCtx.fillStyle = "rgba(0,0,0,1)";
+      for (const poly of batch.polygons) {
+        maskCtx.beginPath();
+        buildPolyPath(maskCtx, poly);
+        maskCtx.fill("evenodd");
+      }
+
+      // Apply pattern through the mask in a single fill
+      const maskPattern = maskCtx.createPattern(patternCanvas, "repeat");
+      maskPattern.setTransform(new DOMMatrix().translateSelf(tx, ty));
+      maskCtx.globalCompositeOperation = "source-in";
+      maskCtx.fillStyle = maskPattern;
+      maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+      maskCtx.globalCompositeOperation = "source-over"; // reset
+
+      this.ctx.drawImage(maskCanvas, 0, 0);
     }
 
     // Render building borders (after fills, before lines)
@@ -6485,27 +7041,79 @@ class MapRenderer {
 
     // Flush POI glyphs
     if (this._poiRenderQueue.length > 0) {
-      const displaySize = this.viewWidthMeters <= 300 ? 20 : 16;
+      // Draw glyphs at native 32px (no downscaling artifacts); 2x on hover
+      const displaySize = 32;
       const halfSize = displaySize / 2;
 
-      // Sort by category for GPU texture cache locality
-      this._poiRenderQueue.sort((a, b) =>
-        a.category < b.category ? -1 : a.category > b.category ? 1 : 0,
+      // Priority: lower number = more important = survives declutter.
+      // Loaded from tileset_config.json; hardcoded table is the fallback.
+      const CATEGORY_PRIORITY = this.poiCategoryPriority ?? {
+        health: 1,
+        restaurant: 2, cafe: 3, bakery: 3, ice_cream: 3,
+        tourism: 4, historic: 4,
+        theatre: 5, cinema: 5,
+        nightlife: 6,
+        supermarket: 7, shopping: 7,
+        education: 8, bank: 8, police: 8, library: 8,
+        transport: 9, services: 10, recreation: 10,
+        swimming: 11, toilets: 12,
+      };
+
+      // 1. Filter: category toggle + per-category maxViewWidth
+      const visible = this._poiRenderQueue.filter((poi) => {
+        if (this.poiCategoryState[poi.category] === false) return false;
+        const catDef = POI_CATEGORIES[poi.category];
+        if (catDef?.maxViewWidth && this.viewWidthMeters > catDef.maxViewWidth) return false;
+        return true;
+      });
+
+      // 2. Sort by priority so important POIs survive declutter
+      visible.sort((a, b) =>
+        (CATEGORY_PRIORITY[a.category] ?? 99) - (CATEGORY_PRIORITY[b.category] ?? 99)
       );
 
-      for (const poi of this._poiRenderQueue) {
-        const glyph = this.glyphCache[poi.category];
-        if (glyph) {
-          this.ctx.drawImage(
-            glyph.canvas,
-            poi.x - halfSize,
-            poi.y - halfSize,
-            displaySize,
-            displaySize,
-          );
+      // 3. Greedy declutter: skip any POI whose center falls within displaySize of a placed one
+      const placed = [];
+      const toRender = [];
+      for (const poi of visible) {
+        const overlaps = placed.some(
+          (p) => Math.abs(poi.x - p.x) < displaySize && Math.abs(poi.y - p.y) < displaySize
+        );
+        if (!overlaps) {
+          placed.push(poi);
+          toRender.push(poi);
         }
       }
+
+      // 4. Render surviving POIs; hovered one drawn last at 2x
+      let hoveredPOI = null;
+      for (const poi of toRender) {
+        if (this._hoveredPOI &&
+            Math.abs(poi.x - this._hoveredPOI.x) < 2 &&
+            Math.abs(poi.y - this._hoveredPOI.y) < 2) {
+          hoveredPOI = poi;
+          continue;
+        }
+        const glyph = this.glyphCache[poi.category];
+        if (glyph) {
+          this.ctx.drawImage(glyph.canvas, poi.x - halfSize, poi.y - halfSize, displaySize, displaySize);
+        }
+      }
+      if (hoveredPOI) {
+        const glyph = this.glyphCache[hoveredPOI.category];
+        if (glyph) {
+          const hs = displaySize * 2, hh = hs / 2;
+          this.ctx.drawImage(glyph.canvas, hoveredPOI.x - hh, hoveredPOI.y - hh, hs, hs);
+        }
+      }
+
+      // Save placed POIs for hover detection
+      this._renderedPOIs = toRender.map((p) => ({
+        x: p.x, y: p.y, category: p.category, props: p.props, hitRadius: halfSize,
+      }));
       this._poiRenderQueue.length = 0;
+    } else {
+      this._renderedPOIs = [];
     }
   }
 
@@ -6633,25 +7241,31 @@ class MapRenderer {
       this.ctx.stroke();
     }
 
-    // Draw dashed center fill line between the rails (scales with zoom)
-    const dashLength = Math.max(1, this.getZoomFactor() * 0.045); // Small dashes
-    const gapLength = dashLength; // Exactly 50:50 pattern
+    // Draw dashed center fill between the rails (scales with zoom)
+    const dashLength = Math.max(1, this.getZoomFactor() * 0.045);
+    const gapLength = dashLength; // 50:50 pattern
 
-    // Fill line width should touch the outer rails
-    this.ctx.lineWidth = railSeparationPx; // Full width to touch both outer rails
-    this.ctx.lineCap = "butt"; // Square caps for dashes
-    this.ctx.setLineDash([dashLength, gapLength]);
-    this.ctx.beginPath();
-
-    for (let i = 0; i < screenCoords.length; i++) {
-      if (i === 0) {
-        this.ctx.moveTo(screenCoords[i].x, screenCoords[i].y);
-      } else {
-        this.ctx.lineTo(screenCoords[i].x, screenCoords[i].y);
+    const drawCenterPath = () => {
+      this.ctx.beginPath();
+      for (let i = 0; i < screenCoords.length; i++) {
+        if (i === 0) this.ctx.moveTo(screenCoords[i].x, screenCoords[i].y);
+        else this.ctx.lineTo(screenCoords[i].x, screenCoords[i].y);
       }
-    }
+      this.ctx.stroke();
+    };
 
-    this.ctx.stroke();
+    this.ctx.lineWidth = railSeparationPx;
+    this.ctx.lineCap = "butt";
+
+    // Background pass: solid very light gray fills the gap areas
+    this.ctx.strokeStyle = `rgba(225,225,225,${color.a / 255})`;
+    this.ctx.setLineDash([]);
+    drawCenterPath();
+
+    // Foreground pass: slightly darker dashes for the sleepers
+    this.ctx.strokeStyle = `rgba(120,120,120,${color.a / 255})`;
+    this.ctx.setLineDash([dashLength, gapLength]);
+    drawCenterPath();
     this.ctx.setLineDash([]); // Reset to solid
   }
 
@@ -6732,24 +7346,6 @@ class MapRenderer {
       btn.classList.remove("inactive");
     } else {
       btn.textContent = "Tile Edges: OFF";
-      btn.classList.add("inactive");
-    }
-  }
-
-  toggleCoastline() {
-    this.showCoastline = !this.showCoastline;
-    this.updateCoastlineUI();
-    this.renderMap();
-  }
-
-  updateCoastlineUI() {
-    const btn = document.getElementById("toggleCoastlineBtn");
-    if (!btn) return;
-    if (this.showCoastline) {
-      btn.textContent = "Coastline: ON";
-      btn.classList.remove("inactive");
-    } else {
-      btn.textContent = "Coastline: OFF";
       btn.classList.add("inactive");
     }
   }
@@ -6851,6 +7447,12 @@ class MapRenderer {
   initPOIToggles() {
     const container = document.getElementById("poiToggles");
     if (!container) return;
+    const allBtn = document.createElement("button");
+    allBtn.id = "toggleAllPOIsBtn";
+    allBtn.className = "button-toggle poi-toggle";
+    allBtn.textContent = "All POIs: ON";
+    allBtn.addEventListener("click", () => this.toggleAllPOIs());
+    container.appendChild(allBtn);
     for (const [catId, catDef] of Object.entries(POI_CATEGORIES)) {
       const btn = document.createElement("button");
       btn.className = "button-toggle poi-toggle";
@@ -6859,6 +7461,32 @@ class MapRenderer {
       btn.addEventListener("click", () => this.togglePOICategory(catId));
       container.appendChild(btn);
     }
+  }
+
+  toggleAllPOIs() {
+    const allOn = Object.values(this.poiCategoryState).every((v) => v);
+    const newState = !allOn;
+    for (const catId of Object.keys(POI_CATEGORIES)) {
+      this.poiCategoryState[catId] = newState;
+      const btn = document.querySelector(
+        `.poi-toggle[data-category="${catId}"]`,
+      );
+      if (btn) {
+        if (newState) btn.classList.remove("inactive");
+        else btn.classList.add("inactive");
+      }
+    }
+    this._updateAllPOIsBtn();
+    this.renderMap();
+  }
+
+  _updateAllPOIsBtn() {
+    const allBtn = document.getElementById("toggleAllPOIsBtn");
+    if (!allBtn) return;
+    const allOn = Object.values(this.poiCategoryState).every((v) => v);
+    allBtn.textContent = allOn ? "All POIs: ON" : "All POIs: OFF";
+    if (allOn) allBtn.classList.remove("inactive");
+    else allBtn.classList.add("inactive");
   }
 
   togglePOICategory(catId) {
@@ -6871,6 +7499,7 @@ class MapRenderer {
         btn.classList.add("inactive");
       }
     }
+    this._updateAllPOIsBtn();
     this.renderMap();
   }
 
@@ -6980,16 +7609,9 @@ async function initApp() {
       renderer.toggleTileEdges();
     });
 
-  document
-    .getElementById("toggleCoastlineBtn")
-    .addEventListener("click", () => {
-      renderer.toggleCoastline();
-    });
-
   // Set initial UI state
   renderer.updateHoverUI();
   renderer.updateTileEdgesUI();
-  renderer.updateCoastlineUI();
 
   // Auto-render on load
   renderer.renderMap();

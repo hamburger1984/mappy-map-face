@@ -72,6 +72,12 @@ export const THEMES = {
       beachVolleyball: { r: 245, g: 230, b: 200, a: 255 }, // Sandy beige
       tableTennis: { r: 200, g: 220, b: 200, a: 255 }, // Light greenish
       picnicSite: { r: 210, g: 225, b: 195, a: 255 }, // Light green
+      pitch: { r: 180, g: 225, b: 200, a: 255 }, // Teal-green for generic pitches
+      pitchTennis: { r: 185, g: 220, b: 195, a: 255 }, // Clay/grass green
+      pitchBall: { r: 175, g: 230, b: 185, a: 255 }, // Grass green for soccer/hockey
+      pitchHard: { r: 210, g: 210, b: 225, a: 255 }, // Gray-blue for hard courts (basketball, skate)
+      sportsFacility: { r: 200, g: 230, b: 210, a: 255 }, // Light green for sports centres/halls
+      miniatureGolf: { r: 195, g: 235, b: 195, a: 255 }, // Light putting-green
     },
 
     // Buildings
@@ -94,6 +100,7 @@ export const THEMES = {
       tertiary: { r: 255, g: 255, b: 255, a: 255 }, // White
       residential: { r: 255, g: 255, b: 255, a: 255 }, // White
       service: { r: 255, g: 255, b: 255, a: 255 }, // White
+      track: { r: 185, g: 175, b: 155, a: 255 }, // Earthy tan for farm/garden tracks
       smallRoads: { r: 220, g: 220, b: 220, a: 255 }, // Light gray
       footway: { r: 250, g: 190, b: 165, a: 255 }, // Salmon/pink
       cycleway: { r: 120, g: 150, b: 255, a: 255 }, // Blue
@@ -144,6 +151,13 @@ export const THEMES = {
       transport: { r: 26, g: 188, b: 156, a: 255 }, // Teal
       education: { r: 243, g: 156, b: 18, a: 255 }, // Orange
       nightlife: { r: 233, g: 30, b: 144, a: 255 }, // Pink
+      toilets: { r: 76, g: 187, b: 203, a: 255 }, // Cyan-teal
+      swimming: { r: 41, g: 182, b: 246, a: 255 }, // Water blue
+      theatre: { r: 170, g: 50, b: 190, a: 255 }, // Purple
+      cinema: { r: 200, g: 40, b: 40, a: 255 }, // Red
+      police: { r: 30, g: 100, b: 210, a: 255 }, // Blue
+      bank: { r: 40, g: 140, b: 80, a: 255 }, // Green
+      library: { r: 120, g: 80, b: 40, a: 255 }, // Warm brown
     },
 
     // Pattern colors (for textures)
