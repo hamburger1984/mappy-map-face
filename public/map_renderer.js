@@ -2,7 +2,14 @@
 // VERSION: 2024-POI-CATEGORIES
 
 // Import theme system
-import { getColor, toRGBA, toRGB, getColorByKey, getDashPattern, setTheme } from "./map_theme.js";
+import {
+  getColor,
+  toRGBA,
+  toRGB,
+  getColorByKey,
+  getDashPattern,
+  setTheme,
+} from "./map_theme.js";
 
 // Tunnel opacity constants (alpha 0-255)
 const TUNNEL_ROAD_ALPHA = 80; // ~30% opacity for road/rail tunnels
@@ -256,6 +263,11 @@ const POI_CATEGORIES = {
     leisure: new Set(["swimming_pool", "sauna", "spa", "water_park"]),
     maxViewWidth: 1000,
   },
+  fitness: {
+    label: "Fitness & Gyms",
+    color: getColor("poi", "fitness"),
+    leisure: new Set(["fitness_centre", "fitness_station"]),
+  },
 };
 
 // Classification priority order for amenity tags
@@ -338,6 +350,7 @@ class MapRenderer {
     this.selectedFeature = null;
     this.hoverInfoEnabled = false; // Toggle for hover info mode
     this.showTileEdges = false; // Toggle for tile edge visualization
+    this._currentTheme = "default"; // Active theme name
     this.tileLabels = []; // Clickable tile label hit areas: { x, y, w, h, id }
 
     // POI category state and glyph cache
@@ -400,7 +413,9 @@ class MapRenderer {
       this.tilesets = config.tilesets;
       // Convert priority array (index = priority) to lookup map
       this.poiCategoryPriority = Array.isArray(config.poiCategoryPriority)
-        ? Object.fromEntries(config.poiCategoryPriority.map((cat, i) => [cat, i]))
+        ? Object.fromEntries(
+            config.poiCategoryPriority.map((cat, i) => [cat, i]),
+          )
         : null;
       console.log("Loaded tileset configuration:", this.tilesets);
 
@@ -455,6 +470,7 @@ class MapRenderer {
       scrub: this.createScrubPattern(),
       wetland: this.createWetlandPattern(),
       wetland_tidal: this.createWetlandTidalPattern(),
+      wetland_marsh: this.createWetlandMarshPattern(),
       broadleaf_forest: this.createBroadleafForestPattern(),
       needleleaf_forest: this.createNeedleleafForestPattern(),
       mixed_forest: this.createMixedForestPattern(),
@@ -595,6 +611,27 @@ class MapRenderer {
         const wave = Math.sin((x / size) * Math.PI * 3) * 1.5;
         ctx.lineTo(x, y + wave);
       }
+      ctx.stroke();
+    }
+
+    return canvas;
+  }
+
+  createWetlandMarshPattern() {
+    // Marsh/bog/fen: small horizontal blue lines hinting at water on blue-green background
+    const size = 32;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+
+    ctx.strokeStyle = toRGBA(getColor("patterns", "wetlandWater"));
+    ctx.lineWidth = 1.0;
+
+    for (let y = 7; y < size; y += 8) {
+      ctx.beginPath();
+      ctx.moveTo(3, y);
+      ctx.lineTo(size - 3, y);
       ctx.stroke();
     }
 
@@ -1301,9 +1338,27 @@ class MapRenderer {
         const wR = r * 0.55;
         ctx.beginPath();
         ctx.moveTo(cx - wR * 2, cy);
-        ctx.arc(cx - wR,  cy, wR, Math.PI, 0, false); // crest (via top)
-        ctx.arc(cx + wR,  cy, wR, Math.PI, 0, true);  // trough (via bottom)
+        ctx.arc(cx - wR, cy, wR, Math.PI, 0, false); // crest (via top)
+        ctx.arc(cx + wR, cy, wR, Math.PI, 0, true); // trough (via bottom)
         haloStroke(r * 0.22);
+        break;
+      }
+      case "fitness": {
+        // Dumbbell: center bar + two weight plates on each end
+        const barW = r * 1.4, barH = r * 0.18;
+        const plateW = r * 0.22, plateH = r * 0.7;
+        // Center bar
+        ctx.beginPath();
+        ctx.rect(cx - barW / 2, cy - barH / 2, barW, barH);
+        haloFill();
+        // Left plate
+        ctx.beginPath();
+        ctx.rect(cx - barW / 2 - plateW, cy - plateH / 2, plateW, plateH);
+        haloFill();
+        // Right plate
+        ctx.beginPath();
+        ctx.rect(cx + barW / 2, cy - plateH / 2, plateW, plateH);
+        haloFill();
         break;
       }
       case "theatre": {
@@ -1311,26 +1366,57 @@ class MapRenderer {
         const mr = r * 0.52;
         // Left mask (tragedy, frown)
         ctx.beginPath();
-        ctx.ellipse(cx - r * 0.3, cy - r * 0.05, mr * 0.72, mr, 0, 0, Math.PI * 2);
+        ctx.ellipse(
+          cx - r * 0.3,
+          cy - r * 0.05,
+          mr * 0.72,
+          mr,
+          0,
+          0,
+          Math.PI * 2,
+        );
         haloFill();
         // Frown
         ctx.beginPath();
-        ctx.arc(cx - r * 0.3, cy + mr * 0.15, mr * 0.38, Math.PI * 0.15, Math.PI * 0.85);
+        ctx.arc(
+          cx - r * 0.3,
+          cy + mr * 0.15,
+          mr * 0.38,
+          Math.PI * 0.15,
+          Math.PI * 0.85,
+        );
         haloStroke(1.2);
         // Right mask (comedy, smile) — offset right and slightly up
         ctx.beginPath();
-        ctx.ellipse(cx + r * 0.3, cy + r * 0.05, mr * 0.72, mr, 0, 0, Math.PI * 2);
+        ctx.ellipse(
+          cx + r * 0.3,
+          cy + r * 0.05,
+          mr * 0.72,
+          mr,
+          0,
+          0,
+          Math.PI * 2,
+        );
         haloFill();
         // Smile
         ctx.beginPath();
-        ctx.arc(cx + r * 0.3, cy - mr * 0.15, mr * 0.38, Math.PI * 0.15, Math.PI * 0.85, true);
+        ctx.arc(
+          cx + r * 0.3,
+          cy - mr * 0.15,
+          mr * 0.38,
+          Math.PI * 0.15,
+          Math.PI * 0.85,
+          true,
+        );
         haloStroke(1.2);
         break;
       }
       case "cinema": {
         // Clapperboard — rectangle body with striped top bar
-        const bw = r * 1.5, bh = r * 1.1;
-        const bx = cx - bw / 2, by = cy - bh / 2 + r * 0.15;
+        const bw = r * 1.5,
+          bh = r * 1.1;
+        const bx = cx - bw / 2,
+          by = cy - bh / 2 + r * 0.15;
         // Board body
         ctx.beginPath();
         ctx.rect(bx, by, bw, bh);
@@ -1364,18 +1450,32 @@ class MapRenderer {
         ctx.lineTo(cx + r * 0.85, cy - r * 0.45);
         ctx.lineTo(cx + r * 0.85, cy + r * 0.2);
         ctx.quadraticCurveTo(cx + r * 0.85, cy + r * 1.05, cx, cy + r);
-        ctx.quadraticCurveTo(cx - r * 0.85, cy + r * 1.05, cx - r * 0.85, cy + r * 0.2);
+        ctx.quadraticCurveTo(
+          cx - r * 0.85,
+          cy + r * 1.05,
+          cx - r * 0.85,
+          cy + r * 0.2,
+        );
         ctx.lineTo(cx - r * 0.85, cy - r * 0.45);
         ctx.closePath();
         haloFill();
         // Star in center — 5-point
         ctx.beginPath();
-        const sr = r * 0.38, ir = r * 0.16;
+        const sr = r * 0.38,
+          ir = r * 0.16;
         for (let i = 0; i < 10; i++) {
           const angle = (i * Math.PI) / 5 - Math.PI / 2;
           const rad = i % 2 === 0 ? sr : ir;
-          if (i === 0) ctx.moveTo(cx + rad * Math.cos(angle), cy + rad * Math.sin(angle) + r * 0.05);
-          else ctx.lineTo(cx + rad * Math.cos(angle), cy + rad * Math.sin(angle) + r * 0.05);
+          if (i === 0)
+            ctx.moveTo(
+              cx + rad * Math.cos(angle),
+              cy + rad * Math.sin(angle) + r * 0.05,
+            );
+          else
+            ctx.lineTo(
+              cx + rad * Math.cos(angle),
+              cy + rad * Math.sin(angle) + r * 0.05,
+            );
         }
         ctx.closePath();
         ctx.fillStyle = "white";
@@ -1384,7 +1484,8 @@ class MapRenderer {
       }
       case "library": {
         // Open book — two pages spreading from a center spine
-        const bh = r * 1.4, bw = r * 0.85;
+        const bh = r * 1.4,
+          bw = r * 0.85;
         // Left page
         ctx.beginPath();
         ctx.moveTo(cx - r * 0.1, cy - bh / 2);
@@ -1426,13 +1527,15 @@ class MapRenderer {
       }
       case "bank": {
         // Classic bank building — base, columns, pediment
-        const bw2 = r * 1.5, bh2 = r * 0.65;
+        const bw2 = r * 1.5,
+          bh2 = r * 0.65;
         // Base
         ctx.beginPath();
         ctx.rect(cx - bw2 / 2, cy + r * 0.35, bw2, r * 0.3);
         haloFill();
         // Columns (3)
-        const colW = bw2 * 0.18, colH = bh2;
+        const colW = bw2 * 0.18,
+          colH = bh2;
         for (let i = 0; i < 3; i++) {
           const colX = cx - bw2 / 2 + bw2 * 0.15 + i * (bw2 * 0.35);
           ctx.beginPath();
@@ -1457,7 +1560,10 @@ class MapRenderer {
 
     this.canvas.addEventListener("mouseleave", () => {
       this._lastMousePos = null;
-      if (this._hoveredPOI) { this._hoveredPOI = null; this.debouncedRender(); }
+      if (this._hoveredPOI) {
+        this._hoveredPOI = null;
+        this.debouncedRender();
+      }
       this.hideTooltip();
     });
 
@@ -1472,7 +1578,10 @@ class MapRenderer {
 
     this.canvas.addEventListener("mousemove", (e) => {
       const rect2 = this.canvas.getBoundingClientRect();
-      this._lastMousePos = { x: e.clientX - rect2.left, y: e.clientY - rect2.top };
+      this._lastMousePos = {
+        x: e.clientX - rect2.left,
+        y: e.clientY - rect2.top,
+      };
       if (this.isPanning) {
         const dx = e.clientX - this.lastPanX;
         const dy = e.clientY - this.lastPanY;
@@ -1883,7 +1992,10 @@ class MapRenderer {
 
   checkPOIHover(e) {
     if (!this._renderedPOIs || this._renderedPOIs.length === 0) {
-      if (this._hoveredPOI) { this._hoveredPOI = null; this.debouncedRender(); }
+      if (this._hoveredPOI) {
+        this._hoveredPOI = null;
+        this.debouncedRender();
+      }
       this.hideTooltip();
       return;
     }
@@ -1896,8 +2008,10 @@ class MapRenderer {
       const dy = cy - poi.y;
       if (dx * dx + dy * dy <= poi.hitRadius * poi.hitRadius) {
         // Update hover state and trigger re-render if it changed
-        const changed = !this._hoveredPOI ||
-          this._hoveredPOI.x !== poi.x || this._hoveredPOI.y !== poi.y;
+        const changed =
+          !this._hoveredPOI ||
+          this._hoveredPOI.x !== poi.x ||
+          this._hoveredPOI.y !== poi.y;
         this._hoveredPOI = poi;
         if (changed) this.debouncedRender();
         this.showPOITooltip(poi, e.clientX, e.clientY);
@@ -1905,7 +2019,10 @@ class MapRenderer {
       }
     }
     // No POI hovered — clear if was set
-    if (this._hoveredPOI) { this._hoveredPOI = null; this.debouncedRender(); }
+    if (this._hoveredPOI) {
+      this._hoveredPOI = null;
+      this.debouncedRender();
+    }
     this.hideTooltip();
   }
 
@@ -1934,8 +2051,18 @@ class MapRenderer {
 
     // Tags to skip — geometry/internal fields and things already shown as category
     const SKIP = new Set([
-      "name", "type", "layer", "level", "indoor", "tunnel", "bridge",
-      "access", "source", "note", "fixme", "survey:date",
+      "name",
+      "type",
+      "layer",
+      "level",
+      "indoor",
+      "tunnel",
+      "bridge",
+      "access",
+      "source",
+      "note",
+      "fixme",
+      "survey:date",
     ]);
 
     let html = "";
@@ -1948,8 +2075,16 @@ class MapRenderer {
 
     // Show all remaining non-technical tags
     for (const [key, val] of Object.entries(props)) {
-      if (!val || SKIP.has(key) || key.startsWith("_") || key.startsWith("ref:")) continue;
-      const label = key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+      if (
+        !val ||
+        SKIP.has(key) ||
+        key.startsWith("_") ||
+        key.startsWith("ref:")
+      )
+        continue;
+      const label = key
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase());
       html += `<span style="color:#ccc">${label}:</span> ${val}<br>`;
     }
 
@@ -2217,7 +2352,7 @@ class MapRenderer {
 
     // Fallback to closest tileset
     if (this.viewWidthMeters < 2000) return "t1";
-    if (this.viewWidthMeters < 15000) return "t2";
+    if (this.viewWidthMeters < 20000) return "t2";
     if (this.viewWidthMeters < 150000) return "t3";
     return "t4";
   }
@@ -2242,8 +2377,7 @@ class MapRenderer {
     for (let y = minY; y <= maxY; y++) {
       // Use this row's center latitude to compute tile width — matches tile generator
       const rowCenterLat = (y + 0.5) * tileHeightDeg;
-      const metersPerDegLon =
-        111320 * Math.cos((rowCenterLat * Math.PI) / 180);
+      const metersPerDegLon = 111320 * Math.cos((rowCenterLat * Math.PI) / 180);
       const tileWidthDeg = tileSizeM / metersPerDegLon;
 
       const minX = Math.floor(bounds.minLon / tileWidthDeg) - 1;
@@ -2521,8 +2655,12 @@ class MapRenderer {
         for (const feature of tile.features) {
           // Early LOD filtering: skip features that won't be rendered at current zoom
           if (feature._render && feature._render.minLOD > currentLOD) {
-            lodFilteredCount++;
-            continue;
+            // Exception: prominent landuse features are shown up to 50km view
+            // (size filter is applied later in the render loop)
+            if (!feature._render.prominentThemeKey || this.viewWidthMeters > 50000) {
+              lodFilteredCount++;
+              continue;
+            }
           }
           // Fast deduplication: use multiple coordinates + vertex count + geometry type as string key
           // GeoJSON polygons are closed rings (first == last coord), so we use
@@ -2855,6 +2993,7 @@ class MapRenderer {
         natural_background: [],
         forests: [],
         water_areas: [],
+        wetlands: [],
         islands: [],
         landuse_areas: [],
         buildings: [],
@@ -2894,21 +3033,33 @@ class MapRenderer {
       // (width calculation is view-dependent on metersPerPixel)
       let featureInfo = feature._classCache;
       const currentViewWidth = this.viewWidthMeters;
+      const currentLOD = this.getLOD();
 
-      // Invalidate cache if view width changed by >20% (width needs recalculation)
-      // This catches zoom changes within same tile zoom level
+      // Invalidate cache if view width changed by >20% OR LOD changed
+      // Also invalidate when crossing the 50km prominent-display boundary
       if (featureInfo && feature._cachedViewWidth) {
         const viewWidthRatio = currentViewWidth / feature._cachedViewWidth;
-        if (viewWidthRatio < 0.8 || viewWidthRatio > 1.25) {
+        if (
+          viewWidthRatio < 0.8 ||
+          viewWidthRatio > 1.25 ||
+          feature._cachedLOD !== currentLOD ||
+          (feature._cachedViewWidth <= 50000) !== (currentViewWidth <= 50000)
+        ) {
           featureInfo = null;
           feature._classCache = null;
         }
       }
 
       if (!featureInfo) {
-        featureInfo = this.classifyFeature(props, type, feature._render);
+        featureInfo = this.classifyFeature(
+          props,
+          type,
+          feature._render,
+          currentLOD,
+        );
         feature._classCache = featureInfo;
         feature._cachedViewWidth = currentViewWidth;
+        feature._cachedLOD = currentLOD;
       }
 
       if (!featureInfo) continue; // unclassified feature (no themeKey/poiCategory/placeType)
@@ -2933,10 +3084,18 @@ class MapRenderer {
       }
 
       if (featureInfo.minLOD > lod) {
-        lodCulledCount++;
-        continue;
+        // Prominent landuse features are shown up to 50km view
+        if (featureInfo.prominentThemeKey && this.viewWidthMeters <= 50000) {
+          // Fall through to render
+        } else {
+          lodCulledCount++;
+          continue;
+        }
       }
-      if (featureInfo.maxViewWidth && this.viewWidthMeters > featureInfo.maxViewWidth) {
+      if (
+        featureInfo.maxViewWidth &&
+        this.viewWidthMeters > featureInfo.maxViewWidth
+      ) {
         lodCulledCount++;
         continue;
       }
@@ -3018,7 +3177,10 @@ class MapRenderer {
           if (centroid) {
             const catDef = POI_CATEGORIES[featureInfo.areaPoiCategory];
             layers.points.push({
-              feature: { geometry: { type: "Point", coordinates: centroid }, properties: props },
+              feature: {
+                geometry: { type: "Point", coordinates: centroid },
+                properties: props,
+              },
               props,
               type: "Point",
               color: catDef.color,
@@ -3058,7 +3220,7 @@ class MapRenderer {
     this.renderLayer(layers.base_land, adjustedBounds, true);
     layerTimings.baseLand = performance.now() - layerStart;
 
-    // 1. Natural background (parks, farmland, meadows, wetland)
+    // 1. Natural background (parks, farmland, meadows)
     layerStart = performance.now();
     this.renderLayer(layers.natural_background, adjustedBounds, true);
     layerTimings.natural = performance.now() - layerStart;
@@ -3087,6 +3249,11 @@ class MapRenderer {
     layerStart = performance.now();
     this.renderLayer(layers.islands, adjustedBounds, true);
     layerTimings.islands = performance.now() - layerStart;
+
+    // 3d. Wetlands (on top of water and islands so patterns overlay both)
+    layerStart = performance.now();
+    this.renderLayer(layers.wetlands, adjustedBounds, true);
+    layerTimings.wetlands = performance.now() - layerStart;
 
     // 4a. Aeroway areas (aprons — under buildings)
     layerStart = performance.now();
@@ -3123,11 +3290,6 @@ class MapRenderer {
     this.renderRoadLayer(layers.surface_roads, adjustedBounds);
     layerTimings.roads = performance.now() - layerStart;
 
-    // 7c. Street names (rendered on top of roads)
-    layerStart = performance.now();
-    this.renderStreetNames(layers.surface_roads, adjustedBounds);
-    layerTimings.streetNames = performance.now() - layerStart;
-
     // 8b. Bridge roads and railways — rendered on top of surface, sorted by ascending layer value
     layerStart = performance.now();
     this.renderBridges(
@@ -3136,11 +3298,6 @@ class MapRenderer {
       adjustedBounds,
     );
     layerTimings.bridges = performance.now() - layerStart;
-
-    // 8c. Street names on bridges
-    if (layers.bridge_roads.length > 0) {
-      this.renderStreetNames(layers.bridge_roads, adjustedBounds);
-    }
 
     // 9. Country boundaries
     layerStart = performance.now();
@@ -3152,22 +3309,27 @@ class MapRenderer {
     this.renderAeroways(layers.aeroways, adjustedBounds, "lines");
     layerTimings.aerowayLines = performance.now() - layerStart;
 
-    // 10. Points (always on top)
+    // 10. Water labels + street names — priority-based conflict resolution:
+    // Collect bboxes from both categories, sort by (priority DESC, size DESC),
+    // greedily assign space so higher-ranked labels win conflicts.
+    // Water labels render first, street names second.
     layerStart = performance.now();
-    this.renderLayer(layers.points, adjustedBounds, false);
-    layerTimings.points = performance.now() - layerStart;
-
-    // 10b. Water labels (lake/pond/canal/river names)
-    layerStart = performance.now();
-    this.renderWaterLabels(layers.water_labels, adjustedBounds);
+    const _allRoads = [...layers.surface_roads, ...layers.bridge_roads];
+    const _wsAllowed = this._preResolveWaterStreetLabels(
+      layers.water_labels, _allRoads, adjustedBounds,
+    );
+    this.renderWaterLabels(layers.water_labels, adjustedBounds, _wsAllowed);
     layerTimings.waterLabels = performance.now() - layerStart;
 
-    // 10c. Place labels (city/town/village names on top of everything except highlights)
+    // 10b. Street names (winners from conflict resolution above)
     layerStart = performance.now();
-    this.renderPlaceLabels(layers.place_labels, adjustedBounds);
-    layerTimings.placeLabels = performance.now() - layerStart;
+    this.renderStreetNames(layers.surface_roads, adjustedBounds, _wsAllowed);
+    if (layers.bridge_roads.length > 0) {
+      this.renderStreetNames(layers.bridge_roads, adjustedBounds, _wsAllowed);
+    }
+    layerTimings.streetNames = performance.now() - layerStart;
 
-    // 10d. Building labels (house numbers, only at very high zoom)
+    // 10c. Building labels (house numbers — fine detail, least label priority)
     layerStart = performance.now();
     this.renderBuildingLabels(
       layers.building_labels,
@@ -3175,6 +3337,16 @@ class MapRenderer {
       layers.surface_roads,
     );
     layerTimings.buildingLabels = performance.now() - layerStart;
+
+    // 10d. Points (POIs — point icons above area labels)
+    layerStart = performance.now();
+    this.renderLayer(layers.points, adjustedBounds, false);
+    layerTimings.points = performance.now() - layerStart;
+
+    // 10e. Place labels (city/town/village names — most important, always on top)
+    layerStart = performance.now();
+    this.renderPlaceLabels(layers.place_labels, adjustedBounds);
+    layerTimings.placeLabels = performance.now() - layerStart;
 
     // 11. Highlight hovered or selected feature on top of everything
     layerStart = performance.now();
@@ -3325,15 +3497,46 @@ class MapRenderer {
     return 4;
   }
 
+  _featureBboxMaxMeters(feature) {
+    // Returns the larger of the bounding-box width/height in metres.
+    // Result is cached on the feature object since geometry never changes.
+    if (feature._bboxMaxM !== undefined) return feature._bboxMaxM;
+    const geom = feature.geometry;
+    if (!geom || !geom.coordinates) return (feature._bboxMaxM = 0);
+
+    let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
+    const scan = (c) => {
+      if (typeof c[0] === "number") {
+        if (c[0] < minLon) minLon = c[0];
+        if (c[0] > maxLon) maxLon = c[0];
+        if (c[1] < minLat) minLat = c[1];
+        if (c[1] > maxLat) maxLat = c[1];
+      } else {
+        for (const child of c) scan(child);
+      }
+    };
+    scan(geom.coordinates);
+
+    const midLat = (minLat + maxLat) / 2;
+    const widthM = (maxLon - minLon) * 111320 * Math.cos(midLat * Math.PI / 180);
+    const heightM = (maxLat - minLat) * 111320;
+    return (feature._bboxMaxM = Math.max(widthM, heightM));
+  }
+
   getPolygonCentroid(geometry) {
     let ring;
     if (geometry.type === "Polygon") ring = geometry.coordinates[0];
-    else if (geometry.type === "MultiPolygon") ring = geometry.coordinates[0][0];
+    else if (geometry.type === "MultiPolygon")
+      ring = geometry.coordinates[0][0];
     else return null;
     if (!ring || ring.length < 3) return null;
     const n = ring.length - 1; // last point closes the ring, skip it
-    let sumLon = 0, sumLat = 0;
-    for (let i = 0; i < n; i++) { sumLon += ring[i][0]; sumLat += ring[i][1]; }
+    let sumLon = 0,
+      sumLat = 0;
+    for (let i = 0; i < n; i++) {
+      sumLon += ring[i][0];
+      sumLat += ring[i][1];
+    }
     return [sumLon / n, sumLat / n];
   }
 
@@ -3408,7 +3611,7 @@ class MapRenderer {
     return null;
   }
 
-  classifyFeature(props, type, r = {}) {
+  classifyFeature(props, type, r = {}, lod = 0) {
     // Thin reader: resolve colors and attributes from _render (pre-computed by Python).
     // Returns null for features that should be skipped.
 
@@ -3418,7 +3621,11 @@ class MapRenderer {
     // ── Color resolution ─────────────────────────────────────────────────────
     let color;
     if (r.themeKey) {
-      color = getColorByKey(r.themeKey);
+      // Use prominent variant when zoomed out (view ≤ 50km) and a prominent key exists
+      color =
+        r.prominentThemeKey && this.viewWidthMeters <= 50000
+          ? getColorByKey(r.prominentThemeKey)
+          : getColorByKey(r.themeKey);
     } else if (r.poiCategory) {
       const cd = POI_CATEGORIES[r.poiCategory];
       color = cd
@@ -3428,11 +3635,17 @@ class MapRenderer {
       color = getColorByKey("text.places");
     }
 
-    const casingColor   = r.casingKey       ? getColorByKey(r.casingKey)      : null;
-    const dualDashColor = r.dualDashKey      ? getColorByKey(r.dualDashKey)     : null;
-    const dashPattern   = r.dashPatternKey   ? getDashPattern(r.dashPatternKey) : null;
-    const strokeColor   = r.strokeThemeKey   ? getColorByKey(r.strokeThemeKey)  : null;
-    const borderColor   = r.borderColorKey   ? getColorByKey(r.borderColorKey)  : null;
+    const casingColor = r.casingKey ? getColorByKey(r.casingKey) : null;
+    const dualDashColor = r.dualDashKey ? getColorByKey(r.dualDashKey) : null;
+    const dashPattern = r.dashPatternKey
+      ? getDashPattern(r.dashPatternKey)
+      : null;
+    const strokeColor = r.strokeThemeKey
+      ? getColorByKey(r.strokeThemeKey)
+      : null;
+    const borderColor = r.borderColorKey
+      ? getColorByKey(r.borderColorKey)
+      : null;
 
     // Tunnel waterways: bake reduced alpha into color (renderLayer has no globalAlpha for this layer)
     if (r.tunnel && r.layer === "tunnel_waterways") {
@@ -3463,47 +3676,48 @@ class MapRenderer {
     }
 
     return {
-      layer:           r.layer,
-      minLOD:          r.minLOD ?? 0,
-      fill:            r.fill ?? false,
+      layer: r.layer,
+      minLOD: r.minLOD ?? 0,
+      prominentThemeKey: r.prominentThemeKey,
+      fill: r.fill ?? false,
       color,
       width,
-      roadPriority:    r.roadPriority,
+      roadPriority: r.roadPriority,
       casingColor,
       dualDashColor,
       dashPattern,
-      noCasing:        r.noCasing,
-      stroke:          !!strokeColor || r.stroke,
+      noCasing: r.noCasing,
+      stroke: !!strokeColor || r.stroke,
       strokeColor,
-      strokeWidth:     r.strokeWidth,
-      borderWidth:     r.borderWidth,
+      strokeWidth: r.strokeWidth,
+      borderWidth: r.borderWidth,
       borderColor,
-      isConstruction:  r.isConstruction,
-      isRailway:       r.isRailway,
-      isRunway:        r.isRunway,
-      runwayRef:       r.runwayRef,
-      runwayLit:       r.runwayLit,
-      runwayLength:    this.parseMeters(props.length),
-      isHelipad:       r.isHelipad,
-      isPlatform:      r.isPlatform,
-      isBicycleRoad:   r.isBicycleRoad,
-      poiCategory:     r.poiCategory,
+      isConstruction: r.isConstruction,
+      isRailway: r.isRailway,
+      isRunway: r.isRunway,
+      runwayRef: r.runwayRef,
+      runwayLit: r.runwayLit,
+      runwayLength: this.parseMeters(props.length),
+      isHelipad: r.isHelipad,
+      isPlatform: r.isPlatform,
+      isBicycleRoad: r.isBicycleRoad,
+      poiCategory: r.poiCategory,
       areaPoiCategory: r.areaPoiCategory,
-      placeType:       r.placeType,
-      placePriority:   r.placePriority,
-      fontSize:        r.fontSize,
-      maxViewWidth:    r.maxViewWidth,
-      population:      r.population,
-      tunnel:          r.tunnel,
-      bridgeLayer:     r.bridgeLayer,
-      pattern:         r.pattern,
-      patternOnly:     r.patternOnly,
-      showDirection:   r.showDirection,
-      waterLabel:      r.waterLabel,
-      houseNumber:     r.houseNumber,
-      tunnelGradient:  false,
+      placeType: r.placeType,
+      placePriority: r.placePriority,
+      fontSize: r.fontSize,
+      maxViewWidth: r.maxViewWidth,
+      population: r.population,
+      tunnel: r.tunnel,
+      bridgeLayer: r.bridgeLayer,
+      pattern: r.pattern,
+      patternOnly: r.patternOnly,
+      showDirection: r.showDirection,
+      waterLabel: r.waterLabel,
+      houseNumber: r.houseNumber,
+      tunnelGradient: false,
       gradientStartAlpha: null,
-      gradientEndAlpha:   null,
+      gradientEndAlpha: null,
     };
   }
 
@@ -3942,7 +4156,11 @@ class MapRenderer {
     if (props.leisure === "pitch") {
       const sport = props.sport || "";
       let color;
-      if (sport === "basketball" || sport === "skateboard" || sport === "multi") {
+      if (
+        sport === "basketball" ||
+        sport === "skateboard" ||
+        sport === "multi"
+      ) {
         color = getColor("recreation", "pitchHard");
       } else if (
         sport === "soccer" ||
@@ -3966,7 +4184,8 @@ class MapRenderer {
       props.leisure === "stadium"
     ) {
       const sport = props.sport || "";
-      const isSwimFacility = sport === "swimming" || sport === "diving" || sport === "water_polo";
+      const isSwimFacility =
+        sport === "swimming" || sport === "diving" || sport === "water_polo";
       return {
         layer: "landuse_areas",
         color: getColor("recreation", "sportsFacility"),
@@ -4097,7 +4316,7 @@ class MapRenderer {
         fill: true,
         stroke: true,
         strokeColor: getColor("buildings", "border"),
-        strokeWidth: 1.0,
+        strokeWidth: 0.5,
       };
 
       // Add house number label if available (addr:housenumber)
@@ -4318,10 +4537,17 @@ class MapRenderer {
         effectiveHighway === "steps" ||
         effectiveHighway === "corridor"
       ) {
-        const bicycleDesignated = props.bicycle === "designated" || props.bicycle === "yes";
+        const bicycleDesignated =
+          props.bicycle === "designated" || props.bicycle === "yes";
         // Foot access is implied on foot-priority ways unless explicitly denied
-        const footImplied = effectiveHighway === "path" || effectiveHighway === "footway" || effectiveHighway === "pedestrian";
-        const footAccessible = props.foot === "designated" || props.foot === "yes" || (footImplied && props.foot !== "no");
+        const footImplied =
+          effectiveHighway === "path" ||
+          effectiveHighway === "footway" ||
+          effectiveHighway === "pedestrian";
+        const footAccessible =
+          props.foot === "designated" ||
+          props.foot === "yes" ||
+          (footImplied && props.foot !== "no");
         if (bicycleDesignated && footAccessible) {
           // Mixed cycling+foot: interleaved dual-color dashes
           color = getColor("roads", "cycleway");
@@ -4346,7 +4572,8 @@ class MapRenderer {
         minLOD = 2;
         roadPriority = 0;
       } else if (effectiveHighway === "cycleway") {
-        const footAccessible2 = props.foot === "designated" || props.foot === "yes";
+        const footAccessible2 =
+          props.foot === "designated" || props.foot === "yes";
         color = getColor("roads", "cycleway");
         if (footAccessible2) {
           dualDashColor = getColor("roads", "footway");
@@ -4415,7 +4642,11 @@ class MapRenderer {
           const anySurface = levels.some((l) => l >= 0);
           if (anyUnderground && !anySurface) {
             stepsFullyUnderground = true;
-          } else if (!anyUnderground && levels.some((l) => l > 0) && effectiveHighway === "steps") {
+          } else if (
+            !anyUnderground &&
+            levels.some((l) => l > 0) &&
+            effectiveHighway === "steps"
+          ) {
             // Steps going upward from ground level — render with full step pattern, fully opaque
             stepGradientStartAlpha = 255;
             stepGradientEndAlpha = 255;
@@ -4765,7 +4996,11 @@ class MapRenderer {
       // Categorize named POIs
       if (
         props.name &&
-        (props.amenity || props.shop || props.tourism || props.historic || props.leisure)
+        (props.amenity ||
+          props.shop ||
+          props.tourism ||
+          props.historic ||
+          props.leisure)
       ) {
         const poiCategory = this.classifyPOI(props);
         if (poiCategory) {
@@ -4855,7 +5090,7 @@ class MapRenderer {
     if (!setTheme(themeName)) return false;
     // Invalidate classify caches so colors re-resolve from the new theme on next frame
     for (const tile of this.tileCache.values()) {
-      for (const feat of (tile.features ?? [])) {
+      for (const feat of tile.features ?? []) {
         feat._classCache = null;
       }
     }
@@ -5348,8 +5583,12 @@ class MapRenderer {
 
       if (roadFeatures.length > 0) {
         const gradientFeatures = roadFeatures.filter((fc) => fc.tunnelGradient);
-        const dualDashFeatures = roadFeatures.filter((fc) => !fc.tunnelGradient && fc.dualDashColor);
-        const normalFeatures = roadFeatures.filter((fc) => !fc.tunnelGradient && !fc.dualDashColor);
+        const dualDashFeatures = roadFeatures.filter(
+          (fc) => !fc.tunnelGradient && fc.dualDashColor,
+        );
+        const normalFeatures = roadFeatures.filter(
+          (fc) => !fc.tunnelGradient && !fc.dualDashColor,
+        );
 
         const fillBatches = new Map();
         for (const fc of normalFeatures) {
@@ -5401,7 +5640,12 @@ class MapRenderer {
           this.ctx.setLineDash([4, 4]);
           // Primary color (e.g. cycleway blue)
           this.ctx.lineDashOffset = 0;
-          this.ctx.strokeStyle = this._getRGBA(fc.color.r, fc.color.g, fc.color.b, fc.color.a / 255);
+          this.ctx.strokeStyle = this._getRGBA(
+            fc.color.r,
+            fc.color.g,
+            fc.color.b,
+            fc.color.a / 255,
+          );
           drawPath();
           // Secondary color (e.g. footway salmon), offset by 4 to fill the gaps
           const dc = fc.dualDashColor;
@@ -5455,13 +5699,7 @@ class MapRenderer {
           this.ctx.stroke();
 
           // Fill
-          const fillGrad = makeGrad(
-            color.r,
-            color.g,
-            color.b,
-            startA,
-            endA,
-          );
+          const fillGrad = makeGrad(color.r, color.g, color.b, startA, endA);
           this.ctx.strokeStyle = fillGrad;
           this.ctx.lineWidth = width;
           this.ctx.lineCap = "butt";
@@ -5474,7 +5712,13 @@ class MapRenderer {
 
           // Step riser marks: 1px stripe every 5px along the line, spanning casing width
           // Uses the same gradient → fades identically with casing and fill
-          const riserGrad = makeGrad(cr, cg, cb, startA * casingFactor, endA * casingFactor);
+          const riserGrad = makeGrad(
+            cr,
+            cg,
+            cb,
+            startA * casingFactor,
+            endA * casingFactor,
+          );
           this.ctx.strokeStyle = riserGrad;
           this.ctx.lineWidth = width + 2;
           this.ctx.lineCap = "butt";
@@ -5726,7 +5970,153 @@ class MapRenderer {
     this._precomputedPlaceLabels = accepted;
   }
 
-  renderStreetNames(layerFeatures, bounds) {
+  _waterLabelPriority(waterType) {
+    const P = {
+      river: 5, canal: 4, stream: 3, water: 3,
+      lake: 3, reservoir: 3, pond: 2, ditch: 1, drain: 1,
+    };
+    return P[waterType] ?? 2;
+  }
+
+  _collectStreetLabelBoxes(layerFeatures, bounds) {
+    const lod = this.getLOD();
+    const lonRange = bounds.maxLon - bounds.minLon;
+    const latRange = bounds.maxLat - bounds.minLat;
+    const scaleX = this.canvasWidth / lonRange;
+    const scaleY = this.canvasHeight / latRange;
+    const toScreenX = (lon) => (lon - bounds.minLon) * scaleX;
+    const toScreenY = (lat) => this.canvasHeight - (lat - bounds.minLat) * scaleY;
+    const centerX = this.canvasWidth / 2;
+    const centerY = this.canvasHeight / 2;
+
+    const roadsByName = new Map();
+    for (const item of layerFeatures) {
+      const name = item.props?.name;
+      if (!name) continue;
+      if (lod < 2 && (item.roadPriority || 0) < 6) continue;
+      const geom = item.feature?.geometry;
+      if (!geom?.coordinates) continue;
+      const coordArrays =
+        item.type === "LineString" ? [geom.coordinates]
+        : item.type === "MultiLineString" ? geom.coordinates
+        : null;
+      if (!coordArrays) continue;
+      for (const coords of coordArrays) {
+        if (coords.length < 2) continue;
+        const sc = coords.map((c) => ({ x: toScreenX(c[0]), y: toScreenY(c[1]) }));
+        let len = 0;
+        for (let i = 1; i < sc.length; i++) {
+          const dx = sc[i].x - sc[i-1].x, dy = sc[i].y - sc[i-1].y;
+          len += Math.sqrt(dx*dx + dy*dy);
+        }
+        if (len < 30) continue;
+        const priority = (item.roadPriority || 0) - (item.tunnel ? 2 : 0);
+        if (!roadsByName.has(name)) roadsByName.set(name, []);
+        roadsByName.get(name).push({ name, sc, len, priority, width: item.width || 1 });
+      }
+    }
+
+    const boxes = [];
+    for (const [name, segs] of roadsByName) {
+      let best = segs[0], bestScore = -Infinity;
+      for (const seg of segs) {
+        const mid = seg.sc[Math.floor(seg.sc.length / 2)];
+        const d = Math.sqrt((mid.x - centerX) ** 2 + (mid.y - centerY) ** 2);
+        const score = -d / Math.sqrt(centerX ** 2 + centerY ** 2) + seg.len / 500 * 0.3;
+        if (score > bestScore) { bestScore = score; best = seg; }
+      }
+      const fontSize = Math.max(10, Math.min(15, 11 + best.width * 0.4));
+      this.ctx.font = `${fontSize}px Arial, sans-serif`;
+      const tw = this.ctx.measureText(name).width;
+      if (best.len < tw + 10) continue;
+      const mid = best.sc[Math.floor(best.sc.length / 2)];
+      boxes.push({ key: `street:${name}`, name, x: mid.x, y: mid.y,
+        w: tw, h: fontSize * 1.4, priority: best.priority, size: best.len });
+    }
+    return boxes;
+  }
+
+  _collectWaterLabelBoxes(layerFeatures, bounds) {
+    const lonRange = bounds.maxLon - bounds.minLon;
+    const latRange = bounds.maxLat - bounds.minLat;
+    const scaleX = this.canvasWidth / lonRange;
+    const scaleY = this.canvasHeight / latRange;
+    const toScreenX = (lon) => (lon - bounds.minLon) * scaleX;
+    const toScreenY = (lat) => this.canvasHeight - (lat - bounds.minLat) * scaleY;
+
+    const boxes = [];
+    const seen = new Set();
+    for (const item of layerFeatures) {
+      const { name, waterType } = item;
+      if (!name || seen.has(name)) continue;
+      const geom = item.feature?.geometry;
+      if (!geom?.coordinates) continue;
+
+      let x, y, size;
+      if (geom.type === "Polygon") {
+        const ring = geom.coordinates[0];
+        let sumX = 0, sumY = 0, minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (const c of ring) {
+          const sx = toScreenX(c[0]), sy = toScreenY(c[1]);
+          sumX += sx; sumY += sy;
+          if (sx < minX) minX = sx; if (sx > maxX) maxX = sx;
+          if (sy < minY) minY = sy; if (sy > maxY) maxY = sy;
+        }
+        x = sumX / ring.length; y = sumY / ring.length;
+        size = (maxX - minX) * (maxY - minY);
+      } else if (geom.type === "LineString") {
+        const coords = geom.coordinates;
+        const mid = coords[Math.floor(coords.length / 2)];
+        x = toScreenX(mid[0]); y = toScreenY(mid[1]);
+        size = 0;
+        for (let i = 1; i < coords.length; i++) {
+          const dx = toScreenX(coords[i][0]) - toScreenX(coords[i-1][0]);
+          const dy = toScreenY(coords[i][1]) - toScreenY(coords[i-1][1]);
+          size += Math.sqrt(dx*dx + dy*dy);
+        }
+      } else {
+        continue;
+      }
+
+      const margin = 50;
+      if (x < -margin || x > this.canvasWidth + margin ||
+          y < -margin || y > this.canvasHeight + margin) continue;
+
+      this.ctx.font = `italic 14px Arial, sans-serif`;
+      const tw = this.ctx.measureText(name).width;
+      seen.add(name);
+      boxes.push({ key: `water:${name}`, name, x, y, w: tw, h: 14 * 1.4,
+        priority: this._waterLabelPriority(waterType), size });
+    }
+    return boxes;
+  }
+
+  _preResolveWaterStreetLabels(waterFeatures, roadFeatures, bounds) {
+    const waterBoxes = this._collectWaterLabelBoxes(waterFeatures, bounds);
+    const streetBoxes = this._collectStreetLabelBoxes(roadFeatures, bounds);
+
+    // Sort by priority DESC, then size DESC (larger feature wins ties)
+    const all = [...waterBoxes, ...streetBoxes];
+    all.sort((a, b) => b.priority - a.priority || b.size - a.size);
+
+    // Greedy conflict resolution: first-come-first-served after sorting
+    const resolved = [];
+    const allowed = new Set();
+    for (const c of all) {
+      const hw = c.w / 2, hh = c.h / 2;
+      const bbox = { l: c.x - hw, r: c.x + hw, t: c.y - hh, b: c.y + hh };
+      const overlaps = resolved.some(
+        (r) => bbox.l < r.r && bbox.r > r.l && bbox.t < r.b && bbox.b > r.t,
+      );
+      if (!overlaps) {
+        resolved.push(bbox);
+        allowed.add(c.key);
+      }
+    }
+    return allowed;
+  }
+
+  renderStreetNames(layerFeatures, bounds, allowed = null) {
     // Render street names based on LOD:
     // LOD 0-1: Only major roads (motorway, primary)
     // LOD 2+: All roads
@@ -5896,6 +6286,7 @@ class MapRenderer {
     this.ctx.textBaseline = "middle";
 
     for (const road of namedRoads) {
+      if (allowed !== null && !allowed.has(`street:${road.name}`)) continue;
       // Font size: base of 11px, increases with road width (but capped)
       // This keeps text readable while scaling slightly with importance
       const fontSize = Math.max(10, Math.min(15, 11 + road.width * 0.4));
@@ -6043,7 +6434,7 @@ class MapRenderer {
     );
   }
 
-  renderWaterLabels(layerFeatures, bounds) {
+  renderWaterLabels(layerFeatures, bounds, allowed = null) {
     // Render water body names (lakes, ponds, rivers, canals)
     if (!layerFeatures || layerFeatures.length === 0) return;
 
@@ -6427,6 +6818,7 @@ class MapRenderer {
     let renderedCount = 0;
 
     for (const label of waterLabels) {
+      if (allowed !== null && !allowed.has(`water:${label.name}`)) continue;
       const fontSize = label.isLine ? 12 : 14;
       this.ctx.font = `italic ${fontSize}px Arial, sans-serif`;
       const tw = this.ctx.measureText(label.name).width;
@@ -7056,7 +7448,7 @@ class MapRenderer {
     // Render building borders (after fills, before lines)
     for (const [key, batch] of strokeBatches) {
       this.ctx.strokeStyle = `rgba(${batch.color.r},${batch.color.g},${batch.color.b},${batch.color.a / 255})`;
-      this.ctx.lineWidth = batch.width;
+      this.ctx.lineWidth = batch.width ?? 0.5;
       this.ctx.beginPath();
 
       for (const poly of batch.polygons) {
@@ -7164,27 +7556,42 @@ class MapRenderer {
       // Loaded from tileset_config.json; hardcoded table is the fallback.
       const CATEGORY_PRIORITY = this.poiCategoryPriority ?? {
         health: 1,
-        restaurant: 2, cafe: 3, bakery: 3, ice_cream: 3,
-        tourism: 4, historic: 4,
-        theatre: 5, cinema: 5,
+        restaurant: 2,
+        cafe: 3,
+        bakery: 3,
+        ice_cream: 3,
+        tourism: 4,
+        historic: 4,
+        theatre: 5,
+        cinema: 5,
         nightlife: 6,
-        supermarket: 7, shopping: 7,
-        education: 8, bank: 8, police: 8, library: 8,
-        transport: 9, services: 10, recreation: 10,
-        swimming: 11, toilets: 12,
+        supermarket: 7,
+        shopping: 7,
+        education: 8,
+        bank: 8,
+        police: 8,
+        library: 8,
+        transport: 9,
+        services: 10,
+        recreation: 10,
+        swimming: 11,
+        toilets: 12,
       };
 
       // 1. Filter: category toggle + per-category maxViewWidth
       const visible = this._poiRenderQueue.filter((poi) => {
         if (this.poiCategoryState[poi.category] === false) return false;
         const catDef = POI_CATEGORIES[poi.category];
-        if (catDef?.maxViewWidth && this.viewWidthMeters > catDef.maxViewWidth) return false;
+        if (catDef?.maxViewWidth && this.viewWidthMeters > catDef.maxViewWidth)
+          return false;
         return true;
       });
 
       // 2. Sort by priority so important POIs survive declutter
-      visible.sort((a, b) =>
-        (CATEGORY_PRIORITY[a.category] ?? 99) - (CATEGORY_PRIORITY[b.category] ?? 99)
+      visible.sort(
+        (a, b) =>
+          (CATEGORY_PRIORITY[a.category] ?? 99) -
+          (CATEGORY_PRIORITY[b.category] ?? 99),
       );
 
       // 3. Greedy declutter: skip any POI whose center falls within displaySize of a placed one
@@ -7192,7 +7599,9 @@ class MapRenderer {
       const toRender = [];
       for (const poi of visible) {
         const overlaps = placed.some(
-          (p) => Math.abs(poi.x - p.x) < displaySize && Math.abs(poi.y - p.y) < displaySize
+          (p) =>
+            Math.abs(poi.x - p.x) < displaySize &&
+            Math.abs(poi.y - p.y) < displaySize,
         );
         if (!overlaps) {
           placed.push(poi);
@@ -7203,28 +7612,47 @@ class MapRenderer {
       // 4. Render surviving POIs; hovered one drawn last at 2x
       let hoveredPOI = null;
       for (const poi of toRender) {
-        if (this._hoveredPOI &&
-            Math.abs(poi.x - this._hoveredPOI.x) < 2 &&
-            Math.abs(poi.y - this._hoveredPOI.y) < 2) {
+        if (
+          this._hoveredPOI &&
+          Math.abs(poi.x - this._hoveredPOI.x) < 2 &&
+          Math.abs(poi.y - this._hoveredPOI.y) < 2
+        ) {
           hoveredPOI = poi;
           continue;
         }
         const glyph = this.glyphCache[poi.category];
         if (glyph) {
-          this.ctx.drawImage(glyph.canvas, poi.x - halfSize, poi.y - halfSize, displaySize, displaySize);
+          this.ctx.drawImage(
+            glyph.canvas,
+            poi.x - halfSize,
+            poi.y - halfSize,
+            displaySize,
+            displaySize,
+          );
         }
       }
       if (hoveredPOI) {
         const glyph = this.glyphCache[hoveredPOI.category];
         if (glyph) {
-          const hs = displaySize * 2, hh = hs / 2;
-          this.ctx.drawImage(glyph.canvas, hoveredPOI.x - hh, hoveredPOI.y - hh, hs, hs);
+          const hs = displaySize * 2,
+            hh = hs / 2;
+          this.ctx.drawImage(
+            glyph.canvas,
+            hoveredPOI.x - hh,
+            hoveredPOI.y - hh,
+            hs,
+            hs,
+          );
         }
       }
 
       // Save placed POIs for hover detection
       this._renderedPOIs = toRender.map((p) => ({
-        x: p.x, y: p.y, category: p.category, props: p.props, hitRadius: halfSize,
+        x: p.x,
+        y: p.y,
+        category: p.category,
+        props: p.props,
+        hitRadius: halfSize,
       }));
       this._poiRenderQueue.length = 0;
     } else {
@@ -7725,6 +8153,15 @@ async function initApp() {
     .addEventListener("click", () => {
       renderer.toggleTileEdges();
     });
+
+  const themeBtn = document.getElementById("toggleThemeBtn");
+  themeBtn?.addEventListener("click", () => {
+    const goingDark = renderer._currentTheme !== "dark";
+    renderer._currentTheme = goingDark ? "dark" : "default";
+    renderer.switchTheme(renderer._currentTheme);
+    themeBtn.textContent = `Theme: ${goingDark ? "Dark" : "Light"}`;
+    themeBtn.classList.toggle("inactive", !goingDark);
+  });
 
   // Set initial UI state
   renderer.updateHoverUI();

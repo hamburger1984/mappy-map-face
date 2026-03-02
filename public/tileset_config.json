@@ -14,7 +14,7 @@
       "name": "City",
       "view_range_meters": [
         3000,
-        15000
+        20000
       ],
       "tile_size_meters": 2500
     },

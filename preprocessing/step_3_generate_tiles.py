@@ -185,6 +185,7 @@ def load_land_polygons(data_dir: Path, bbox=None):
 # Limit processing to these regions (substring match on PBF filename).
 # Set to None to process all regions found in data dir.
 ACTIVE_REGIONS = {"hamburg", "schleswig-holstein"}
+#ACTIVE_REGIONS = None
 
 # Module-level land polygon index (lazy — initialized per worker via init_land_polygons)
 _DATA_DIR = Path(__file__).parent / "data"
@@ -694,9 +695,18 @@ def augment_render_from_props(render, props, geom_type):
         }
         return
 
-    # ── Wetland tidalflat: different pattern ─────────────────────────────────
-    if props.get("natural") == "wetland" and props.get("wetland") == "tidalflat":
-        render["pattern"] = "wetland_tidal"
+    # ── Wetland sub-type overrides ────────────────────────────────────────────
+    if props.get("natural") == "wetland":
+        wtype = props.get("wetland")
+        if wtype == "tidalflat":
+            render["pattern"] = "wetland_tidal"
+            # patternOnly: true already from YAML — ocean background shows through
+        elif wtype in ("marsh", "bog", "fen", "wet_meadow", "dambo"):
+            # Waterlogged land: solid blue-green background + horizontal water-hint lines
+            render["themeKey"] = "natural.wetlandMarsh"
+            render["pattern"] = "wetland_marsh"
+            render["patternOnly"] = False
+        # saltmarsh, mangrove, swamp, reedbed, unspecified: patternOnly from YAML
         return
 
     # ── Agriculture: override themeKey by landuse value ───────────────────────
@@ -922,9 +932,59 @@ def simplify_feature_for_tileset(feature, tileset_id, feature_config):
     return feature
 
 
+def _clip_linestring_extend_outside(coords, min_lon, min_lat, max_lon, max_lat):
+    """
+    Clip a single LineString to a bbox, including the first vertex outside
+    the tile on each crossing so lines visually connect across tile boundaries.
+
+    Returns a list of coordinate-list segments (each with >= 2 points).
+    Empty list means the line has no overlap with this tile.
+    """
+    def inside(p):
+        return min_lon <= p[0] <= max_lon and min_lat <= p[1] <= max_lat
+
+    n = len(coords)
+    if n < 2:
+        return []
+
+    flags = [inside(p) for p in coords]
+
+    # Include a vertex if it is inside the tile, or if it is immediately
+    # adjacent to an inside vertex (= the first outside point on each crossing).
+    def should_include(i):
+        if flags[i]:
+            return True
+        if i > 0 and flags[i - 1]:
+            return True
+        if i < n - 1 and flags[i + 1]:
+            return True
+        return False
+
+    included = [should_include(i) for i in range(n)]
+
+    # Group contiguous included vertices into segments
+    segments = []
+    seg = []
+    for i in range(n):
+        if included[i]:
+            seg.append(coords[i])
+        else:
+            if len(seg) >= 2:
+                segments.append(seg)
+            seg = []
+    if len(seg) >= 2:
+        segments.append(seg)
+
+    return segments
+
+
 def clip_feature_to_tile(feature, tile_x, tile_y, tile_size_m, buffer_pct=0.02):
     """
     Clip feature geometry to tile bounds with a small buffer.
+
+    For LineString / MultiLineString the first vertex outside the tile is
+    included on each boundary crossing so lines connect cleanly across tiles.
+    For Polygon / MultiPolygon Shapely intersection is used unchanged.
 
     Args:
         feature: GeoJSON feature (will be modified in place)
@@ -936,16 +996,9 @@ def clip_feature_to_tile(feature, tile_x, tile_y, tile_size_m, buffer_pct=0.02):
     Returns:
         Clipped feature, or None if geometry is empty after clipping
     """
-    from shapely.geometry import box, mapping, shape
-
     geom = feature.get("geometry")
     if not geom or geom["type"] == "Point":
         return feature  # Points don't need clipping
-
-    # Only clip polygon types — clipping LineStrings causes gaps at tile boundaries
-    # where road/rail segments don't reconnect cleanly
-    if geom["type"] in ("LineString", "MultiLineString"):
-        return feature
 
     # Don't clip small structure polygons — they rarely span tiles,
     # and clipping creates artificial edges visible at tile boundaries
@@ -978,7 +1031,45 @@ def clip_feature_to_tile(feature, tile_x, tile_y, tile_size_m, buffer_pct=0.02):
     max_lon += buf_lon
     max_lat += buf_lat
 
+    geom_type = geom["type"]
+
+    # --- LineString / MultiLineString: vertex-based clip with outside extension ---
+    if geom_type in ("LineString", "MultiLineString"):
+        coords = geom.get("coordinates", [])
+        raw_lines = [coords] if geom_type == "LineString" else coords
+
+        clipped_lines = []
+        for line in raw_lines:
+            clipped_lines.extend(
+                _clip_linestring_extend_outside(line, min_lon, min_lat, max_lon, max_lat)
+            )
+
+        if not clipped_lines:
+            # Fallback: Shapely intersection handles the rare case where a long
+            # segment crosses the tile but no vertex lies inside or adjacent.
+            try:
+                from shapely.geometry import box, mapping, shape
+
+                shapely_geom = shape(geom)
+                tile_box = box(min_lon, min_lat, max_lon, max_lat)
+                clipped = shapely_geom.intersection(tile_box)
+                if clipped.is_empty:
+                    return None
+                feature["geometry"] = mapping(clipped)
+                return feature
+            except Exception:
+                return None
+
+        if len(clipped_lines) == 1:
+            feature["geometry"] = {"type": "LineString", "coordinates": clipped_lines[0]}
+        else:
+            feature["geometry"] = {"type": "MultiLineString", "coordinates": clipped_lines}
+        return feature
+
+    # --- Polygon / MultiPolygon: Shapely intersection (unchanged) ---
     try:
+        from shapely.geometry import box, mapping, shape
+
         shapely_geom = shape(geom)
 
         # Skip clipping if feature is fully within the buffered tile
@@ -1458,10 +1549,7 @@ def finalize_tile(tile_jsonl_path, tile_json_path):
             props = feat.get("properties", {})
             natural = props.get("natural", "")
             landuse = props.get("landuse", "")
-            is_wetland_water = (
-                natural == "wetland" and
-                (props.get("wetland") in ["tidalflat", "swamp"] or props.get("tidal") == "yes")
-            )
+            is_wetland_water = natural == "wetland"  # all wetlands removed from base_land
             is_water_related = (
                 natural == "water"
                 or is_wetland_water
@@ -1489,7 +1577,8 @@ def finalize_tile(tile_jsonl_path, tile_json_path):
                 if geom_type in ("Polygon", "MultiPolygon"):
                     if (natural == "water"
                             or props.get("waterway") == "riverbank"
-                            or landuse in ("basin", "reservoir")):
+                            or landuse in ("basin", "reservoir")
+                            or is_wetland_water):
                         water_geom_dicts.append(feat["geometry"])
         except:
             pass

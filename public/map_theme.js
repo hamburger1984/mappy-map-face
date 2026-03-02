@@ -29,7 +29,8 @@ export const THEMES = {
       grass: { r: 205, g: 235, b: 185, a: 255 }, // Slightly lighter green for grass
       meadow: { r: 200, g: 230, b: 180, a: 255 }, // Light green for meadows
       scrub: { r: 200, g: 215, b: 175, a: 255 }, // Yellowish-green for scrubland
-      wetland: { r: 180, g: 210, b: 185, a: 255 }, // Pale blue-green for wetlands
+      wetland: { r: 180, g: 210, b: 185, a: 255 }, // Pale blue-green for wetlands (patternOnly)
+      wetlandMarsh: { r: 155, g: 195, b: 200, a: 255 }, // Blue-green for marsh/bog/fen
       beach: { r: 245, g: 230, b: 200, a: 255 }, // Sandy beige for beaches
       cliff: { r: 140, g: 120, b: 100, a: 255 }, // Brown-gray for cliffs
     },
@@ -55,6 +56,12 @@ export const THEMES = {
       port: { r: 215, g: 210, b: 220, a: 255 }, // Light blue-gray
       militaryHatchFill:   { r: 220, g: 180, b: 180, a:  51 }, // Pink tint at 0.2 opacity
       militaryHatchStroke: { r: 180, g: 100, b: 100, a:  89 }, // Darker red at 0.35 opacity
+      // Prominent variants — used when zoomed out (view ≤ 50km, buildings hidden)
+      residentialProminent:   { r: 207, g: 201, b: 201, a: 255 }, // Softened warm gray
+      commercialProminent:    { r: 226, g: 192, b: 193, a: 255 }, // Softened salmon-pink
+      industrialProminent:    { r: 204, g: 198, b: 219, a: 255 }, // Softened blue-purple
+      retailProminent:        { r: 229, g: 192, b: 196, a: 255 }, // Softened pink
+      institutionalProminent: { r: 215, g: 205, b: 213, a: 255 }, // Softened purple-gray
     },
 
     // Special purpose areas
@@ -161,6 +168,7 @@ export const THEMES = {
       nightlife: { r: 233, g: 30, b: 144, a: 255 }, // Pink
       toilets: { r: 76, g: 187, b: 203, a: 255 }, // Cyan-teal
       swimming: { r: 41, g: 182, b: 246, a: 255 }, // Water blue
+      fitness: { r: 230, g: 70, b: 45, a: 255 }, // Bold red-orange (energetic)
       theatre: { r: 170, g: 50, b: 190, a: 255 }, // Purple
       cinema: { r: 200, g: 40, b: 40, a: 255 }, // Red
       police: { r: 30, g: 100, b: 210, a: 255 }, // Blue
@@ -238,8 +246,232 @@ export const THEMES = {
     },
   },
 
+  dark: {
+    name: "Dark",
+    description: "Dark map theme for low-light environments",
+
+    background: {
+      ocean: { r: 15, g: 28, b: 48, a: 255 },
+      land: { r: 30, g: 30, b: 30, a: 255 },
+      coastline: { r: 20, g: 35, b: 55, a: 255 },
+    },
+
+    water: {
+      area: { r: 20, g: 42, b: 72, a: 255 },
+      ocean: { r: 15, g: 28, b: 48, a: 255 },
+      line: { r: 20, g: 42, b: 72, a: 255 },
+      border: { r: 30, g: 55, b: 85, a: 255 },
+    },
+
+    natural: {
+      forest: { r: 20, g: 45, b: 25, a: 255 },
+      park: { r: 25, g: 55, b: 30, a: 255 },
+      grass: { r: 28, g: 58, b: 32, a: 255 },
+      meadow: { r: 25, g: 55, b: 30, a: 255 },
+      scrub: { r: 30, g: 50, b: 28, a: 255 },
+      wetland: { r: 22, g: 48, b: 38, a: 255 },
+      wetlandMarsh: { r: 20, g: 55, b: 65, a: 255 }, // Dark blue-green for marsh/bog/fen
+      beach: { r: 60, g: 55, b: 40, a: 255 },
+      cliff: { r: 55, g: 48, b: 42, a: 255 },
+    },
+
+    agriculture: {
+      farmland: { r: 45, g: 48, b: 35, a: 255 },
+      orchard: { r: 30, g: 52, b: 30, a: 255 },
+      vineyard: { r: 35, g: 52, b: 30, a: 255 },
+      flowerbed: { r: 55, g: 38, b: 45, a: 255 },
+      allotments: { r: 35, g: 50, b: 32, a: 255 },
+    },
+
+    landuse: {
+      residential: { r: 45, g: 45, b: 45, a: 255 },
+      commercial: { r: 55, g: 40, b: 40, a: 255 },
+      retail: { r: 55, g: 40, b: 40, a: 255 },
+      industrial: { r: 40, g: 40, b: 55, a: 255 },
+      institutional: { r: 50, g: 42, b: 52, a: 255 },
+      construction: { r: 55, g: 48, b: 35, a: 255 },
+      military: { r: 55, g: 38, b: 38, a: 255 },
+      port: { r: 40, g: 42, b: 55, a: 255 },
+      militaryHatchFill:   { r: 120, g: 60, b: 60, a:  51 },
+      militaryHatchStroke: { r: 140, g: 60, b: 60, a:  89 },
+      // Prominent variants — used when zoomed out (view ≤ 50km, buildings hidden)
+      residentialProminent:   { r: 54, g: 51, b: 51, a: 255 },
+      commercialProminent:    { r: 67, g: 45, b: 45, a: 255 },
+      industrialProminent:    { r: 46, g: 45, b: 67, a: 255 },
+      retailProminent:        { r: 69, g: 45, b: 47, a: 255 },
+      institutionalProminent: { r: 59, g: 48, b: 62, a: 255 },
+    },
+
+    specialPurpose: {
+      education: { r: 52, g: 50, b: 35, a: 255 },
+      religious: { r: 48, g: 42, b: 55, a: 255 },
+      cemetery: { r: 35, g: 48, b: 35, a: 255 },
+      railway: { r: 45, g: 42, b: 48, a: 255 },
+      quarry: { r: 48, g: 44, b: 40, a: 255 },
+      recreation: { r: 30, g: 55, b: 35, a: 255 },
+      services: { r: 38, g: 42, b: 55, a: 255 },
+    },
+
+    recreation: {
+      playground: { r: 30, g: 55, b: 35, a: 255 },
+      swimmingPool: { r: 20, g: 50, b: 70, a: 255 },
+      beachVolleyball: { r: 60, g: 55, b: 40, a: 255 },
+      tableTennis: { r: 30, g: 52, b: 35, a: 255 },
+      picnicSite: { r: 32, g: 52, b: 30, a: 255 },
+      pitch: { r: 25, g: 55, b: 40, a: 255 },
+      pitchTennis: { r: 28, g: 52, b: 38, a: 255 },
+      pitchBall: { r: 22, g: 58, b: 35, a: 255 },
+      pitchHard: { r: 42, g: 42, b: 58, a: 255 },
+      sportsFacility: { r: 28, g: 55, b: 40, a: 255 },
+      miniatureGolf: { r: 25, g: 55, b: 30, a: 255 },
+    },
+
+    buildings: {
+      default: { r: 55, g: 50, b: 45, a: 255 },
+      commercial: { r: 65, g: 45, b: 45, a: 255 },
+      industrial: { r: 48, g: 45, b: 62, a: 255 },
+      public: { r: 42, g: 48, b: 65, a: 255 },
+      religious: { r: 58, g: 48, b: 40, a: 255 },
+      education: { r: 62, g: 55, b: 40, a: 255 },
+      border: { r: 70, g: 65, b: 60, a: 255 },
+    },
+
+    roads: {
+      motorway: { r: 180, g: 80, b: 60, a: 255 },
+      trunk: { r: 180, g: 80, b: 60, a: 255 },
+      primary: { r: 170, g: 135, b: 55, a: 255 },
+      secondary: { r: 145, g: 130, b: 55, a: 255 },
+      tertiary: { r: 80, g: 80, b: 80, a: 255 },
+      residential: { r: 78, g: 78, b: 78, a: 255 },
+      service: { r: 75, g: 75, b: 75, a: 255 },
+      track: { r: 70, g: 65, b: 55, a: 255 },
+      smallRoads: { r: 72, g: 72, b: 72, a: 255 },
+      footway: { r: 130, g: 80, b: 65, a: 255 },
+      cycleway: { r: 50, g: 80, b: 160, a: 255 },
+      construction:     { r: 160, g: 50, b: 50, a: 255 },
+      constructionFill: { r: 160, g: 50, b: 50, a: 204 },
+      casing:           { r: 20, g: 20, b: 20, a: 255 },
+    },
+
+    railways: {
+      rail:         { r: 100, g: 100, b: 100, a: 255 },
+      construction: { r: 110, g: 70, b: 70, a: 255 },
+      sleeperLight: { r: 80, g: 80, b: 80, a: 255 },
+      sleeperDark:  { r: 55, g: 55, b: 55, a: 255 },
+    },
+
+    boundaries: {
+      country: { r: 180, g: 80, b: 180, a: 255 },
+      state: { r: 160, g: 100, b: 160, a: 255 },
+      district: { r: 140, g: 100, b: 140, a: 200 },
+      maritime: { r: 80, g: 110, b: 150, a: 150 },
+      eez: { r: 80, g: 110, b: 150, a: 120 },
+      coastline: { r: 255, g: 0, b: 255, a: 255 },
+      coastlineBorder: { r: 0, g: 150, b: 255, a: 255 },
+    },
+
+    text: {
+      places: { r: 220, g: 220, b: 220, a: 255 },
+      water: { r: 80, g: 150, b: 210, a: 255 },
+      roads: { r: 200, g: 200, b: 200, a: 255 },
+      buildings: { r: 180, g: 180, b: 180, a: 255 },
+      outline: { r: 0, g: 0, b: 0, a: 255 },
+    },
+
+    highlight: {
+      hovered: { r: 255, g: 255, b: 0, a: 153 },
+      selected: { r: 255, g: 140, b: 0, a: 204 },
+      hoveredFill: { r: 255, g: 255, b: 0, a: 51 },
+      selectedFill: { r: 255, g: 140, b: 0, a: 38 },
+    },
+
+    poi: {
+      foodDrink: { r: 231, g: 76, b: 60, a: 255 },
+      shopping: { r: 155, g: 89, b: 182, a: 255 },
+      health: { r: 46, g: 204, b: 113, a: 255 },
+      tourism: { r: 230, g: 126, b: 34, a: 255 },
+      historic: { r: 180, g: 110, b: 50, a: 255 },
+      services: { r: 52, g: 152, b: 219, a: 255 },
+      transport: { r: 26, g: 188, b: 156, a: 255 },
+      education: { r: 243, g: 156, b: 18, a: 255 },
+      nightlife: { r: 233, g: 30, b: 144, a: 255 },
+      toilets: { r: 76, g: 187, b: 203, a: 255 },
+      swimming: { r: 41, g: 182, b: 246, a: 255 },
+      fitness: { r: 230, g: 70, b: 45, a: 255 },
+      theatre: { r: 170, g: 50, b: 190, a: 255 },
+      cinema: { r: 200, g: 40, b: 40, a: 255 },
+      police: { r: 30, g: 100, b: 210, a: 255 },
+      bank: { r: 40, g: 140, b: 80, a: 255 },
+      library:        { r: 160, g: 120, b: 70, a: 255 },
+      glyphHighlight: { r: 255, g: 255, b: 255, a: 128 },
+    },
+
+    aeroway: {
+      runway:            { r:  80, g:  80, b:  80, a: 255 },
+      taxiway:           { r: 120, g: 120, b: 120, a: 255 },
+      apron:             { r: 160, g: 160, b: 160, a: 255 },
+      helipad:           { r: 100, g: 100, b: 100, a: 255 },
+      taxiwayBorder:     { r: 255, g: 255, b: 255, a: 102 },
+      taxiwayCenterline: { r: 255, g: 255, b: 200, a: 128 },
+      runwayEdge:        { r: 255, g: 255, b: 255, a: 153 },
+      runwayCenterline:  { r: 255, g: 255, b: 255, a: 204 },
+      runwayLabel:       { r: 255, g: 255, b: 255, a: 230 },
+      runwayLight:       { r: 255, g: 255, b: 200, a: 179 },
+    },
+
+    platforms: {
+      fill:   { r: 100, g: 100, b: 100, a: 255 },
+      stroke: { r: 75, g: 75, b: 75, a: 255 },
+      line:   { r: 88, g: 88, b: 88, a: 255 },
+    },
+
+    dashPatterns: {
+      track:          [4, 4],
+      footway:        [4, 4],
+      cycleway:       [4, 4],
+      construction:   [7, 7],
+      countryBorder:  [8, 4],
+      stateBorder:    [6, 4],
+      districtBorder: [4, 4],
+      maritime:       [6, 6],
+      eez:            [8, 8],
+    },
+
+    patterns: {
+      scrubBush: { r: 60, g: 90, b: 45, a: 76 },
+      scrubStem: { r: 45, g: 75, b: 35, a: 102 },
+      wetlandWater: { r: 30, g: 65, b: 90, a: 120 },
+      wetlandGrass: { r: 25, g: 65, b: 40, a: 140 },
+      broadleafForest: { r: 30, g: 65, b: 25, a: 89 },
+      needleleafForest: { r: 20, g: 55, b: 20, a: 102 },
+      needleleafTrunk: { r: 55, g: 40, b: 25, a: 76 },
+      mixedForestLeaf: { r: 25, g: 60, b: 20, a: 89 },
+      mixedForestNeedle: { r: 18, g: 50, b: 18, a: 89 },
+      playgroundRed: { r: 180, g: 60, b: 60, a: 102 },
+      playgroundBlue: { r: 50, g: 90, b: 180, a: 102 },
+      playgroundOrange: { r: 180, g: 130, b: 50, a: 102 },
+      playgroundPurple: { r: 100, g: 60, b: 180, a: 102 },
+      playgroundSwing: { r: 80, g: 60, b: 40, a: 89 },
+      playgroundSwingSeat: { r: 140, g: 120, b: 70, a: 89 },
+      swimmingPoolWave: { r: 30, g: 90, b: 130, a: 76 },
+      swimmingPoolTile: { r: 40, g: 100, b: 140, a: 64 },
+      beachSand: { r: 100, g: 88, b: 62, a: 76 },
+      beachSandLarge: { r: 88, g: 76, b: 52, a: 64 },
+      beachVolleyballSand: { r: 110, g: 96, b: 68, a: 64 },
+      beachVolleyballNet: { r: 60, g: 52, b: 44, a: 102 },
+      beachVolleyballMesh: { r: 70, g: 62, b: 54, a: 64 },
+      picnicWood: { r: 90, g: 65, b: 42, a: 89 },
+      picnicWoodStroke: { r: 75, g: 50, b: 30, a: 102 },
+      tableTennisTable: { r: 20, g: 70, b: 40, a: 127 },
+      tableTennisTableStroke: { r: 15, g: 55, b: 28, a: 153 },
+      tableTennisNet: { r: 80, g: 80, b: 80, a: 140 },
+      tableTennisNetMesh: { r: 95, g: 95, b: 95, a: 76 },
+      tableTennisPaddle: { r: 150, g: 70, b: 55, a: 102 },
+      tableTennisPaddleStroke: { r: 130, g: 55, b: 40, a: 115 },
+    },
+  },
+
   // Future themes can be added here:
-  // dark: { ... },
   // publicTransport: { ... },
   // cycling: { ... },
   // hiking: { ... },

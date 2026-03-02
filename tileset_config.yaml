@@ -73,9 +73,11 @@ feature_templates:
       tags:
         natural: ["wetland"]
     render:
-      layer: "natural_background"
+      layer: "wetlands"
       themeKey: "natural.wetland"
       fill: true
+      pattern: "wetland"
+      patternOnly: true
       minLOD: 1
 
   cliff: &cliff
@@ -325,6 +327,7 @@ feature_templates:
     render:
       layer: "surface_railways"
       themeKey: "platforms.fill"
+      fill: true
       isPlatform: true
       minLOD: 2
       preserve_tags: ["name", "ref", "railway", "public_transport"]
@@ -378,6 +381,7 @@ feature_templates:
     render:
       layer: "landuse_areas"
       themeKey: "landuse.residential"
+      prominentThemeKey: "landuse.residentialProminent"
       fill: true
       minLOD: 1
 
@@ -390,6 +394,7 @@ feature_templates:
     render:
       layer: "landuse_areas"
       themeKey: "landuse.commercial"
+      prominentThemeKey: "landuse.commercialProminent"
       fill: true
       minLOD: 1
 
@@ -402,6 +407,7 @@ feature_templates:
     render:
       layer: "landuse_areas"
       themeKey: "landuse.industrial"
+      prominentThemeKey: "landuse.industrialProminent"
       fill: true
       minLOD: 1
 
@@ -455,7 +461,7 @@ feature_templates:
       layer: "landuse_areas"
       themeKey: "agriculture.allotments"
       fill: true
-      minLOD: 2
+      minLOD: 1
 
   construction: &construction
     name: "construction"
@@ -528,6 +534,7 @@ feature_templates:
     render:
       layer: "landuse_areas"
       themeKey: "landuse.institutional"
+      prominentThemeKey: "landuse.institutionalProminent"
       fill: true
       minLOD: 1
 
@@ -732,6 +739,7 @@ feature_templates:
       layer: "buildings"
       themeKey: "buildings.default"
       strokeThemeKey: "buildings.border"
+      strokeWidth: 0.5
       fill: true
       minLOD: 2
 
@@ -963,6 +971,7 @@ feature_templates:
         shop: ["*"]
         tourism: ["*"]
         historic: ["*"]
+        leisure: ["fitness_centre", "fitness_station"]
       requires_name: true
     render:
       layer: "points"
@@ -1104,7 +1113,7 @@ tilesets:
   # ===========================================================================
   - id: "t2"
     name: "City"
-    view_range_meters: [3000, 15000]
+    view_range_meters: [3000, 20000]
     tile_size_meters: 2500
 
     features:
@@ -1252,57 +1261,6 @@ tilesets:
       - <<: *major_rivers
         simplification: { epsilon_m: 50 }
       # NO minor_waterways
-      - name: "scrub_heath_medium_large"
-        osm_match:
-          geometry: ["Polygon", "MultiPolygon"]
-          tags:
-            natural: ["scrub", "heath"]
-          min_area_km2: 0.1
-        render:
-          layer: "natural_background"
-          themeKey: "natural.scrub"
-          fill: true
-          minLOD: 1
-          pattern: "scrub"
-        simplification: { epsilon_m: 50 }
-      - name: "wetland_medium_large"
-        osm_match:
-          geometry: ["Polygon", "MultiPolygon"]
-          tags:
-            natural: ["wetland"]
-          min_area_km2: 0.1
-        render:
-          layer: "natural_background"
-          themeKey: "natural.wetland"
-          fill: true
-          minLOD: 1
-        simplification: { epsilon_m: 50 }
-      - name: "beach_medium_large"
-        osm_match:
-          geometry: ["Polygon", "MultiPolygon"]
-          tags:
-            natural: ["beach"]
-          min_area_km2: 0.05
-        render:
-          layer: "natural_background"
-          themeKey: "natural.beach"
-          fill: true
-          minLOD: 1
-          pattern: "beach"
-        simplification: { epsilon_m: 50 }
-      - name: "sand_medium_large"
-        osm_match:
-          geometry: ["Polygon", "MultiPolygon"]
-          tags:
-            natural: ["sand"]
-          min_area_km2: 0.05
-        render:
-          layer: "natural_background"
-          themeKey: "natural.beach"
-          fill: true
-          minLOD: 1
-          pattern: "beach"
-        simplification: { epsilon_m: 50 }
       - name: "forests_medium_large"
         osm_match:
           geometry: ["Polygon", "MultiPolygon"]
@@ -1321,31 +1279,16 @@ tilesets:
         simplification: { epsilon_m: 50 }
       - <<: *primary_roads
         simplification: { epsilon_m: 50 }
-      - <<: *secondary_roads
-        simplification: { epsilon_m: 50 }
-      # NO tertiary/residential/minor roads
+      # NO secondary/tertiary/residential/minor roads
       - <<: *major_rail
         simplification: { epsilon_m: 50 }
-      - <<: *subway_light_rail
-        simplification: { epsilon_m: 50 }
-      # NO tram
-      - <<: *railway_stations
-        simplification: { epsilon_m: 50 }
-      - <<: *parks
-        simplification: { epsilon_m: 50 }
-      - <<: *agriculture
-        simplification: { epsilon_m: 50 }
+      # NO subway/light_rail/tram/railway_stations
+      # NO parks/agriculture/cemeteries/military/railway_yards
       - <<: *residential_landuse
         simplification: { epsilon_m: 50 }
       - <<: *commercial_landuse
         simplification: { epsilon_m: 50 }
       - <<: *industrial_landuse
-        simplification: { epsilon_m: 50 }
-      - <<: *cemeteries
-        simplification: { epsilon_m: 50 }
-      - <<: *military
-        simplification: { epsilon_m: 50 }
-      - <<: *railway_yards
         simplification: { epsilon_m: 50 }
       # NO allotments/construction/education/religious/quarries/buildings
       - <<: *runways
@@ -1360,8 +1303,7 @@ tilesets:
         simplification: { epsilon_m: 50 }
       - <<: *cities
       - <<: *large_towns
-      - <<: *towns
-      - <<: *large_villages
+      # NO towns/large_villages (minLOD:1, never visible at t3 range)
 
   # ===========================================================================
   # T4: OVERVIEW (200km - 1000km) — old t7
