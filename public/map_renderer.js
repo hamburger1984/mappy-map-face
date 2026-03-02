@@ -2,7 +2,7 @@
 // VERSION: 2024-POI-CATEGORIES
 
 // Import theme system
-import { getColor, toRGBA, toRGB } from "./map_theme.js";
+import { getColor, toRGBA, toRGB, getColorByKey, getDashPattern, setTheme } from "./map_theme.js";
 
 // Tunnel opacity constants (alpha 0-255)
 const TUNNEL_ROAD_ALPHA = 80; // ~30% opacity for road/rail tunnels
@@ -963,11 +963,11 @@ class MapRenderer {
     const ctx = canvas.getContext("2d");
 
     // Light base tint
-    ctx.fillStyle = "rgba(220, 180, 180, 0.2)";
+    ctx.fillStyle = toRGBA(getColor("landuse", "militaryHatchFill"));
     ctx.fillRect(0, 0, size, size);
 
     // Diagonal lines at 45°
-    ctx.strokeStyle = "rgba(180, 100, 100, 0.35)";
+    ctx.strokeStyle = toRGBA(getColor("landuse", "militaryHatchStroke"));
     ctx.lineWidth = 1.5;
     for (let i = -size; i < size * 2; i += 7) {
       ctx.beginPath();
@@ -1117,7 +1117,7 @@ class MapRenderer {
         ctx.closePath();
         haloFill();
         // Score lines on the croissant body
-        ctx.strokeStyle = "rgba(255,255,255,0.5)";
+        ctx.strokeStyle = toRGBA(getColor("poi", "glyphHighlight"));
         ctx.lineWidth = 0.8;
         for (let i = -1; i <= 1; i++) {
           const ox = cx + i * r * 0.35;
@@ -2906,10 +2906,12 @@ class MapRenderer {
       }
 
       if (!featureInfo) {
-        featureInfo = this.classifyFeature(props, type);
+        featureInfo = this.classifyFeature(props, type, feature._render);
         feature._classCache = featureInfo;
         feature._cachedViewWidth = currentViewWidth;
       }
+
+      if (!featureInfo) continue; // unclassified feature (no themeKey/poiCategory/placeType)
 
       // Precompute batch keys to avoid string allocations in render loop
       if (featureInfo.color) {
@@ -3406,7 +3408,107 @@ class MapRenderer {
     return null;
   }
 
-  classifyFeature(props, type) {
+  classifyFeature(props, type, r = {}) {
+    // Thin reader: resolve colors and attributes from _render (pre-computed by Python).
+    // Returns null for features that should be skipped.
+
+    if (!r?.themeKey && !r?.poiCategory && !r?.placeType) return null;
+    if (r.layer === null || r.layer === undefined) return null;
+
+    // ── Color resolution ─────────────────────────────────────────────────────
+    let color;
+    if (r.themeKey) {
+      color = getColorByKey(r.themeKey);
+    } else if (r.poiCategory) {
+      const cd = POI_CATEGORIES[r.poiCategory];
+      color = cd
+        ? { r: cd.color.r, g: cd.color.g, b: cd.color.b, a: 255 }
+        : { r: 255, g: 0, b: 255, a: 255 };
+    } else {
+      color = getColorByKey("text.places");
+    }
+
+    const casingColor   = r.casingKey       ? getColorByKey(r.casingKey)      : null;
+    const dualDashColor = r.dualDashKey      ? getColorByKey(r.dualDashKey)     : null;
+    const dashPattern   = r.dashPatternKey   ? getDashPattern(r.dashPatternKey) : null;
+    const strokeColor   = r.strokeThemeKey   ? getColorByKey(r.strokeThemeKey)  : null;
+    const borderColor   = r.borderColorKey   ? getColorByKey(r.borderColorKey)  : null;
+
+    // Tunnel waterways: bake reduced alpha into color (renderLayer has no globalAlpha for this layer)
+    if (r.tunnel && r.layer === "tunnel_waterways") {
+      color = { ...color, a: TUNNEL_WATER_ALPHA };
+    }
+
+    // ── Width calculation ─────────────────────────────────────────────────────
+    let width;
+    if (r.fixedWidthPx !== undefined) {
+      width = r.fixedWidthPx;
+    } else if (r.realWidthMeters) {
+      const metersPerPixel = this.viewWidthMeters / this.canvasWidth;
+      width = Math.max(1, Math.min(10, r.realWidthMeters / metersPerPixel));
+    } else {
+      width = r.width || 1;
+    }
+
+    // Aeroway lines: compute pixel width from real-world OSM data (view-dependent)
+    if (r.layer === "aeroways" && !r.fill) {
+      const mpp = this.viewWidthMeters / this.canvasWidth;
+      if (r.isRunway) {
+        const widthM = this.parseMeters(props.width) || 45;
+        width = Math.max(4, widthM / mpp);
+      } else if (props.aeroway === "taxiway") {
+        const widthM = this.parseMeters(props.width) || 15;
+        width = Math.max(2, widthM / mpp);
+      }
+    }
+
+    return {
+      layer:           r.layer,
+      minLOD:          r.minLOD ?? 0,
+      fill:            r.fill ?? false,
+      color,
+      width,
+      roadPriority:    r.roadPriority,
+      casingColor,
+      dualDashColor,
+      dashPattern,
+      noCasing:        r.noCasing,
+      stroke:          !!strokeColor || r.stroke,
+      strokeColor,
+      strokeWidth:     r.strokeWidth,
+      borderWidth:     r.borderWidth,
+      borderColor,
+      isConstruction:  r.isConstruction,
+      isRailway:       r.isRailway,
+      isRunway:        r.isRunway,
+      runwayRef:       r.runwayRef,
+      runwayLit:       r.runwayLit,
+      runwayLength:    this.parseMeters(props.length),
+      isHelipad:       r.isHelipad,
+      isPlatform:      r.isPlatform,
+      isBicycleRoad:   r.isBicycleRoad,
+      poiCategory:     r.poiCategory,
+      areaPoiCategory: r.areaPoiCategory,
+      placeType:       r.placeType,
+      placePriority:   r.placePriority,
+      fontSize:        r.fontSize,
+      maxViewWidth:    r.maxViewWidth,
+      population:      r.population,
+      tunnel:          r.tunnel,
+      bridgeLayer:     r.bridgeLayer,
+      pattern:         r.pattern,
+      patternOnly:     r.patternOnly,
+      showDirection:   r.showDirection,
+      waterLabel:      r.waterLabel,
+      houseNumber:     r.houseNumber,
+      tunnelGradient:  false,
+      gradientStartAlpha: null,
+      gradientEndAlpha:   null,
+    };
+  }
+
+  // ── DEAD CODE BELOW (kept for reference, no longer called) ────────────────
+  _classifyFeature_OLD(props, type) {
     // Classify feature and determine: color, layer, minLOD (minimum zoom to show), fill
     // minLOD: 0=always show, 1=medium zoom, 2=high zoom, 3=very high zoom
 
@@ -4748,6 +4850,19 @@ class MapRenderer {
     return { layer: null, minLOD: 999, fill: false };
   }
 
+  // ── THEME SWITCHING ───────────────────────────────────────────────────────
+  switchTheme(themeName) {
+    if (!setTheme(themeName)) return false;
+    // Invalidate classify caches so colors re-resolve from the new theme on next frame
+    for (const tile of this.tileCache.values()) {
+      for (const feat of (tile.features ?? [])) {
+        feat._classCache = null;
+      }
+    }
+    this.renderMap();
+    return true;
+  }
+
   renderAeroways(layerFeatures, bounds, mode = "all") {
     // mode: "areas" = only polygons (aprons), "lines" = only lines (runways/taxiways), "all" = both
     if (!layerFeatures || layerFeatures.length === 0) return;
@@ -4839,7 +4954,7 @@ class MapRenderer {
     this.ctx.setLineDash([]);
     for (const { screenPaths, w, c } of taxiways) {
       if (w > 4) {
-        this.ctx.strokeStyle = "rgba(255,255,255,0.4)";
+        this.ctx.strokeStyle = toRGBA(getColor("aeroway", "taxiwayBorder"));
         this.ctx.lineWidth = w;
         for (const pts of screenPaths) {
           tracePath(pts);
@@ -4860,7 +4975,7 @@ class MapRenderer {
     for (const { screenPaths, w } of taxiways) {
       if (w > 6) {
         const dashLen = Math.max(3, w * 0.4);
-        this.ctx.strokeStyle = "rgba(255,255,200,0.5)";
+        this.ctx.strokeStyle = toRGBA(getColor("aeroway", "taxiwayCenterline"));
         this.ctx.lineWidth = Math.max(1, w * 0.05);
         this.ctx.setLineDash([dashLen, dashLen]);
         for (const pts of screenPaths) {
@@ -4878,7 +4993,7 @@ class MapRenderer {
     this.ctx.setLineDash([]);
     for (const { screenPaths, w } of runways) {
       if (w > 6) {
-        this.ctx.strokeStyle = "rgba(255,255,255,0.6)";
+        this.ctx.strokeStyle = toRGBA(getColor("aeroway", "runwayEdge"));
         this.ctx.lineWidth = w;
         for (const pts of screenPaths) {
           tracePath(pts);
@@ -4900,7 +5015,7 @@ class MapRenderer {
     // Pass 3: runway centerline dashes
     for (const { screenPaths, w } of runways) {
       const dashLen = Math.max(4, w * 0.6);
-      this.ctx.strokeStyle = "rgba(255,255,255,0.8)";
+      this.ctx.strokeStyle = toRGBA(getColor("aeroway", "runwayCenterline"));
       this.ctx.lineWidth = Math.max(1, w * 0.06);
       this.ctx.setLineDash([dashLen, dashLen]);
       for (const pts of screenPaths) {
@@ -4919,7 +5034,7 @@ class MapRenderer {
           const refs = item.runwayRef.split("/");
           const fontSize = Math.max(8, Math.min(14, w * 0.25));
           this.ctx.font = `bold ${fontSize}px Arial, sans-serif`;
-          this.ctx.fillStyle = "rgba(255,255,255,0.9)";
+          this.ctx.fillStyle = toRGBA(getColor("aeroway", "runwayLabel"));
           this.ctx.textAlign = "center";
           this.ctx.textBaseline = "middle";
           const dx = last.x - first.x;
@@ -4947,7 +5062,7 @@ class MapRenderer {
     for (const { item, screenPaths, w } of runways) {
       if (item.runwayLit && w > 8) {
         const spacing = Math.max(6, w * 0.5);
-        this.ctx.fillStyle = "rgba(255, 255, 200, 0.7)";
+        this.ctx.fillStyle = toRGBA(getColor("aeroway", "runwayLight"));
         const halfW = w * 0.48;
         const dotR = Math.max(1, w * 0.04);
         for (const pts of screenPaths) {
@@ -5380,7 +5495,7 @@ class MapRenderer {
         for (const cf of constructionFlats) {
           // White base
           //this.ctx.strokeStyle = "rgba(255,255,255,1)";
-          this.ctx.strokeStyle = "rgba(200,60,60,0.8)";
+          this.ctx.strokeStyle = toRGBA(getColor("roads", "constructionFill"));
           this.ctx.lineWidth = cf.width;
           this.ctx.lineCap = "butt";
           this.ctx.lineJoin = "round";
@@ -7258,12 +7373,14 @@ class MapRenderer {
     this.ctx.lineCap = "butt";
 
     // Background pass: solid very light gray fills the gap areas
-    this.ctx.strokeStyle = `rgba(225,225,225,${color.a / 255})`;
+    const slL = getColor("railways", "sleeperLight");
+    this.ctx.strokeStyle = `rgba(${slL.r},${slL.g},${slL.b},${color.a / 255})`;
     this.ctx.setLineDash([]);
     drawCenterPath();
 
     // Foreground pass: slightly darker dashes for the sleepers
-    this.ctx.strokeStyle = `rgba(120,120,120,${color.a / 255})`;
+    const slD = getColor("railways", "sleeperDark");
+    this.ctx.strokeStyle = `rgba(${slD.r},${slD.g},${slD.b},${color.a / 255})`;
     this.ctx.setLineDash([dashLength, gapLength]);
     drawCenterPath();
     this.ctx.setLineDash([]); // Reset to solid
@@ -7311,7 +7428,7 @@ class MapRenderer {
 
   clearCanvas() {
     // Clear canvas using Canvas2D
-    this.ctx.fillStyle = "rgb(170, 211, 223)"; // Water blue (ocean default)
+    this.ctx.fillStyle = toRGB(getColor("background", "ocean"));
     this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
     document.getElementById("stats").querySelector("div").textContent =
       "Status: Cleared";

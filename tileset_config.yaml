@@ -16,18 +16,6 @@ simplification_settings:
 # =============================================================================
 feature_templates:
   # --- Water ---
-  coastline: &coastline
-    name: "coastline"
-    osm_match:
-      geometry: ["LineString", "MultiLineString"]
-      tags:
-        natural: ["coastline"]
-    render:
-      layer: "coastline"
-      color: [255, 0, 255, 255]
-      stroke_width_px: 3
-      show_direction: true
-
   water_bodies_all: &water_bodies_all
     name: "water_bodies_all"
     osm_match:
@@ -37,9 +25,10 @@ feature_templates:
         waterway: ["riverbank"]
         landuse: ["basin", "reservoir", "salt_pond"]
     render:
-      layer: "water"
-      color: [170, 211, 223, 255]
+      layer: "water_areas"
+      themeKey: "water.area"
       fill: true
+      minLOD: 0
 
   major_rivers: &major_rivers
     name: "major_rivers"
@@ -49,7 +38,8 @@ feature_templates:
         waterway: ["river", "canal"]
     render:
       layer: "waterways"
-      color: [170, 211, 223, 255]
+      themeKey: "water.line"
+      minLOD: 0
 
   minor_waterways: &minor_waterways
     name: "minor_waterways"
@@ -59,7 +49,8 @@ feature_templates:
         waterway: ["stream", "ditch", "drain"]
     render:
       layer: "waterways"
-      color: [170, 211, 223, 255]
+      themeKey: "water.line"
+      minLOD: 1
 
   # --- Natural areas ---
   scrub_heath: &scrub_heath
@@ -70,8 +61,10 @@ feature_templates:
         natural: ["scrub", "heath"]
     render:
       layer: "natural_background"
-      color: [200, 215, 175, 255]
+      themeKey: "natural.scrub"
       fill: true
+      minLOD: 1
+      pattern: "scrub"
 
   wetland: &wetland
     name: "wetland"
@@ -81,8 +74,9 @@ feature_templates:
         natural: ["wetland"]
     render:
       layer: "natural_background"
-      color: [200, 225, 210, 255]
+      themeKey: "natural.wetland"
       fill: true
+      minLOD: 1
 
   cliff: &cliff
     name: "cliff"
@@ -92,8 +86,9 @@ feature_templates:
         natural: ["cliff"]
     render:
       layer: "natural_background"
-      color: [140, 120, 100, 255]
-      stroke_width_px: 2
+      themeKey: "natural.cliff"
+      width: 1.5
+      minLOD: 1
 
   beach: &beach
     name: "beach"
@@ -103,8 +98,10 @@ feature_templates:
         natural: ["beach"]
     render:
       layer: "natural_background"
-      color: [255, 241, 186, 255]
+      themeKey: "natural.beach"
       fill: true
+      minLOD: 1
+      pattern: "beach"
 
   sand: &sand
     name: "sand"
@@ -114,8 +111,10 @@ feature_templates:
         natural: ["sand"]
     render:
       layer: "natural_background"
-      color: [255, 241, 186, 255]
+      themeKey: "natural.beach"
       fill: true
+      minLOD: 1
+      pattern: "beach"
 
   forests_all: &forests_all
     name: "forests_all"
@@ -127,8 +126,9 @@ feature_templates:
       preserve_tags: ["leaf_type"]
     render:
       layer: "forests"
-      color: [173, 209, 158, 255]
+      themeKey: "natural.forest"
       fill: true
+      minLOD: 0
 
   # --- Roads ---
   motorways: &motorways
@@ -142,8 +142,10 @@ feature_templates:
         proposed: ["motorway", "trunk", "motorway_link", "trunk_link"]
       preserve_tags: ["bicycle_road", "cyclestreet", "planned", "proposed"]
     render:
-      layer: "major_roads"
-      color: [233, 115, 103, 255]
+      layer: "surface_roads"
+      themeKey: "roads.motorway"
+      minLOD: 0
+      roadPriority: 7
       show_name: true
       name_priority: 1
 
@@ -158,8 +160,10 @@ feature_templates:
         proposed: ["primary", "primary_link"]
       preserve_tags: ["bicycle_road", "cyclestreet", "planned", "proposed"]
     render:
-      layer: "major_roads"
-      color: [252, 214, 164, 255]
+      layer: "surface_roads"
+      themeKey: "roads.primary"
+      minLOD: 0
+      roadPriority: 6
       show_name: true
       name_priority: 2
 
@@ -174,8 +178,10 @@ feature_templates:
         proposed: ["secondary", "secondary_link"]
       preserve_tags: ["bicycle_road", "cyclestreet", "planned", "proposed"]
     render:
-      layer: "major_roads"
-      color: [252, 214, 164, 255]
+      layer: "surface_roads"
+      themeKey: "roads.secondary"
+      minLOD: 1
+      roadPriority: 5
       show_name: true
       name_priority: 3
 
@@ -190,8 +196,10 @@ feature_templates:
         proposed: ["tertiary", "tertiary_link"]
       preserve_tags: ["bicycle_road", "cyclestreet", "planned", "proposed"]
     render:
-      layer: "roads"
-      color: [255, 255, 255, 255]
+      layer: "surface_roads"
+      themeKey: "roads.tertiary"
+      minLOD: 1
+      roadPriority: 4
       show_name: true
       name_priority: 4
 
@@ -206,8 +214,10 @@ feature_templates:
         proposed: ["residential", "living_street"]
       preserve_tags: ["bicycle_road", "cyclestreet", "planned", "proposed"]
     render:
-      layer: "roads"
-      color: [255, 255, 255, 255]
+      layer: "surface_roads"
+      themeKey: "roads.residential"
+      minLOD: 2
+      roadPriority: 3
       show_name: true
       name_priority: 5
 
@@ -219,8 +229,10 @@ feature_templates:
         highway: ["service", "busway"]
       preserve_tags: ["name"]
     render:
-      layer: "roads"
-      color: [255, 255, 255, 255]
+      layer: "surface_roads"
+      themeKey: "roads.service"
+      minLOD: 2
+      roadPriority: 2
       show_name: true
       name_priority: 6
 
@@ -230,12 +242,15 @@ feature_templates:
       geometry: ["LineString", "MultiLineString"]
       tags:
         highway: ["track"]
-      preserve_tags: ["name"]
+      preserve_tags: ["name", "tracktype"]
     render:
-      layer: "roads"
-      color: [180, 170, 150, 255]
-      stroke_width_px: 1
-      dash_pattern: [4, 4]
+      layer: "surface_roads"
+      themeKey: "roads.track"
+      fixedWidthPx: 1.5
+      dashPatternKey: "track"
+      casingKey: "roads.casing"
+      minLOD: 2
+      roadPriority: 2
       show_name: true
       name_priority: 7
 
@@ -254,8 +269,8 @@ feature_templates:
                    "pedestrian", "steps", "living_street", "corridor", "busway", "raceway"]
       preserve_tags: ["bicycle_road", "cyclestreet", "planned", "proposed"]
     render:
-      layer: "roads"
-      color: [220, 220, 220, 255]
+      layer: "surface_roads"
+      minLOD: 2
       show_name: true
       name_priority: 6
 
@@ -267,9 +282,11 @@ feature_templates:
       tags:
         railway: ["rail", "narrow_gauge", "preserved", "construction", "planned", "proposed"]
     render:
-      layer: "railways"
-      color: [153, 153, 153, 255]
-      stroke_width_px: 2
+      layer: "surface_railways"
+      themeKey: "railways.rail"
+      isRailway: true
+      width: 8
+      minLOD: 0
       preserve_tags: ["construction", "planned", "proposed", "railway"]
 
   subway_light_rail: &subway_light_rail
@@ -279,9 +296,11 @@ feature_templates:
       tags:
         railway: ["subway", "light_rail"]
     render:
-      layer: "railways"
-      color: [153, 153, 153, 255]
-      stroke_width_px: 2
+      layer: "surface_railways"
+      themeKey: "railways.rail"
+      isRailway: true
+      width: 6
+      minLOD: 1
 
   tram: &tram
     name: "tram"
@@ -290,9 +309,11 @@ feature_templates:
       tags:
         railway: ["tram", "funicular", "miniature"]
     render:
-      layer: "railways"
-      color: [153, 153, 153, 255]
-      stroke_width_px: 1
+      layer: "surface_railways"
+      themeKey: "railways.rail"
+      isRailway: true
+      width: 6
+      minLOD: 2
 
   railway_platforms: &railway_platforms
     name: "railway_platforms"
@@ -302,8 +323,10 @@ feature_templates:
         railway: ["platform"]
         public_transport: ["platform"]
     render:
-      layer: "railways"
-      color: [120, 120, 120, 255]
+      layer: "surface_railways"
+      themeKey: "platforms.fill"
+      isPlatform: true
+      minLOD: 2
       preserve_tags: ["name", "ref", "railway", "public_transport"]
 
   railway_stations: &railway_stations
@@ -314,8 +337,9 @@ feature_templates:
         railway: ["station", "halt"]
         public_transport: ["station"]
     render:
-      layer: "railways"
-      color: [100, 100, 100, 255]
+      layer: "surface_railways"
+      themeKey: "railways.rail"
+      minLOD: 1
       preserve_tags: ["name", "station", "network", "operator", "railway", "public_transport"]
 
   # --- Landuse ---
@@ -327,9 +351,10 @@ feature_templates:
         leisure: ["park", "garden", "recreation_ground", "dog_park", "playground"]
         landuse: ["grass", "meadow", "village_green", "recreation_ground"]
     render:
-      layer: "landuse"
-      color: [200, 230, 180, 255]
+      layer: "natural_background"
+      themeKey: "natural.park"
       fill: true
+      minLOD: 1
 
   agriculture: &agriculture
     name: "agriculture"
@@ -339,9 +364,10 @@ feature_templates:
         landuse: ["farmland", "farmyard", "orchard", "vineyard",
                   "plant_nursery", "greenhouse_horticulture"]
     render:
-      layer: "landuse"
-      color: [238, 240, 213, 255]
+      layer: "natural_background"
+      themeKey: "agriculture.farmland"
       fill: true
+      minLOD: 1
 
   residential_landuse: &residential_landuse
     name: "residential_landuse"
@@ -350,9 +376,10 @@ feature_templates:
       tags:
         landuse: ["residential"]
     render:
-      layer: "landuse"
-      color: [224, 224, 224, 255]
+      layer: "landuse_areas"
+      themeKey: "landuse.residential"
       fill: true
+      minLOD: 1
 
   commercial_landuse: &commercial_landuse
     name: "commercial_landuse"
@@ -361,9 +388,10 @@ feature_templates:
       tags:
         landuse: ["commercial", "retail"]
     render:
-      layer: "landuse"
-      color: [243, 233, 234, 255]
+      layer: "landuse_areas"
+      themeKey: "landuse.commercial"
       fill: true
+      minLOD: 1
 
   industrial_landuse: &industrial_landuse
     name: "industrial_landuse"
@@ -372,9 +400,10 @@ feature_templates:
       tags:
         landuse: ["industrial"]
     render:
-      layer: "landuse"
-      color: [240, 233, 240, 255]
+      layer: "landuse_areas"
+      themeKey: "landuse.industrial"
       fill: true
+      minLOD: 1
 
   cemeteries: &cemeteries
     name: "cemeteries"
@@ -384,9 +413,10 @@ feature_templates:
         landuse: ["cemetery"]
         amenity: ["grave_yard"]
     render:
-      layer: "landuse"
-      color: [205, 220, 200, 255]
+      layer: "landuse_areas"
+      themeKey: "specialPurpose.cemetery"
       fill: true
+      minLOD: 1
 
   military: &military
     name: "military"
@@ -396,9 +426,12 @@ feature_templates:
         landuse: ["military"]
         military: ["*"]
     render:
-      layer: "landuse"
-      color: [235, 215, 215, 255]
+      layer: "landuse_areas"
+      themeKey: "landuse.military"
       fill: true
+      minLOD: 1
+      pattern: "military_hatch"
+      patternOnly: true
 
   railway_yards: &railway_yards
     name: "railway_yards"
@@ -407,9 +440,10 @@ feature_templates:
       tags:
         landuse: ["railway"]
     render:
-      layer: "landuse"
-      color: [210, 205, 210, 255]
+      layer: "landuse_areas"
+      themeKey: "specialPurpose.railway"
       fill: true
+      minLOD: 1
 
   allotments: &allotments
     name: "allotments"
@@ -418,9 +452,10 @@ feature_templates:
       tags:
         landuse: ["allotments"]
     render:
-      layer: "landuse"
-      color: [220, 235, 210, 255]
+      layer: "landuse_areas"
+      themeKey: "agriculture.allotments"
       fill: true
+      minLOD: 2
 
   construction: &construction
     name: "construction"
@@ -429,9 +464,10 @@ feature_templates:
       tags:
         landuse: ["construction", "brownfield", "greenfield"]
     render:
-      layer: "landuse"
-      color: [235, 220, 200, 255]
+      layer: "landuse_areas"
+      themeKey: "landuse.construction"
       fill: true
+      minLOD: 2
 
   education: &education
     name: "education"
@@ -441,9 +477,10 @@ feature_templates:
         landuse: ["education"]
         amenity: ["school", "university", "college", "kindergarten"]
     render:
-      layer: "landuse"
-      color: [245, 235, 210, 255]
+      layer: "landuse_areas"
+      themeKey: "specialPurpose.education"
       fill: true
+      minLOD: 2
 
   religious: &religious
     name: "religious"
@@ -453,9 +490,10 @@ feature_templates:
         landuse: ["religious"]
         amenity: ["place_of_worship"]
     render:
-      layer: "landuse"
-      color: [225, 220, 230, 255]
+      layer: "landuse_areas"
+      themeKey: "specialPurpose.religious"
       fill: true
+      minLOD: 2
 
   quarries: &quarries
     name: "quarries"
@@ -464,9 +502,10 @@ feature_templates:
       tags:
         landuse: ["quarry", "landfill"]
     render:
-      layer: "landuse"
-      color: [210, 200, 190, 255]
+      layer: "landuse_areas"
+      themeKey: "specialPurpose.quarry"
       fill: true
+      minLOD: 2
 
   port: &port
     name: "port"
@@ -475,9 +514,10 @@ feature_templates:
       tags:
         landuse: ["port"]
     render:
-      layer: "landuse"
-      color: [200, 210, 220, 255]
+      layer: "landuse_areas"
+      themeKey: "landuse.port"
       fill: true
+      minLOD: 1
 
   institutional: &institutional
     name: "institutional"
@@ -486,9 +526,10 @@ feature_templates:
       tags:
         landuse: ["institutional"]
     render:
-      layer: "landuse"
-      color: [230, 225, 230, 255]
+      layer: "landuse_areas"
+      themeKey: "landuse.institutional"
       fill: true
+      minLOD: 1
 
   flowerbed: &flowerbed
     name: "flowerbed"
@@ -497,9 +538,10 @@ feature_templates:
       tags:
         landuse: ["flowerbed"]
     render:
-      layer: "landuse"
-      color: [210, 230, 190, 255]
+      layer: "natural_background"
+      themeKey: "agriculture.flowerbed"
       fill: true
+      minLOD: 2
 
   highway_service_areas: &highway_service_areas
     name: "highway_service_areas"
@@ -508,9 +550,10 @@ feature_templates:
       tags:
         highway: ["services", "rest_area"]
     render:
-      layer: "landuse"
-      color: [230, 230, 225, 255]
+      layer: "landuse_areas"
+      themeKey: "specialPurpose.services"
       fill: true
+      minLOD: 1
 
   # --- Recreation ---
   playground: &playground
@@ -520,9 +563,11 @@ feature_templates:
       tags:
         leisure: ["playground"]
     render:
-      layer: "recreation"
-      color: [200, 230, 180, 255]
+      layer: "landuse_areas"
+      themeKey: "recreation.playground"
       fill: true
+      minLOD: 1
+      pattern: "playground"
 
   swimming_pool: &swimming_pool
     name: "swimming_pool"
@@ -532,9 +577,11 @@ feature_templates:
         leisure: ["swimming_pool"]
         amenity: ["swimming_pool"]
     render:
-      layer: "recreation"
-      color: [170, 211, 223, 255]
+      layer: "landuse_areas"
+      themeKey: "water.area"
       fill: true
+      minLOD: 2
+      areaPoiCategory: "swimming"
 
   picnic_site: &picnic_site
     name: "picnic_site"
@@ -544,9 +591,11 @@ feature_templates:
         leisure: ["picnic_table"]
         tourism: ["picnic_site"]
     render:
-      layer: "recreation"
-      color: [200, 230, 180, 255]
+      layer: "landuse_areas"
+      themeKey: "recreation.picnicSite"
       fill: true
+      minLOD: 2
+      pattern: "picnic_site"
 
   table_tennis: &table_tennis
     name: "table_tennis"
@@ -559,7 +608,8 @@ feature_templates:
       preserve_tags: ["sport"]
     render:
       layer: "points"
-      color: [100, 160, 100, 255]
+      poiCategory: "recreation"
+      minLOD: 3
 
   beach_volleyball: &beach_volleyball
     name: "beach_volleyball"
@@ -570,9 +620,11 @@ feature_templates:
         leisure: ["pitch"]
         sport: ["beachvolleyball"]
     render:
-      layer: "recreation"
-      color: [255, 241, 186, 255]
+      layer: "landuse_areas"
+      themeKey: "recreation.beachVolleyball"
       fill: true
+      minLOD: 2
+      pattern: "beach_volleyball"
 
   # General sports pitches (tennis, soccer, hockey, basketball, etc.)
   sports_pitch: &sports_pitch
@@ -583,9 +635,10 @@ feature_templates:
         leisure: ["pitch"]
       preserve_tags: ["sport"]
     render:
-      layer: "recreation"
-      color: [180, 225, 200, 255]
+      layer: "landuse_areas"
+      themeKey: "recreation.pitch"
       fill: true
+      minLOD: 1
 
   # Sports centres, sports halls, tracks (horse racing, athletics)
   sports_facility: &sports_facility
@@ -596,9 +649,10 @@ feature_templates:
         leisure: ["sports_centre", "sports_hall", "track", "stadium"]
       preserve_tags: ["sport"]
     render:
-      layer: "recreation"
-      color: [200, 230, 210, 255]
+      layer: "landuse_areas"
+      themeKey: "recreation.sportsFacility"
       fill: true
+      minLOD: 1
 
   # Miniature golf
   miniature_golf: &miniature_golf
@@ -608,9 +662,10 @@ feature_templates:
       tags:
         leisure: ["miniature_golf"]
     render:
-      layer: "recreation"
-      color: [195, 235, 195, 255]
+      layer: "landuse_areas"
+      themeKey: "recreation.miniatureGolf"
       fill: true
+      minLOD: 1
 
   # --- Aeroways ---
   runways: &runways
@@ -621,7 +676,9 @@ feature_templates:
         aeroway: ["runway"]
     render:
       layer: "aeroways"
-      color: [80, 80, 80, 255]
+      themeKey: "aeroway.runway"
+      isRunway: true
+      minLOD: 0
       preserve_tags: ["ref", "surface", "width", "lit", "length"]
 
   taxiways: &taxiways
@@ -632,7 +689,8 @@ feature_templates:
         aeroway: ["taxiway"]
     render:
       layer: "aeroways"
-      color: [120, 120, 120, 255]
+      themeKey: "aeroway.taxiway"
+      minLOD: 2
       preserve_tags: ["ref", "surface"]
 
   aprons: &aprons
@@ -643,8 +701,9 @@ feature_templates:
         aeroway: ["apron"]
     render:
       layer: "aeroways"
-      color: [160, 160, 160, 255]
+      themeKey: "aeroway.apron"
       fill: true
+      minLOD: 2
 
   helipads: &helipads
     name: "helipads"
@@ -654,8 +713,10 @@ feature_templates:
         aeroway: ["helipad"]
     render:
       layer: "aeroways"
-      color: [100, 100, 100, 255]
+      themeKey: "aeroway.helipad"
       fill: true
+      isHelipad: true
+      minLOD: 3
       preserve_tags: ["ref"]
 
   # --- Buildings ---
@@ -669,8 +730,10 @@ feature_templates:
         building: ["no"]
     render:
       layer: "buildings"
-      color: [218, 208, 200, 255]
+      themeKey: "buildings.default"
+      strokeThemeKey: "buildings.border"
       fill: true
+      minLOD: 2
 
   # --- Boundaries ---
   country_borders: &country_borders
@@ -685,9 +748,10 @@ feature_templates:
         maritime: ["yes"]
     render:
       layer: "boundaries"
-      color: [128, 128, 128, 255]
-      stroke_width_px: 2
-      dash_pattern: [5, 5]
+      themeKey: "boundaries.country"
+      dashPatternKey: "countryBorder"
+      width: 2.5
+      minLOD: 0
 
   state_borders: &state_borders
     name: "state_borders"
@@ -701,9 +765,10 @@ feature_templates:
         maritime: ["yes"]
     render:
       layer: "boundaries"
-      color: [160, 160, 160, 255]
-      stroke_width_px: 1.5
-      dash_pattern: [4, 4]
+      themeKey: "boundaries.state"
+      dashPatternKey: "stateBorder"
+      width: 1.5
+      minLOD: 0
 
   district_borders: &district_borders
     name: "district_borders"
@@ -717,9 +782,10 @@ feature_templates:
         maritime: ["yes"]
     render:
       layer: "boundaries"
-      color: [180, 180, 180, 255]
-      stroke_width_px: 1
-      dash_pattern: [3, 3]
+      themeKey: "boundaries.district"
+      dashPatternKey: "districtBorder"
+      width: 1.0
+      minLOD: 1
 
   # Territorial waters (boundary=administrative + maritime=yes)
   maritime_territorial: &maritime_territorial
@@ -732,9 +798,10 @@ feature_templates:
         maritime: ["yes"]
     render:
       layer: "boundaries"
-      color: [100, 140, 180, 150]
-      stroke_width_px: 1.5
-      dash_pattern: [6, 6]
+      themeKey: "boundaries.maritime"
+      dashPatternKey: "maritime"
+      width: 1.5
+      minLOD: 0
 
   # Exclusive economic zones (boundary=maritime)
   maritime_eez: &maritime_eez
@@ -745,9 +812,10 @@ feature_templates:
         boundary: ["maritime"]
     render:
       layer: "boundaries"
-      color: [100, 140, 180, 120]
-      stroke_width_px: 1
-      dash_pattern: [8, 8]
+      themeKey: "boundaries.eez"
+      dashPatternKey: "eez"
+      width: 1.0
+      minLOD: 0
 
   # --- Labels ---
   cities: &cities
@@ -758,10 +826,12 @@ feature_templates:
         place: ["city"]
       requires_name: true
     render:
-      layer: "labels"
-      color: [0, 0, 0, 255]
-      font_size: 18
-      priority: 1
+      layer: "place_labels"
+      themeKey: "text.places"
+      placeType: "city"
+      placePriority: 1
+      fontSize: 18
+      minLOD: 0
 
   large_towns: &large_towns
     name: "large_towns"
@@ -772,10 +842,12 @@ feature_templates:
       requires_name: true
       population_min: 50000
     render:
-      layer: "labels"
-      color: [0, 0, 0, 255]
-      font_size: 16
-      priority: 2
+      layer: "place_labels"
+      themeKey: "text.places"
+      placeType: "town"
+      placePriority: 2
+      fontSize: 16
+      minLOD: 0
 
   towns: &towns
     name: "towns"
@@ -786,10 +858,12 @@ feature_templates:
       requires_name: true
       population_max: 49999
     render:
-      layer: "labels"
-      color: [0, 0, 0, 255]
-      font_size: 16
-      priority: 3
+      layer: "place_labels"
+      themeKey: "text.places"
+      placeType: "town"
+      placePriority: 3
+      fontSize: 16
+      minLOD: 1
 
   large_villages: &large_villages
     name: "large_villages"
@@ -800,10 +874,12 @@ feature_templates:
       requires_name: true
       population_min: 5000
     render:
-      layer: "labels"
-      color: [0, 0, 0, 255]
-      font_size: 14
-      priority: 4
+      layer: "place_labels"
+      themeKey: "text.places"
+      placeType: "village"
+      placePriority: 4
+      fontSize: 14
+      minLOD: 1
 
   villages: &villages
     name: "villages"
@@ -814,10 +890,12 @@ feature_templates:
       requires_name: true
       population_max: 4999
     render:
-      layer: "labels"
-      color: [0, 0, 0, 255]
-      font_size: 14
-      priority: 5
+      layer: "place_labels"
+      themeKey: "text.places"
+      placeType: "village"
+      placePriority: 5
+      fontSize: 14
+      minLOD: 2
 
   suburbs: &suburbs
     name: "suburbs"
@@ -827,10 +905,12 @@ feature_templates:
         place: ["suburb", "borough", "quarter"]
       requires_name: true
     render:
-      layer: "labels"
-      color: [0, 0, 0, 255]
-      font_size: 13
-      priority: 6
+      layer: "place_labels"
+      themeKey: "text.places"
+      placeType: "suburb"
+      placePriority: 6
+      fontSize: 13
+      minLOD: 2
 
   hamlets: &hamlets
     name: "hamlets"
@@ -840,10 +920,12 @@ feature_templates:
         place: ["hamlet", "neighbourhood"]
       requires_name: true
     render:
-      layer: "labels"
-      color: [0, 0, 0, 255]
-      font_size: 12
-      priority: 7
+      layer: "place_labels"
+      themeKey: "text.places"
+      placeType: "hamlet"
+      placePriority: 7
+      fontSize: 12
+      minLOD: 3
 
   localities: &localities
     name: "localities"
@@ -853,10 +935,24 @@ feature_templates:
         place: ["locality", "isolated_dwelling"]
       requires_name: true
     render:
-      layer: "labels"
-      color: [0, 0, 0, 255]
-      font_size: 11
-      priority: 8
+      layer: "place_labels"
+      themeKey: "text.places"
+      placeType: "locality"
+      placePriority: 8
+      fontSize: 11
+      minLOD: 4
+
+  toilets: &toilets
+    name: "toilets"
+    osm_match:
+      geometry: ["Point"]
+      tags:
+        amenity: ["toilets"]
+      preserve_tags: ["fee", "wheelchair", "access"]
+    render:
+      layer: "points"
+      poiCategory: "toilets"
+      minLOD: 3
 
   pois: &pois
     name: "pois"
@@ -869,8 +965,8 @@ feature_templates:
         historic: ["*"]
       requires_name: true
     render:
-      layer: "pois"
-      color: [100, 100, 100, 255]
+      layer: "points"
+      minLOD: 4
 
 # =============================================================================
 # TILESETS
@@ -886,8 +982,6 @@ tilesets:
 
     features:
       # All features, very light simplification (5cm) to reduce coordinate bloat
-      - <<: *coastline
-        simplification: { epsilon_m: 0.05 }
       - <<: *water_bodies_all
         simplification: { epsilon_m: 0.05 }
       - <<: *major_rivers
@@ -1002,6 +1096,7 @@ tilesets:
       - <<: *suburbs
       - <<: *hamlets
       - <<: *localities
+      - <<: *toilets
       - <<: *pois
 
   # ===========================================================================
@@ -1014,8 +1109,6 @@ tilesets:
 
     features:
       # All features with moderate simplification, no area filters
-      - <<: *coastline
-        simplification: { epsilon_m: 3 }
       - <<: *water_bodies_all
         simplification: { epsilon_m: 3 }
       - <<: *major_rivers
@@ -1130,6 +1223,7 @@ tilesets:
       - <<: *large_villages
       - <<: *villages
       - <<: *suburbs
+      - <<: *toilets
 
   # ===========================================================================
   # T3: REGION (20km - 150km) — merges old t5+t6
@@ -1141,8 +1235,6 @@ tilesets:
 
     features:
       # Major features with area filters and aggressive simplification
-      - <<: *coastline
-        simplification: { epsilon_m: 50 }
       - name: "water_bodies_medium_large"
         osm_match:
           geometry: ["Polygon", "MultiPolygon"]
@@ -1152,9 +1244,10 @@ tilesets:
             landuse: ["basin", "reservoir", "salt_pond"]
           min_area_km2: 0.01
         render:
-          layer: "water"
-          color: [170, 211, 223, 255]
+          layer: "water_areas"
+          themeKey: "water.area"
           fill: true
+          minLOD: 0
         simplification: { epsilon_m: 50 }
       - <<: *major_rivers
         simplification: { epsilon_m: 50 }
@@ -1167,8 +1260,10 @@ tilesets:
           min_area_km2: 0.1
         render:
           layer: "natural_background"
-          color: [200, 215, 175, 255]
+          themeKey: "natural.scrub"
           fill: true
+          minLOD: 1
+          pattern: "scrub"
         simplification: { epsilon_m: 50 }
       - name: "wetland_medium_large"
         osm_match:
@@ -1178,8 +1273,9 @@ tilesets:
           min_area_km2: 0.1
         render:
           layer: "natural_background"
-          color: [200, 225, 210, 255]
+          themeKey: "natural.wetland"
           fill: true
+          minLOD: 1
         simplification: { epsilon_m: 50 }
       - name: "beach_medium_large"
         osm_match:
@@ -1189,8 +1285,10 @@ tilesets:
           min_area_km2: 0.05
         render:
           layer: "natural_background"
-          color: [255, 241, 186, 255]
+          themeKey: "natural.beach"
           fill: true
+          minLOD: 1
+          pattern: "beach"
         simplification: { epsilon_m: 50 }
       - name: "sand_medium_large"
         osm_match:
@@ -1200,8 +1298,10 @@ tilesets:
           min_area_km2: 0.05
         render:
           layer: "natural_background"
-          color: [255, 241, 186, 255]
+          themeKey: "natural.beach"
           fill: true
+          minLOD: 1
+          pattern: "beach"
         simplification: { epsilon_m: 50 }
       - name: "forests_medium_large"
         osm_match:
@@ -1213,8 +1313,9 @@ tilesets:
           preserve_tags: ["leaf_type"]
         render:
           layer: "forests"
-          color: [173, 209, 158, 255]
+          themeKey: "natural.forest"
           fill: true
+          minLOD: 0
         simplification: { epsilon_m: 50 }
       - <<: *motorways
         simplification: { epsilon_m: 50 }
@@ -1272,8 +1373,6 @@ tilesets:
 
     features:
       # Only large features with heavy simplification
-      - <<: *coastline
-        simplification: { epsilon_m: 200 }
       - name: "water_bodies_large"
         osm_match:
           geometry: ["Polygon", "MultiPolygon"]
@@ -1283,9 +1382,10 @@ tilesets:
             landuse: ["basin", "reservoir", "salt_pond"]
           min_area_km2: 1.0
         render:
-          layer: "water"
-          color: [170, 211, 223, 255]
+          layer: "water_areas"
+          themeKey: "water.area"
           fill: true
+          minLOD: 0
         simplification: { epsilon_m: 200 }
       # NO rivers
       - name: "forests_large"
@@ -1298,8 +1398,9 @@ tilesets:
           preserve_tags: ["leaf_type"]
         render:
           layer: "forests"
-          color: [173, 209, 158, 255]
+          themeKey: "natural.forest"
           fill: true
+          minLOD: 0
         simplification: { epsilon_m: 200 }
       - <<: *motorways
         simplification: { epsilon_m: 200 }
@@ -1320,18 +1421,27 @@ tilesets:
       - <<: *large_towns
 
 # =============================================================================
-# LAYER RENDERING ORDER (bottom to top)
+# LAYER RENDERING ORDER (bottom to top) — informational, not used by renderer
 # =============================================================================
 layer_order:
-  - landuse
-  - water
+  - base_land
+  - natural_background
   - forests
+  - water_areas
+  - islands
+  - landuse_areas
   - buildings
-  - boundaries
-  - coastline
-  - railways
-  - major_roads
-  - roads
+  - aeroways
+  - tunnels
   - waterways
-  - labels
-  - pois
+  - tunnel_waterways
+  - steps
+  - surface_roads
+  - bridge_roads
+  - surface_railways
+  - bridge_railways
+  - boundaries
+  - points
+  - place_labels
+  - water_labels
+  - building_labels

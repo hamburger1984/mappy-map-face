@@ -34,12 +34,23 @@ LAND_POLYGON_SOURCES = {
 
 # OSM data sources
 OSM_SOURCES = {
+    # Parts of germany
+    "brandenburg": "https://download.geofabrik.de/europe/germany/brandenburg-latest.osm.pbf",
     "hamburg": "https://download.geofabrik.de/europe/germany/hamburg-latest.osm.pbf",
-    "schleswig-holstein": "https://download.geofabrik.de/europe/germany/schleswig-holstein-latest.osm.pbf",
+    "hessen": "https://download.geofabrik.de/europe/germany/hessen-latest.osm.pbf",
     "mecklenburg-vorpommern": "https://download.geofabrik.de/europe/germany/mecklenburg-vorpommern-latest.osm.pbf",
     "niedersachsen": "https://download.geofabrik.de/europe/germany/niedersachsen-latest.osm.pbf",
-    #"nordrhein-westfalen": "https://download.geofabrik.de/europe/germany/nordrhein-westfalen-latest.osm.pbf",
-    #"denmark": "https://download.geofabrik.de/europe/denmark-latest.osm.pbf",
+    "nordrhein-westfalen": "https://download.geofabrik.de/europe/germany/nordrhein-westfalen-latest.osm.pbf",
+    "sachsen-anhalt": "https://download.geofabrik.de/europe/germany/sachsen-anhalt-latest.osm.pbf",
+    "schleswig-holstein": "https://download.geofabrik.de/europe/germany/schleswig-holstein-latest.osm.pbf",
+    "thüringen": "https://download.geofabrik.de/europe/germany/thueringen-latest.osm.pbf",
+
+    #"berlin": "https://download.geofabrik.de/europe/germany/berlin-latest.osm.pbf", <-- part of brandenburg file
+    #"bremen": "https://download.geofabrik.de/europe/germany/bremen-latest.osm.pbf", <-- part of niedersachsen file
+     
+    # More of europe
+    "denmark": "https://download.geofabrik.de/europe/denmark-latest.osm.pbf",
+
     #"sweden": "https://download.geofabrik.de/europe/sweden-latest.osm.pbf",
     #"norway": "https://download.geofabrik.de/europe/norway-latest.osm.pbf",
     #"poland": "https://download.geofabrik.de/europe/poland-latest.osm.pbf",

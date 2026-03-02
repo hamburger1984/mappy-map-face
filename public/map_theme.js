@@ -31,6 +31,7 @@ export const THEMES = {
       scrub: { r: 200, g: 215, b: 175, a: 255 }, // Yellowish-green for scrubland
       wetland: { r: 180, g: 210, b: 185, a: 255 }, // Pale blue-green for wetlands
       beach: { r: 245, g: 230, b: 200, a: 255 }, // Sandy beige for beaches
+      cliff: { r: 140, g: 120, b: 100, a: 255 }, // Brown-gray for cliffs
     },
 
     // Agricultural areas
@@ -52,6 +53,8 @@ export const THEMES = {
       construction: { r: 235, g: 220, b: 200, a: 255 }, // Orange-brown tint
       military: { r: 235, g: 215, b: 215, a: 255 }, // Light red-brown
       port: { r: 215, g: 210, b: 220, a: 255 }, // Light blue-gray
+      militaryHatchFill:   { r: 220, g: 180, b: 180, a:  51 }, // Pink tint at 0.2 opacity
+      militaryHatchStroke: { r: 180, g: 100, b: 100, a:  89 }, // Darker red at 0.35 opacity
     },
 
     // Special purpose areas
@@ -104,12 +107,17 @@ export const THEMES = {
       smallRoads: { r: 220, g: 220, b: 220, a: 255 }, // Light gray
       footway: { r: 250, g: 190, b: 165, a: 255 }, // Salmon/pink
       cycleway: { r: 120, g: 150, b: 255, a: 255 }, // Blue
-      construction: { r: 200, g: 60, b: 60, a: 255 }, // Red for construction pattern
+      construction:     { r: 200, g: 60, b: 60, a: 255 }, // Red for construction pattern
+      constructionFill: { r: 200, g: 60, b: 60, a: 204 }, // Red at 0.8 opacity for solid base
+      casing:           { r: 255, g: 255, b: 255, a: 255 }, // White casing for tracks/paths
     },
 
     // Railways
     railways: {
-      rail: { r: 153, g: 153, b: 153, a: 255 }, // Gray
+      rail:         { r: 153, g: 153, b: 153, a: 255 }, // Gray
+      construction: { r: 180, g: 120, b: 120, a: 255 }, // Planned/construction line tint
+      sleeperLight: { r: 225, g: 225, b: 225, a: 255 }, // Very light gray for gap fill
+      sleeperDark:  { r: 120, g: 120, b: 120, a: 255 }, // Mid gray for sleeper dashes
     },
 
     // Boundaries and special lines
@@ -157,7 +165,42 @@ export const THEMES = {
       cinema: { r: 200, g: 40, b: 40, a: 255 }, // Red
       police: { r: 30, g: 100, b: 210, a: 255 }, // Blue
       bank: { r: 40, g: 140, b: 80, a: 255 }, // Green
-      library: { r: 120, g: 80, b: 40, a: 255 }, // Warm brown
+      library:        { r: 120, g: 80, b: 40, a: 255 }, // Warm brown
+      glyphHighlight: { r: 255, g: 255, b: 255, a: 128 }, // White at 0.5 for glyph details
+    },
+
+    // Aeroway features
+    aeroway: {
+      runway:            { r:  80, g:  80, b:  80, a: 255 },
+      taxiway:           { r: 120, g: 120, b: 120, a: 255 },
+      apron:             { r: 160, g: 160, b: 160, a: 255 },
+      helipad:           { r: 100, g: 100, b: 100, a: 255 },
+      taxiwayBorder:     { r: 255, g: 255, b: 255, a: 102 }, // White at 0.4 opacity
+      taxiwayCenterline: { r: 255, g: 255, b: 200, a: 128 }, // Yellow-white at 0.5
+      runwayEdge:        { r: 255, g: 255, b: 255, a: 153 }, // White at 0.6 opacity
+      runwayCenterline:  { r: 255, g: 255, b: 255, a: 204 }, // White at 0.8 opacity
+      runwayLabel:       { r: 255, g: 255, b: 255, a: 230 }, // White at 0.9 opacity
+      runwayLight:       { r: 255, g: 255, b: 200, a: 179 }, // Yellow-white at 0.7
+    },
+
+    // Railway platforms
+    platforms: {
+      fill:   { r: 160, g: 160, b: 160, a: 255 },
+      stroke: { r: 120, g: 120, b: 120, a: 255 },
+      line:   { r: 140, g: 140, b: 140, a: 255 },
+    },
+
+    // Dash patterns for dashed lines (resolved by getDashPattern)
+    dashPatterns: {
+      track:          [4, 4],
+      footway:        [4, 4],
+      cycleway:       [4, 4],
+      construction:   [7, 7],
+      countryBorder:  [8, 4],
+      stateBorder:    [6, 4],
+      districtBorder: [4, 4],
+      maritime:       [6, 6],
+      eez:            [8, 8],
     },
 
     // Pattern colors (for textures)
@@ -234,4 +277,17 @@ export function toRGBA(color) {
 // Helper to convert color object to rgb string (ignoring alpha)
 export function toRGB(color) {
   return `rgb(${color.r},${color.g},${color.b})`;
+}
+
+// Resolve "category.subcategory" theme key to a color object
+export function getColorByKey(themeKey) {
+  if (!themeKey) return { r: 255, g: 0, b: 255, a: 255 };
+  const dot = themeKey.indexOf(".");
+  if (dot === -1) return getColor(themeKey);
+  return getColor(themeKey.slice(0, dot), themeKey.slice(dot + 1));
+}
+
+// Look up dash pattern array from the active theme
+export function getDashPattern(key) {
+  return activeTheme.dashPatterns?.[key] ?? null;
 }

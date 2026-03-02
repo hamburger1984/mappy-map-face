@@ -182,6 +182,10 @@ def load_land_polygons(data_dir: Path, bbox=None):
         return None, None
 
 
+# Limit processing to these regions (substring match on PBF filename).
+# Set to None to process all regions found in data dir.
+ACTIVE_REGIONS = {"hamburg", "schleswig-holstein"}
+
 # Module-level land polygon index (lazy — initialized per worker via init_land_polygons)
 _DATA_DIR = Path(__file__).parent / "data"
 LAND_POLYGON_GEOMS = None
@@ -197,6 +201,562 @@ def init_land_polygons(data_dir: Path, bbox=None):
     if LAND_POLYGON_TREE is not None:
         return
     LAND_POLYGON_GEOMS, LAND_POLYGON_TREE = load_land_polygons(data_dir, bbox)
+
+
+# ============================================================================
+# POI CLASSIFICATION (mirrors classifyPOI in map_renderer.js)
+# ============================================================================
+
+# POI amenity → category priority order (highest specificity first)
+_POI_AMENITY_PRIORITY = [
+    "cafe", "ice_cream", "bakery", "restaurant", "nightlife",
+    "health", "education", "theatre", "cinema", "police", "bank", "library",
+    "services", "transport", "toilets",
+]
+
+_POI_AMENITY_MAP = {
+    "cafe": "cafe",
+    "ice_cream": "ice_cream",
+    "bakery": "bakery",
+    "pastry": "bakery",
+    "restaurant": "restaurant",
+    "fast_food": "restaurant",
+    "food_court": "restaurant",
+    "bbq": "restaurant",
+    "bar": "nightlife",
+    "pub": "nightlife",
+    "nightclub": "nightlife",
+    "biergarten": "nightlife",
+    "casino": "nightlife",
+    "gambling": "nightlife",
+    "hookah_lounge": "nightlife",
+    "doctors": "health",
+    "dentist": "health",
+    "pharmacy": "health",
+    "hospital": "health",
+    "clinic": "health",
+    "veterinary": "health",
+    "nursing_home": "health",
+    "theatre": "theatre",
+    "cinema": "cinema",
+    "police": "police",
+    "bank": "bank",
+    "atm": "bank",
+    "bureau_de_change": "bank",
+    "library": "library",
+    "kindergarten": "education",
+    "school": "education",
+    "university": "education",
+    "college": "education",
+    "music_school": "education",
+    "language_school": "education",
+    "training": "education",
+    "post_office": "services",
+    "fire_station": "services",
+    "townhall": "services",
+    "courthouse": "services",
+    "embassy": "services",
+    "community_centre": "services",
+    "social_facility": "services",
+    "place_of_worship": "services",
+    "arts_centre": "services",
+    "driving_school": "services",
+    "recycling": "services",
+    "post_box": "services",
+    "events_venue": "services",
+    "childcare": "services",
+    "bicycle_rental": "transport",
+    "parking": "transport",
+    "parking_entrance": "transport",
+    "fuel": "transport",
+    "charging_station": "transport",
+    "car_sharing": "transport",
+    "taxi": "transport",
+    "bus_station": "transport",
+    "ferry_terminal": "transport",
+    "car_rental": "transport",
+    "boat_rental": "transport",
+    "toilets": "toilets",
+    "public_bath": "swimming",
+    "sauna": "swimming",
+    "marketplace": "shopping",
+    "vending_machine": "shopping",
+}
+
+_POI_SHOP_MAP = {
+    "coffee": "cafe",
+    "tea": "cafe",
+    "deli": "restaurant",
+    "confectionery": "restaurant",
+    "butcher": "restaurant",
+    "cheese": "restaurant",
+    "seafood": "restaurant",
+    "wine": "restaurant",
+    "beverages": "restaurant",
+    "alcohol": "restaurant",
+    "bakery": "bakery",
+    "pastry": "bakery",
+    "ice_cream": "ice_cream",
+    "supermarket": "supermarket",
+    "convenience": "supermarket",
+}
+
+_POI_LEISURE_MAP = {
+    "swimming_pool": "swimming",
+    "sauna": "swimming",
+    "spa": "swimming",
+    "water_park": "swimming",
+}
+
+
+def _classify_poi(props):
+    """Classify a POI feature to a category string (mirrors JS classifyPOI)."""
+    amenity = props.get("amenity")
+    shop = props.get("shop")
+    tourism = props.get("tourism")
+    historic = props.get("historic")
+    leisure = props.get("leisure")
+    sport = props.get("sport")
+
+    if amenity:
+        cat = _POI_AMENITY_MAP.get(amenity)
+        if cat:
+            return cat
+        return "services"  # fallback for unrecognized amenity
+
+    if shop:
+        cat = _POI_SHOP_MAP.get(shop)
+        if cat:
+            return cat
+        return "shopping"  # fallback for unrecognized shop
+
+    if tourism:
+        return "tourism"
+
+    if historic:
+        return "historic"
+
+    if leisure:
+        cat = _POI_LEISURE_MAP.get(leisure)
+        if cat:
+            return cat
+
+    if sport == "table_tennis":
+        return "recreation"
+
+    return None
+
+
+# ============================================================================
+# RENDER AUGMENTATION (computes dynamic _render fields from OSM properties)
+# ============================================================================
+
+# Highway type → (themeKey, roadPriority, minLOD, lane_width, default_lanes)
+_HIGHWAY_ATTRS = {
+    "motorway":      ("roads.motorway",    7, 0, 3.5, 4),
+    "trunk":         ("roads.motorway",    7, 0, 3.5, 4),
+    "motorway_link": ("roads.motorway",    7, 0, 3.5, 2),
+    "trunk_link":    ("roads.motorway",    7, 0, 3.5, 2),
+    "primary":       ("roads.primary",     6, 0, 3.5, 2),
+    "primary_link":  ("roads.primary",     6, 0, 3.5, 1),
+    "secondary":     ("roads.secondary",   5, 1, 3.5, 2),
+    "secondary_link":("roads.secondary",   5, 1, 3.5, 1),
+    "tertiary":      ("roads.tertiary",    4, 1, 3.0, 2),
+    "tertiary_link": ("roads.tertiary",    4, 1, 3.0, 1),
+    "residential":   ("roads.residential", 3, 2, 3.0, 1.666),
+    "unclassified":  ("roads.residential", 3, 2, 3.0, 1.666),
+    "living_street": ("roads.residential", 3, 2, 3.0, 1.5),
+    "service":       ("roads.service",     2, 2, 2.8, 1.1),
+    "busway":        ("roads.service",     2, 2, 3.0, 1),
+    "raceway":       ("roads.service",     2, 2, 8.0, 2),
+    "bridleway":     ("roads.footway",     0, 2, 2.5, 1),
+}
+
+_SKIP_HIGHWAY_TYPES = {
+    "street_lamp", "traffic_signals", "crossing", "stop",
+    "give_way", "speed_camera", "turning_circle", "mini_roundabout",
+    "motorway_junction", "bus_stop",
+}
+
+
+def augment_render_from_props(render, props, geom_type):
+    """Augment _render with computed attributes derived from OSM properties.
+
+    Called immediately after copying the YAML render config to _render.
+    Modifies render dict in-place.
+    """
+    is_line = geom_type in ("LineString", "MultiLineString")
+    is_poly = geom_type in ("Polygon", "MultiPolygon")
+    is_point = geom_type == "Point"
+
+    # ── Highway features ─────────────────────────────────────────────────────
+    highway = props.get("highway")
+    if highway:
+        if is_point or highway in _SKIP_HIGHWAY_TYPES:
+            render["layer"] = None
+            return
+
+        # Remap construction/planned/proposed to effective type
+        effective_highway = highway
+        is_construction = False
+        for tag in ("construction", "planned", "proposed"):
+            if highway == tag and props.get(tag):
+                effective_highway = props[tag]
+                is_construction = True
+                break
+
+        if is_construction:
+            render["isConstruction"] = True
+
+        # Tunnel/bridge detection
+        try:
+            layer_val = int(props.get("layer", 0) or 0)
+        except (ValueError, TypeError):
+            layer_val = 0
+        is_tunnel = props.get("tunnel") in ("yes", "true") or layer_val < 0
+        is_bridge = props.get("bridge") in ("yes", "true") or (layer_val > 0 and not is_tunnel)
+
+        # Determine attributes per highway type
+        lane_width = None
+        default_lanes = 1.0
+
+        if effective_highway in _HIGHWAY_ATTRS:
+            theme_key, road_priority, min_lod, lane_width, default_lanes = _HIGHWAY_ATTRS[effective_highway]
+            # Only set themeKey if not already set by YAML template
+            if not render.get("themeKey"):
+                render["themeKey"] = theme_key
+                render["roadPriority"] = road_priority
+                render["minLOD"] = min_lod
+            # Always update realWidthMeters (computed from lane data)
+            try:
+                lanes = float(props.get("lanes") or default_lanes)
+            except (ValueError, TypeError):
+                lanes = default_lanes
+            render["realWidthMeters"] = lanes * lane_width
+
+        elif effective_highway == "track":
+            grade_str = props.get("tracktype", "grade1") or "grade1"
+            try:
+                grade = int(grade_str.replace("grade", ""))
+            except (ValueError, TypeError):
+                grade = 1
+            if not render.get("themeKey"):
+                render["themeKey"] = "roads.track"
+            render["fixedWidthPx"] = render.get("fixedWidthPx", 1.5)
+            render["dashPatternKey"] = render.get("dashPatternKey", "track")
+            render["casingKey"] = render.get("casingKey", "roads.casing")
+            render["minLOD"] = 3 if grade >= 4 else 2
+            render["roadPriority"] = 1 if grade >= 4 else 2
+
+        elif effective_highway in ("path", "footway", "pedestrian", "steps", "corridor"):
+            bicycle = props.get("bicycle", "")
+            bicycle_designated = bicycle in ("designated", "yes")
+            foot_implied = effective_highway in ("path", "footway", "pedestrian")
+            foot_accessible = (
+                props.get("foot") in ("designated", "yes")
+                or (foot_implied and props.get("foot") != "no")
+            )
+            if bicycle_designated and foot_accessible:
+                render["themeKey"] = "roads.cycleway"
+                render["dualDashKey"] = "roads.footway"
+            elif bicycle_designated:
+                render["themeKey"] = "roads.cycleway"
+            else:
+                render["themeKey"] = "roads.footway"
+            render["fixedWidthPx"] = 1.5
+            render["roadPriority"] = 0
+            render["minLOD"] = 2
+            if effective_highway in ("path", "footway", "pedestrian"):
+                render["dashPatternKey"] = "footway"
+                render["casingKey"] = "roads.casing"
+
+        elif effective_highway == "cycleway":
+            foot_accessible = props.get("foot") in ("designated", "yes")
+            render["themeKey"] = "roads.cycleway"
+            if foot_accessible:
+                render["dualDashKey"] = "roads.footway"
+            render["fixedWidthPx"] = 1.5
+            render["dashPatternKey"] = "cycleway"
+            render["casingKey"] = "roads.casing"
+            render["roadPriority"] = 1
+            render["minLOD"] = 2
+
+        else:
+            # Unknown highway type — skip rendering
+            render["layer"] = None
+            return
+
+        # bicycle_road / cyclestreet overlay flag
+        if props.get("bicycle_road") == "yes" or props.get("cyclestreet") == "yes":
+            render["isBicycleRoad"] = True
+
+        # Layer routing (tunnel → tunnels, bridge → bridge_roads, surface → surface_roads)
+        is_step = effective_highway == "steps"
+        if is_tunnel:
+            render["layer"] = "steps" if is_step else "tunnels"
+            render["tunnel"] = True
+        elif is_bridge:
+            render["layer"] = "steps" if is_step else "bridge_roads"
+            render["bridgeLayer"] = layer_val or 1
+        else:
+            render["layer"] = "steps" if is_step else "surface_roads"
+        return
+
+    # ── Waterway features ─────────────────────────────────────────────────────
+    waterway = props.get("waterway")
+    if waterway and waterway != "riverbank":
+        if waterway in ("river", "canal"):
+            render["width"] = 3
+            render["minLOD"] = 0
+        elif waterway == "stream":
+            render["width"] = 2
+            render["borderWidth"] = 0.5
+            render["borderColorKey"] = "water.border"
+            render["minLOD"] = 1
+        else:  # ditch, drain, etc.
+            render["width"] = 1.5
+            render["borderWidth"] = 0.5
+            render["borderColorKey"] = "water.border"
+            render["minLOD"] = 2
+
+        # Named waterways get a water label
+        if props.get("name"):
+            render["waterLabel"] = {
+                "name": props["name"],
+                "waterType": waterway,
+            }
+
+        # Tunnel routing
+        try:
+            layer_val_w = int(props.get("layer", 0) or 0)
+        except (ValueError, TypeError):
+            layer_val_w = 0
+        if props.get("tunnel") in ("yes", "true") or layer_val_w < 0:
+            render["layer"] = "tunnel_waterways"
+            render["tunnel"] = True
+        return
+
+    # ── Railway features ──────────────────────────────────────────────────────
+    railway = props.get("railway")
+    if railway and not is_point:
+        # Platform handling
+        if railway == "platform" or props.get("public_transport") == "platform":
+            try:
+                level_val = float(str(props.get("level", "0")).split(";")[0])
+            except (ValueError, TypeError):
+                level_val = 0
+            try:
+                layer_val_p = int(props.get("layer", 0) or 0)
+            except (ValueError, TypeError):
+                layer_val_p = 0
+            is_underground = (
+                level_val < 0
+                or props.get("tunnel") == "yes"
+                or props.get("indoor") == "yes"
+                or layer_val_p < 0
+            )
+            render["isPlatform"] = True
+            if is_poly:
+                render["themeKey"] = "platforms.fill"
+                if not is_underground:
+                    render["strokeThemeKey"] = "platforms.stroke"
+            else:
+                render["themeKey"] = "platforms.line"
+            return
+
+        _RAIL_TRACK_TYPES = {
+            "rail", "light_rail", "subway", "tram", "monorail",
+            "narrow_gauge", "preserved", "funicular", "miniature",
+            "construction", "planned", "proposed",
+        }
+        if railway not in _RAIL_TRACK_TYPES:
+            return
+
+        # Remap construction/planned/proposed
+        effective_railway = railway
+        is_planned = False
+        for tag in ("construction", "planned", "proposed"):
+            if railway == tag and props.get(tag):
+                effective_railway = props[tag]
+                is_planned = True
+                break
+            elif railway == tag:
+                effective_railway = "rail"
+                is_planned = True
+
+        if is_planned:
+            render["isConstruction"] = True
+            render["themeKey"] = "railways.construction"
+        else:
+            if not render.get("themeKey"):
+                render["themeKey"] = "railways.rail"
+
+        render["isRailway"] = True
+
+        # Width and minLOD per railway sub-type
+        if effective_railway in ("tram", "funicular", "miniature"):
+            render["realWidthMeters"] = 6.0
+            render.setdefault("minLOD", 2)
+        elif effective_railway in ("light_rail", "subway"):
+            render["realWidthMeters"] = 6.0
+            render.setdefault("minLOD", 1)
+        elif effective_railway == "narrow_gauge":
+            render["realWidthMeters"] = 6.0
+            render.setdefault("minLOD", 0)
+        else:
+            render["realWidthMeters"] = 8.0
+            render.setdefault("minLOD", 0)
+
+        # Tunnel/bridge routing
+        try:
+            layer_val_r = int(props.get("layer", 0) or 0)
+        except (ValueError, TypeError):
+            layer_val_r = 0
+        is_tunnel_r = props.get("tunnel") in ("yes", "true") or layer_val_r < 0
+        is_bridge_r = props.get("bridge") in ("yes", "true") or (layer_val_r > 0 and not is_tunnel_r)
+
+        if is_tunnel_r:
+            render["layer"] = "tunnels"
+            render["tunnel"] = True
+        elif is_bridge_r:
+            render["layer"] = "bridge_railways"
+            render["bridgeLayer"] = layer_val_r or 1
+        # else keep surface_railways from YAML
+        return
+
+    # ── Railway station points → place labels ─────────────────────────────────
+    if railway in ("station", "halt") and is_point and props.get("name"):
+        station_type = props.get("station", "")
+        is_minor = (
+            railway == "halt"
+            or station_type in ("subway", "light_rail", "tram", "monorail", "funicular", "miniature")
+        )
+        is_main = props.get("usage") == "main" or station_type == "main"
+        render["layer"] = "place_labels"
+        render["themeKey"] = "text.places"
+        render["placeType"] = "station"
+        render["placePriority"] = 6 if is_minor else (4 if is_main else 8)
+        render["fontSize"] = 10 if is_minor else 11
+        render["minLOD"] = 1
+        if is_minor:
+            render["maxViewWidth"] = 1500
+        return
+
+    # ── Aeroway features ──────────────────────────────────────────────────────
+    if props.get("aeroway") and props["aeroway"] == "runway":
+        render["isRunway"] = True
+        render["runwayRef"] = props.get("ref")
+        render["runwayLit"] = props.get("lit") == "yes"
+        return
+
+    # ── Building features ─────────────────────────────────────────────────────
+    if props.get("building"):
+        building_type = props.get("building", "yes")
+        _BTYPE_MAP = {
+            "commercial": "buildings.commercial",
+            "retail": "buildings.commercial",
+            "supermarket": "buildings.commercial",
+            "industrial": "buildings.industrial",
+            "warehouse": "buildings.industrial",
+            "public": "buildings.public",
+            "civic": "buildings.public",
+            "government": "buildings.public",
+            "church": "buildings.religious",
+            "cathedral": "buildings.religious",
+            "mosque": "buildings.religious",
+            "temple": "buildings.religious",
+            "synagogue": "buildings.religious",
+            "school": "buildings.education",
+            "university": "buildings.education",
+            "college": "buildings.education",
+            "kindergarten": "buildings.education",
+        }
+        if building_type in _BTYPE_MAP:
+            render["themeKey"] = _BTYPE_MAP[building_type]
+        # else keep "buildings.default" from YAML
+
+        housenumber = props.get("addr:housenumber")
+        if housenumber:
+            render["houseNumber"] = {
+                "number": housenumber,
+                "street": props.get("addr:street"),
+            }
+        return
+
+    # ── Named water areas → waterLabel ────────────────────────────────────────
+    if (
+        props.get("natural") == "water"
+        or props.get("landuse") in ("basin", "reservoir")
+    ) and props.get("name") and is_poly:
+        render["waterLabel"] = {
+            "name": props["name"],
+            "waterType": props.get("water") or props.get("natural") or "water",
+        }
+        return
+
+    # ── Wetland tidalflat: different pattern ─────────────────────────────────
+    if props.get("natural") == "wetland" and props.get("wetland") == "tidalflat":
+        render["pattern"] = "wetland_tidal"
+        return
+
+    # ── Agriculture: override themeKey by landuse value ───────────────────────
+    if render.get("layer") == "natural_background" and props.get("landuse") in (
+        "farmland", "farmyard", "orchard", "vineyard", "plant_nursery", "greenhouse_horticulture",
+        "meadow", "grass", "flowerbed",
+    ):
+        _AGR_MAP = {
+            "farmland": "agriculture.farmland",
+            "farmyard": "agriculture.farmland",
+            "greenhouse_horticulture": "agriculture.farmland",
+            "plant_nursery": "agriculture.orchard",
+            "orchard": "agriculture.orchard",
+            "vineyard": "agriculture.vineyard",
+            "meadow": "natural.meadow",
+            "grass": "natural.grass",
+            "flowerbed": "agriculture.flowerbed",
+        }
+        landuse = props["landuse"]
+        if landuse in _AGR_MAP:
+            render["themeKey"] = _AGR_MAP[landuse]
+        return
+
+    # ── Sports pitches: override themeKey by sport ────────────────────────────
+    if render.get("layer") == "landuse_areas" and props.get("leisure") == "pitch":
+        sport = props.get("sport", "")
+        if sport in ("basketball", "skateboard", "multi"):
+            render["themeKey"] = "recreation.pitchHard"
+        elif sport in ("soccer", "field_hockey", "rugby", "american_football"):
+            render["themeKey"] = "recreation.pitchBall"
+        else:
+            render["themeKey"] = "recreation.pitchTennis"
+        return
+
+    # ── Sports facilities: areaPoiCategory for swimming ───────────────────────
+    if render.get("layer") == "landuse_areas" and props.get("leisure") in (
+        "sports_centre", "sports_hall", "track", "stadium"
+    ):
+        sport = props.get("sport", "")
+        if sport in ("swimming", "diving", "water_polo"):
+            render["areaPoiCategory"] = "swimming"
+        return
+
+    # ── POI point features ────────────────────────────────────────────────────
+    if is_point and render.get("layer") == "points":
+        if render.get("poiCategory"):
+            return  # Already classified (e.g. toilets, table_tennis from YAML)
+        cat = _classify_poi(props)
+        if cat:
+            render["poiCategory"] = cat
+        else:
+            render["layer"] = None  # Skip unrecognized POIs
+        return
+
+    # ── Place labels: add population ──────────────────────────────────────────
+    if render.get("layer") == "place_labels" and props.get("population"):
+        try:
+            render["population"] = int(props["population"])
+        except (ValueError, TypeError):
+            pass
 
 
 # ============================================================================
@@ -827,7 +1387,7 @@ def build_land_polygon_for_tile(tile_x, tile_y, tile_size_m, epsilon_m=None, wat
         "properties": {"base_land": True},
         "_render": {
             "layer": "base_land",
-            "color": LAND_BG_COLOR,
+            "themeKey": "background.land",
             "fill": True,
             "minLOD": 0,
         },
@@ -977,6 +1537,7 @@ def split_geojson_into_tiles(
     source_pbf_file=None,
     clip_to_tiles=False,
     clip_buffer_pct=0.02,
+    defer_finalization=False,
 ):
     """Split GeoJSON into tiles by streaming features directly to .jsonl files.
 
@@ -1100,7 +1661,8 @@ def split_geojson_into_tiles(
                 tileset_feature = simplify_feature_for_tileset(
                     tileset_feature, tileset_id, feature_config
                 )
-                tileset_feature["_render"] = feature_config["render"]
+                tileset_feature["_render"] = dict(feature_config["render"])  # copy, don't mutate YAML
+                augment_render_from_props(tileset_feature["_render"], props, geom_type)
 
                 feature_tiles = get_tiles_for_feature_in_tileset(
                     tileset_feature, tileset_id, tile_size_m
@@ -1146,6 +1708,11 @@ def split_geojson_into_tiles(
         f"\r  Processed {i:,} features in {time.time() - start_time:.0f}s ({db_prefix})"
         + " " * 40
     )
+
+    # When defer_finalization=True, Phase 2 runs globally after all regions finish.
+    # Return the written tile coordinates so the caller can finalize with merged bounds.
+    if defer_finalization:
+        return {"bounds": actual_bounds, "tile_files_written": tile_files_written}
 
     # Pass 2: Finalize each .jsonl into .json (deduplicate, sort, add _meta)
     # Initialize land polygon index filtered to this region's bounds.
@@ -1223,7 +1790,7 @@ def split_geojson_into_tiles(
 
 def process_geojson_to_tiles(args):
     """Process a single GeoJSON file into tiles."""
-    geojson_file, output_dir, source_file, clip_to_tiles, clip_buffer_pct = args
+    geojson_file, output_dir, source_file, clip_to_tiles, clip_buffer_pct, defer_finalization = args
 
     geojson_path = Path(geojson_file)
     source_path = Path(source_file) if source_file else geojson_path
@@ -1235,13 +1802,15 @@ def process_geojson_to_tiles(args):
             source_pbf_file=str(source_path),
             clip_to_tiles=clip_to_tiles,
             clip_buffer_pct=clip_buffer_pct,
+            defer_finalization=defer_finalization,
         )
 
         return {
             "name": geojson_path.name,
             "status": "success",
             "bounds": result["bounds"],
-            "total_bytes": result["total_bytes"],
+            "tile_files_written": result.get("tile_files_written", {}),
+            "total_bytes": result.get("total_bytes", 0),
         }
 
     except Exception as e:
@@ -1252,6 +1821,13 @@ def process_geojson_to_tiles(args):
             "status": "failed",
             "error": str(e) + "\n" + traceback.format_exc(),
         }
+
+
+def _finalize_tile_worker(args):
+    """Worker for Phase 2: initialize land polygon tree with merged bounds, finalize one tile."""
+    jsonl_path, json_path, merged_expanded_bounds = args
+    init_land_polygons(_DATA_DIR, merged_expanded_bounds)
+    return finalize_tile(Path(jsonl_path), Path(json_path))
 
 
 def _categorize_feature(feature):
@@ -1501,6 +2077,11 @@ def main():
     else:
         # Find all OSM PBF files
         pbf_files = list(args.data_dir.glob("*-latest.osm.pbf"))
+        if ACTIVE_REGIONS is not None:
+            pbf_files = [
+                f for f in pbf_files
+                if any(r in f.name for r in ACTIVE_REGIONS)
+            ]
 
         if not pbf_files:
             print("Error: No OSM PBF files found")
@@ -1571,21 +2152,79 @@ def main():
                     source_file,
                     args.clip,
                     args.clip_buffer,
+                    True,  # defer_finalization — Phase 2 runs globally below
                 )
             )
 
-        # Process in parallel with progress bar
+        # Phase 1: stream all region features to .jsonl files (no finalization yet)
+        print("Phase 1: Writing features...")
         with Pool(min(args.jobs, len(tile_args))) as pool:
-            results = list(
+            write_results = list(
                 tqdm(
                     pool.imap_unordered(process_geojson_to_tiles, tile_args),
                     total=len(tile_args),
-                    desc="Processing regions",
+                    desc="Writing regions",
                     unit="region",
                 )
             )
 
-        all_results.extend(results)
+        # Compute merged bounds across all regions for land polygon loading
+        merged_land_bounds = {
+            "minLon": float("inf"), "maxLon": float("-inf"),
+            "minLat": float("inf"), "maxLat": float("-inf"),
+        }
+        all_tile_files_written = {}  # (ts, x, y) -> (jsonl_path, json_path)
+        for r in write_results:
+            if r["status"] == "success":
+                b = r.get("bounds")
+                if b and "land" not in r["name"]:
+                    merged_land_bounds["minLon"] = min(merged_land_bounds["minLon"], b["minLon"])
+                    merged_land_bounds["maxLon"] = max(merged_land_bounds["maxLon"], b["maxLon"])
+                    merged_land_bounds["minLat"] = min(merged_land_bounds["minLat"], b["minLat"])
+                    merged_land_bounds["maxLat"] = max(merged_land_bounds["maxLat"], b["maxLat"])
+                for ts, coords in r.get("tile_files_written", {}).items():
+                    for x, y in coords:
+                        key = (ts, x, y)
+                        if key not in all_tile_files_written:
+                            all_tile_files_written[key] = (
+                                str(temp_tile_dir / ts / str(x) / f"{y}.jsonl"),
+                                str(temp_tile_dir / ts / str(x) / f"{y}.json"),
+                            )
+
+        # Expand merged bounds so border tiles get complete land polygons
+        _LAND_POLYGON_BUFFER_DEG = 1.5
+        if merged_land_bounds["minLon"] != float("inf"):
+            expanded_merged_bounds = {
+                "minLon": merged_land_bounds["minLon"] - _LAND_POLYGON_BUFFER_DEG,
+                "maxLon": merged_land_bounds["maxLon"] + _LAND_POLYGON_BUFFER_DEG,
+                "minLat": merged_land_bounds["minLat"] - _LAND_POLYGON_BUFFER_DEG,
+                "maxLat": merged_land_bounds["maxLat"] + _LAND_POLYGON_BUFFER_DEG,
+            }
+        else:
+            expanded_merged_bounds = None
+
+        # Phase 2: finalize all tiles once, using the merged land polygon bounds
+        print(f"\nPhase 2: Finalizing {len(all_tile_files_written):,} tiles...")
+        finalize_args = [
+            (jsonl, json_, expanded_merged_bounds)
+            for jsonl, json_ in all_tile_files_written.values()
+        ]
+        total_finalize_bytes = 0
+        with Pool(min(args.jobs, len(finalize_args))) as pool:
+            byte_counts = list(
+                tqdm(
+                    pool.imap_unordered(_finalize_tile_worker, finalize_args),
+                    total=len(finalize_args),
+                    desc="Finalizing tiles",
+                    unit="tile",
+                )
+            )
+        total_finalize_bytes = sum(b for b in byte_counts if b)
+
+        # Wrap write_results for the summary loop below, adding finalization bytes
+        for r in write_results:
+            r["total_bytes"] = total_finalize_bytes // max(len(write_results), 1)
+        all_results.extend(write_results)
 
     # Merge bounds from all results
     merged_bounds = {
