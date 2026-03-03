@@ -1381,6 +1381,37 @@ def get_pbf_bounds(pbf_file):
     return None
 
 
+def bounds_overlap(a, b):
+    """Return True if two bounds dicts (minLon/maxLon/minLat/maxLat) overlap."""
+    return (
+        a["minLon"] < b["maxLon"]
+        and a["maxLon"] > b["minLon"]
+        and a["minLat"] < b["maxLat"]
+        and a["maxLat"] > b["minLat"]
+    )
+
+
+def tiles_in_bounds(bounds, tile_size_m):
+    """Return list of (x, y) tile coordinates covering the given bounds.
+
+    Uses the same coordinate math as get_tiles_for_feature_in_tileset().
+    """
+    lat_avg = (bounds["minLat"] + bounds["maxLat"]) / 2
+    mpdlon = 111320 * math.cos(math.radians(lat_avg))
+    mpdlat = 111320
+    tw = tile_size_m / mpdlon
+    th = tile_size_m / mpdlat
+    xs = range(
+        int(math.floor(bounds["minLon"] / tw)),
+        int(math.floor(bounds["maxLon"] / tw)) + 1,
+    )
+    ys = range(
+        int(math.floor(bounds["minLat"] / th)),
+        int(math.floor(bounds["maxLat"] / th)) + 1,
+    )
+    return [(x, y) for x in xs for y in ys]
+
+
 def compute_tile_bounds(tile_x, tile_y, tile_size_m):
     """Compute tile geographic bounds in degrees.
 
@@ -1485,9 +1516,12 @@ def build_land_polygon_for_tile(tile_x, tile_y, tile_size_m, epsilon_m=None, wat
     }
 
 
-def finalize_tile(tile_jsonl_path, tile_json_path):
+def finalize_tile(tile_jsonl_path, tile_json_path, existing_json_path=None):
     """Read a .jsonl tile, deduplicate, sort by importance, compute _meta, write final .json.
 
+    existing_json_path: path to an existing tile to merge features from (defaults to
+    tile_json_path, which is the normal behaviour for full builds). In --add mode this
+    points to the live output dir so old features from already-present regions are kept.
     """
     # Another parallel process may have already finalized this tile (border tiles)
     if not tile_jsonl_path.exists():
@@ -1521,9 +1555,10 @@ def finalize_tile(tile_jsonl_path, tile_json_path):
             entries.append((importance, feature_json))
 
     # Merge with existing .json tile if it exists (multi-region border tiles)
-    if tile_json_path.exists():
+    _existing_source = existing_json_path if existing_json_path is not None else tile_json_path
+    if _existing_source.exists():
         try:
-            with open(tile_json_path, "r", encoding="utf-8") as f:
+            with open(_existing_source, "r", encoding="utf-8") as f:
                 existing_tile = json.load(f)
                 for feat in existing_tile.get("features", []):
                     # Skip stale base_land features — they'll be regenerated fresh
@@ -1896,6 +1931,7 @@ def process_geojson_to_tiles(args):
 
         return {
             "name": geojson_path.name,
+            "geojson_path": str(geojson_path),
             "status": "success",
             "bounds": result["bounds"],
             "tile_files_written": result.get("tile_files_written", {}),
@@ -1914,9 +1950,10 @@ def process_geojson_to_tiles(args):
 
 def _finalize_tile_worker(args):
     """Worker for Phase 2: initialize land polygon tree with merged bounds, finalize one tile."""
-    jsonl_path, json_path, merged_expanded_bounds = args
+    jsonl_path, json_path, merged_expanded_bounds, existing_json_path = args
     init_land_polygons(_DATA_DIR, merged_expanded_bounds)
-    return finalize_tile(Path(jsonl_path), Path(json_path))
+    existing = Path(existing_json_path) if existing_json_path else None
+    return finalize_tile(Path(jsonl_path), Path(json_path), existing)
 
 
 def _categorize_feature(feature):
@@ -2113,6 +2150,203 @@ def compute_tile_statistics(tile_dir, output_file=None, max_sample=1000):
     return output_file
 
 
+def _write_regions_json(output_dir, all_results):
+    """Write/update regions.json from a list of process_geojson_to_tiles results."""
+    regions_path = output_dir / "regions.json"
+    # Load existing if present (for --add merges)
+    if regions_path.exists():
+        try:
+            with open(regions_path) as f:
+                data = json.load(f)
+        except Exception:
+            data = {"version": 1, "regions": {}}
+    else:
+        data = {"version": 1, "regions": {}}
+
+    for result in all_results:
+        if result["status"] != "success":
+            continue
+        bounds = result.get("bounds")
+        if not bounds or "land" in result["name"]:
+            continue
+        name = result["name"].replace(".geojson", "").replace("-latest.osm", "")
+        geojson_path = result.get("geojson_path", "")
+        mtime = 0.0
+        if geojson_path and Path(geojson_path).exists():
+            mtime = Path(geojson_path).stat().st_mtime
+        data["regions"][name] = {
+            "geojson": geojson_path,
+            "bounds": bounds,
+            "geojson_mtime": mtime,
+        }
+
+    with open(regions_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
+def _run_add_mode(args, geojson_files, regions_data):
+    """Add/update regions into the live output dir without a full rebuild.
+
+    geojson_files: list of Path objects to process
+    regions_data: existing regions.json data dict (will be updated in-place and written)
+    """
+    print("=" * 70)
+    print("Step 3: Add/Update Regions (incremental)")
+    print("=" * 70)
+    print()
+    print(f"Processing {len(geojson_files)} GeoJSON file(s):")
+    for gj in geojson_files:
+        size_mb = gj.stat().st_size / (1024 * 1024)
+        name = gj.stem.replace("-latest.osm", "").replace("-", " ").title()
+        print(f"  • {name} ({size_mb:.0f} MB)")
+    print()
+
+    # Phase 1: stream features to a temporary directory
+    temp_tile_dir = Path(tempfile.mkdtemp(prefix="tiles_add_", dir=args.output_dir.parent))
+    try:
+        tile_args = []
+        for gj in geojson_files:
+            pbf_file = gj.parent.parent / f"{gj.parent.name}.osm.pbf"
+            source_file = str(pbf_file) if pbf_file.exists() else str(gj)
+            tile_args.append((
+                str(gj),
+                str(temp_tile_dir),
+                source_file,
+                args.clip,
+                args.clip_buffer,
+                True,  # defer_finalization
+            ))
+
+        print("Phase 1: Writing features...")
+        with Pool(min(args.jobs, len(tile_args))) as pool:
+            write_results = list(
+                tqdm(
+                    pool.imap_unordered(process_geojson_to_tiles, tile_args),
+                    total=len(tile_args),
+                    desc="Writing regions",
+                    unit="region",
+                )
+            )
+
+        # Compute merged land bounds for land polygon loading
+        merged_land_bounds = {
+            "minLon": float("inf"), "maxLon": float("-inf"),
+            "minLat": float("inf"), "maxLat": float("-inf"),
+        }
+        # Build tile file map: (ts, x, y) -> (jsonl in temp, json in LIVE dir)
+        all_tile_files_written = {}
+        for r in write_results:
+            if r["status"] == "success":
+                b = r.get("bounds")
+                if b and "land" not in r["name"]:
+                    merged_land_bounds["minLon"] = min(merged_land_bounds["minLon"], b["minLon"])
+                    merged_land_bounds["maxLon"] = max(merged_land_bounds["maxLon"], b["maxLon"])
+                    merged_land_bounds["minLat"] = min(merged_land_bounds["minLat"], b["minLat"])
+                    merged_land_bounds["maxLat"] = max(merged_land_bounds["maxLat"], b["maxLat"])
+                for ts, coords in r.get("tile_files_written", {}).items():
+                    for x, y in coords:
+                        key = (ts, x, y)
+                        if key not in all_tile_files_written:
+                            jsonl = str(temp_tile_dir / ts / str(x) / f"{y}.jsonl")
+                            live_json = str(args.output_dir / ts / str(x) / f"{y}.json")
+                            all_tile_files_written[key] = (jsonl, live_json)
+
+        _LAND_POLYGON_BUFFER_DEG = 1.5
+        if merged_land_bounds["minLon"] != float("inf"):
+            expanded_merged_bounds = {
+                "minLon": merged_land_bounds["minLon"] - _LAND_POLYGON_BUFFER_DEG,
+                "maxLon": merged_land_bounds["maxLon"] + _LAND_POLYGON_BUFFER_DEG,
+                "minLat": merged_land_bounds["minLat"] - _LAND_POLYGON_BUFFER_DEG,
+                "maxLat": merged_land_bounds["maxLat"] + _LAND_POLYGON_BUFFER_DEG,
+            }
+        else:
+            expanded_merged_bounds = None
+
+        # Phase 2: finalize tiles into the live output dir, merging with existing tiles
+        print(f"\nPhase 2: Finalizing {len(all_tile_files_written):,} tiles...")
+        finalize_args = [
+            (jsonl, live_json, expanded_merged_bounds, live_json)
+            for (ts, x, y), (jsonl, live_json) in all_tile_files_written.items()
+        ]
+        with Pool(min(args.jobs, max(len(finalize_args), 1))) as pool:
+            byte_counts = list(
+                tqdm(
+                    pool.imap_unordered(_finalize_tile_worker, finalize_args),
+                    total=len(finalize_args),
+                    desc="Finalizing tiles",
+                    unit="tile",
+                )
+            )
+        total_bytes = sum(b for b in byte_counts if b)
+
+        # --- Update index.json ---
+        index_path = args.output_dir / "index.json"
+        if index_path.exists():
+            try:
+                with open(index_path) as f:
+                    index_data = json.load(f)
+                old_bounds = index_data.get("bounds", {
+                    "minLon": float("inf"), "maxLon": float("-inf"),
+                    "minLat": float("inf"), "maxLat": float("-inf"),
+                })
+            except Exception:
+                old_bounds = {
+                    "minLon": float("inf"), "maxLon": float("-inf"),
+                    "minLat": float("inf"), "maxLat": float("-inf"),
+                }
+        else:
+            old_bounds = {
+                "minLon": float("inf"), "maxLon": float("-inf"),
+                "minLat": float("inf"), "maxLat": float("-inf"),
+            }
+
+        new_bounds = dict(old_bounds)
+        for r in write_results:
+            if r["status"] == "success" and r.get("bounds") and "land" not in r["name"]:
+                b = r["bounds"]
+                new_bounds["minLon"] = min(new_bounds.get("minLon", float("inf")), b["minLon"])
+                new_bounds["maxLon"] = max(new_bounds.get("maxLon", float("-inf")), b["maxLon"])
+                new_bounds["minLat"] = min(new_bounds.get("minLat", float("inf")), b["minLat"])
+                new_bounds["maxLat"] = max(new_bounds.get("maxLat", float("-inf")), b["maxLat"])
+
+        tile_count = sum(
+            len(list((args.output_dir / ts_id).rglob("*.json")))
+            for ts_id in TILESET_IDS
+            if (args.output_dir / ts_id).exists()
+        )
+        index_data_new = {
+            "bounds": new_bounds,
+            "tilesets": TILESET_IDS,
+            "tile_count": tile_count,
+            "center": {"lon": HAMBURG_CENTER_LON, "lat": HAMBURG_CENTER_LAT},
+            "generated": int(time.time() * 1000),
+        }
+        with open(index_path, "w", encoding="utf-8") as f:
+            json.dump(index_data_new, f, indent=2)
+        print(f"  ✓ Updated index.json ({tile_count:,} tiles, {_format_size(total_bytes)})")
+
+        # --- Update regions.json ---
+        _write_regions_json(args.output_dir, write_results)
+        print("  ✓ Updated regions.json")
+
+        # Summary
+        success_count = sum(1 for r in write_results if r["status"] == "success")
+        fail_count = len(write_results) - success_count
+        print()
+        for r in write_results:
+            name = r["name"].replace(".geojson", "").replace("-latest.osm", "")
+            if r["status"] == "success":
+                print(f"  ✓ {name.replace('-', ' ').title()}")
+            else:
+                print(f"  ✗ {name}: {r.get('error', 'unknown error')}")
+        if fail_count:
+            sys.exit(1)
+
+    finally:
+        if temp_tile_dir.exists():
+            shutil.rmtree(temp_tile_dir)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate map tiles from GeoJSON files",
@@ -2155,8 +2389,90 @@ def main():
         default=0.02,
         help="Buffer around tile bounds for clipping (in percent of tile size, e.g. 0.02 = 2%%)",
     )
+    parser.add_argument(
+        "--add",
+        nargs="+",
+        metavar="GEOJSON",
+        help="Add new region(s): process the given GeoJSON file(s) and merge into the live "
+             "output dir without a full rebuild",
+    )
+    parser.add_argument(
+        "--update",
+        nargs="+",
+        metavar="REGION",
+        help="Update existing region(s) by name (as recorded in regions.json): delete affected "
+             "tiles and re-process those regions plus any overlapping neighbors",
+    )
 
     args = parser.parse_args()
+
+    # --- Incremental modes (--add / --update) ---
+
+    if args.update:
+        regions_json_path = args.output_dir / "regions.json"
+        if not regions_json_path.exists():
+            print("Error: regions.json not found in output dir. Run a full build first.")
+            sys.exit(1)
+        with open(regions_json_path) as f:
+            regions_data = json.load(f)
+        regions = regions_data.get("regions", {})
+
+        # Gather target region GeoJSON paths and union bounds
+        target_geojsons = []
+        union_bounds = {
+            "minLon": float("inf"), "maxLon": float("-inf"),
+            "minLat": float("inf"), "maxLat": float("-inf"),
+        }
+        for name in args.update:
+            if name not in regions:
+                print(f"Error: Region '{name}' not found in regions.json")
+                sys.exit(1)
+            entry = regions[name]
+            target_geojsons.append(Path(entry["geojson"]))
+            b = entry["bounds"]
+            union_bounds["minLon"] = min(union_bounds["minLon"], b["minLon"])
+            union_bounds["maxLon"] = max(union_bounds["maxLon"], b["maxLon"])
+            union_bounds["minLat"] = min(union_bounds["minLat"], b["minLat"])
+            union_bounds["maxLat"] = max(union_bounds["maxLat"], b["maxLat"])
+
+        # Find overlapping neighbor regions to restore their features in border tiles
+        target_names = set(args.update)
+        neighbor_geojsons = []
+        for name, entry in regions.items():
+            if name in target_names:
+                continue
+            if bounds_overlap(entry["bounds"], union_bounds):
+                neighbor_geojsons.append(Path(entry["geojson"]))
+                print(f"  Including overlapping neighbor: {name}")
+
+        # Delete affected tiles from the live output dir
+        print(f"\nDeleting tiles in bounds of updated region(s)...")
+        deleted = 0
+        for ts_id, tile_size_m in TILESET_TILE_SIZES.items():
+            for x, y in tiles_in_bounds(union_bounds, tile_size_m):
+                tile_path = args.output_dir / ts_id / str(x) / f"{y}.json"
+                if tile_path.exists():
+                    tile_path.unlink()
+                    deleted += 1
+        print(f"  Deleted {deleted:,} tiles")
+
+        _run_add_mode(args, target_geojsons + neighbor_geojsons, regions_data)
+        return
+
+    if args.add:
+        regions_json_path = args.output_dir / "regions.json"
+        if regions_json_path.exists():
+            try:
+                with open(regions_json_path) as f:
+                    regions_data = json.load(f)
+            except Exception:
+                regions_data = {"version": 1, "regions": {}}
+        else:
+            regions_data = {"version": 1, "regions": {}}
+        _run_add_mode(args, [Path(f) for f in args.add], regions_data)
+        return
+
+    # --- Full rebuild mode (existing behaviour below) ---
 
     # Find PBF files and check which ones need GeoJSON processing
     if args.geojson_files:
@@ -2295,7 +2611,7 @@ def main():
         # Phase 2: finalize all tiles once, using the merged land polygon bounds
         print(f"\nPhase 2: Finalizing {len(all_tile_files_written):,} tiles...")
         finalize_args = [
-            (jsonl, json_, expanded_merged_bounds)
+            (jsonl, json_, expanded_merged_bounds, None)
             for jsonl, json_ in all_tile_files_written.values()
         ]
         total_finalize_bytes = 0
@@ -2441,6 +2757,10 @@ def main():
 
         shutil.move(str(temp_tile_dir), str(args.output_dir))
         print(f"  ✓ Moved to {args.output_dir}")
+
+        # Write regions.json so incremental builds can use it
+        _write_regions_json(args.output_dir, all_results)
+        print("  ✓ Wrote regions.json")
     else:
         # Clean up temp directory if nothing was created
         if temp_tile_dir.exists():

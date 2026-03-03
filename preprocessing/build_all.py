@@ -47,8 +47,101 @@ def main():
         default=Path(__file__).parent / "data",
         help="Directory for data files",
     )
+    parser.add_argument(
+        "--add-region",
+        nargs=2,
+        metavar=("NAME", "URL"),
+        help="Download, convert, and add a new region without a full rebuild "
+             "(e.g. --add-region sweden https://download.geofabrik.de/.../sweden-latest.osm.pbf)",
+    )
+    parser.add_argument(
+        "--update-region",
+        nargs="+",
+        metavar="REGION",
+        help="Re-convert and re-tile one or more existing regions by name, preserving all other tiles",
+    )
 
     args = parser.parse_args()
+
+    # --- Incremental modes ---
+
+    if args.add_region:
+        name, url = args.add_region
+        # Normalise: raw_name is without "-latest" (e.g. "netherlands"),
+        # pbf_name is with it (e.g. "netherlands-latest") — matches the PBF
+        # filename that step_1_download.py creates.
+        raw_name = name[: -len("-latest")] if name.endswith("-latest") else name
+        pbf_name = f"{raw_name}-latest"
+
+        print()
+        print("=" * 70)
+        print(f"OSM Map Renderer — Add Region: {pbf_name}")
+        print("=" * 70)
+        print()
+
+        # Step 1: download the new PBF
+        if not run_step("step_1_download.py", ["--add-region", name, url,
+                                                "--data-dir", str(args.data_dir)]):
+            print("\n✗ Download failed")
+            sys.exit(1)
+
+        # Step 2: convert only the new PBF → GeoJSON
+        pbf_path = args.data_dir / f"{pbf_name}.osm.pbf"
+        if not run_step("step_2_convert_to_geojson.py",
+                        [str(pbf_path), "--data-dir", str(args.data_dir), "-j", str(args.jobs)]):
+            print("\n✗ Conversion failed")
+            sys.exit(1)
+
+        # Locate the resulting GeoJSON file
+        geojson_path = (
+            args.data_dir / f"{pbf_name}" / f"{pbf_name}.osm.geojson"
+        )
+        if not geojson_path.exists():
+            print(f"\n✗ GeoJSON not found: {geojson_path}")
+            sys.exit(1)
+
+        # Step 3: add into live tile output
+        if not run_step("step_3_generate_tiles.py",
+                        ["--add", str(geojson_path), "-j", str(args.jobs)]):
+            print("\n✗ Tile generation failed")
+            sys.exit(1)
+
+        print()
+        print("=" * 70)
+        print(f"✓ Region '{pbf_name}' added successfully!")
+        print("=" * 70)
+        print()
+        return
+
+    if args.update_region:
+        region_names = args.update_region
+
+        print()
+        print("=" * 70)
+        print(f"OSM Map Renderer — Update Region(s): {', '.join(region_names)}")
+        print("=" * 70)
+        print()
+
+        # Step 2: re-convert if PBF is newer than GeoJSON (caching already handles this)
+        if not run_step("step_2_convert_to_geojson.py",
+                        ["--data-dir", str(args.data_dir), "-j", str(args.jobs)]):
+            print("\n✗ Conversion failed")
+            sys.exit(1)
+
+        # Step 3: update tiles for the specified regions
+        step3_args = ["--update"] + region_names + ["-j", str(args.jobs)]
+        if not run_step("step_3_generate_tiles.py", step3_args):
+            print("\n✗ Tile generation failed")
+            sys.exit(1)
+
+        print()
+        print("=" * 70)
+        print(f"✓ Region(s) updated: {', '.join(region_names)}")
+        print("=" * 70)
+        print()
+        return
+
+    # --- Full build mode ---
 
     # Determine which steps to run
     if args.step:

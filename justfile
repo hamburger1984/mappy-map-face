@@ -42,6 +42,17 @@ convert: setup
 tiles: setup
     @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py'\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py'" } }}
 
+# Add a new region without a full rebuild
+# Usage: just add-region sweden https://download.geofabrik.de/.../sweden-latest.osm.pbf
+add-region name url: setup config-export
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/build_all.py' --add-region " + name + " " + url + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/build_all.py' --add-region " + name + " " + url } }}
+
+# Update one or more existing regions without a full rebuild
+# Usage: just update-region hamburg-latest
+# Usage: just update-region hamburg-latest schleswig-holstein-latest
+update-region +regions: setup config-export
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/build_all.py' --update-region " + regions + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/build_all.py' --update-region " + regions } }}
+
 # Clean generated tiles only
 clean:
     @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'Cleaning tiles...'; " + "if (Test-Path public/tiles) { Remove-Item -Recurse -Force public/tiles }; " + "Write-Host 'Tiles cleaned'\"" } else { "echo 'Cleaning tiles...' && " + "rm -rf public/tiles && " + "echo 'Tiles cleaned'" } }}

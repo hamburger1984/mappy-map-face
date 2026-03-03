@@ -333,9 +333,37 @@ def main():
         action="store_true",
         help="Delete partial downloads and start fresh",
     )
+    parser.add_argument(
+        "--add-region",
+        nargs=2,
+        metavar=("NAME", "URL"),
+        help="Download a single additional region PBF without re-downloading land polygons "
+             "(e.g. --add-region sweden https://download.geofabrik.de/.../sweden-latest.osm.pbf)",
+    )
 
     args = parser.parse_args()
     args.data_dir.mkdir(parents=True, exist_ok=True)
+
+    # --add-region: download just one region, skip land polygons
+    if args.add_region:
+        name, url = args.add_region
+        # download_osm_file appends "-latest.osm.pbf" to the name, so strip any
+        # existing "-latest" suffix the user may have included.
+        raw_name = name[: -len("-latest")] if name.endswith("-latest") else name
+        pbf_name = f"{raw_name}-latest"
+        print("=" * 70)
+        print(f"Step 1: Download Region — {pbf_name}")
+        print("=" * 70)
+        print()
+        result = download_osm_file((raw_name, url, args.data_dir))
+        if result["status"] == "cached":
+            print(f"  ✓ {result['name']}: {result['size_mb']:.1f} MB ({result['age']})")
+        elif result["status"] == "downloaded":
+            print(f"  ✓ {result['name']}: {result['size_mb']:.1f} MB (newly downloaded)")
+        else:
+            print(f"  ✗ {result['name']}: {result.get('error', 'failed')}")
+            sys.exit(1)
+        return
 
     print("=" * 70)
     print("Step 1: Download OSM Data")
