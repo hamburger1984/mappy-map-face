@@ -2669,9 +2669,8 @@ class MapRenderer {
         for (const feature of tile.features) {
           // Early LOD filtering: skip features that won't be rendered at current zoom
           if (feature._render && feature._render.minLOD > currentLOD) {
-            // Exception: prominent landuse features are shown up to 50km view
-            // (size filter is applied later in the render loop)
-            if (!feature._render.prominentThemeKey || this.viewWidthMeters > 50000) {
+            // Exception: prominent landuse features shown until buildings become visible (LOD < 2)
+            if (!feature._render.prominentThemeKey || this.getLOD() >= 2) {
               lodFilteredCount++;
               continue;
             }
@@ -3050,14 +3049,13 @@ class MapRenderer {
       const currentLOD = this.getLOD();
 
       // Invalidate cache if view width changed by >20% OR LOD changed
-      // Also invalidate when crossing the 50km prominent-display boundary
+      // (LOD change covers the prominent→subtle color switch at LOD 2)
       if (featureInfo && feature._cachedViewWidth) {
         const viewWidthRatio = currentViewWidth / feature._cachedViewWidth;
         if (
           viewWidthRatio < 0.8 ||
           viewWidthRatio > 1.25 ||
-          feature._cachedLOD !== currentLOD ||
-          (feature._cachedViewWidth <= 50000) !== (currentViewWidth <= 50000)
+          feature._cachedLOD !== currentLOD
         ) {
           featureInfo = null;
           feature._classCache = null;
@@ -3099,7 +3097,7 @@ class MapRenderer {
 
       if (featureInfo.minLOD > lod) {
         // Prominent landuse features are shown up to 50km view
-        if (featureInfo.prominentThemeKey && this.viewWidthMeters <= 50000) {
+        if (featureInfo.prominentThemeKey && this.getLOD() < 2) {
           // Fall through to render
         } else {
           lodCulledCount++;
@@ -3635,9 +3633,9 @@ class MapRenderer {
     // ── Color resolution ─────────────────────────────────────────────────────
     let color;
     if (r.themeKey) {
-      // Use prominent variant when zoomed out (view ≤ 50km) and a prominent key exists
+      // Use prominent variant until buildings appear (LOD < 2 = viewWidth > 7500m)
       color =
-        r.prominentThemeKey && this.viewWidthMeters <= 50000
+        r.prominentThemeKey && this.getLOD() < 2
           ? getColorByKey(r.prominentThemeKey)
           : getColorByKey(r.themeKey);
     } else if (r.poiCategory) {
