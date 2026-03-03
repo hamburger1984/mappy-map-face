@@ -46,6 +46,10 @@ Let me know when it completes and I can help analyze the results.
 - `public/map_renderer.js` - Canvas-based map rendering
 - `public/index.html` - Map viewer interface
 
+### Tile Storage
+Tiles are JSON files at `public/tiles/t{1,2,3,4}/{x}/{y}.json`.
+The browser debug overlay uses the format `t{level}_{x}_{y}` to identify tiles.
+
 ## Technical Context
 
 ### Map System

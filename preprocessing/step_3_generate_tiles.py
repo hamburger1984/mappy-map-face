@@ -184,8 +184,8 @@ def load_land_polygons(data_dir: Path, bbox=None):
 
 # Limit processing to these regions (substring match on PBF filename).
 # Set to None to process all regions found in data dir.
-ACTIVE_REGIONS = {"hamburg", "schleswig-holstein"}
-#ACTIVE_REGIONS = None
+#ACTIVE_REGIONS = {"hamburg", "schleswig-holstein"}
+ACTIVE_REGIONS = None
 
 # Module-level land polygon index (lazy — initialized per worker via init_land_polygons)
 _DATA_DIR = Path(__file__).parent / "data"

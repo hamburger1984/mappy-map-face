@@ -618,7 +618,7 @@ class MapRenderer {
   }
 
   createWetlandMarshPattern() {
-    // Marsh/bog/fen: small horizontal blue lines hinting at water on blue-green background
+    // Marsh/bog/fen: wavy water lines with varied phases so lines look different from each other
     const size = 32;
     const canvas = document.createElement("canvas");
     canvas.width = size;
@@ -626,12 +626,26 @@ class MapRenderer {
     const ctx = canvas.getContext("2d");
 
     ctx.strokeStyle = toRGBA(getColor("patterns", "wetlandWater"));
-    ctx.lineWidth = 1.0;
 
-    for (let y = 7; y < size; y += 8) {
+    // 4 lines at y=5,13,21,29 (8px spacing, tiles seamlessly).
+    // Each line has a different wave phase and slight width variation so they
+    // don't look like a uniform table. N=2 full cycles → sin(2π+phase)=sin(phase),
+    // guaranteeing seamless horizontal tile joins.
+    const lines = [
+      { y: 5,  phase: 0,              width: 0.9 },
+      { y: 13, phase: Math.PI * 0.75, width: 1.1 },
+      { y: 21, phase: Math.PI * 1.4,  width: 0.85 },
+      { y: 29, phase: Math.PI * 0.35, width: 1.0 },
+    ];
+
+    for (const { y, phase, width } of lines) {
+      ctx.lineWidth = width;
       ctx.beginPath();
-      ctx.moveTo(3, y);
-      ctx.lineTo(size - 3, y);
+      for (let x = 0; x <= size; x++) {
+        const wave = Math.sin((x / size) * Math.PI * 2 + phase) * 1.3;
+        if (x === 0) ctx.moveTo(x, y + wave);
+        else ctx.lineTo(x, y + wave);
+      }
       ctx.stroke();
     }
 
