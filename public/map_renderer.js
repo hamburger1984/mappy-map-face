@@ -2366,7 +2366,8 @@ class MapRenderer {
 
     // Fallback to closest tileset
     if (this.viewWidthMeters < 2000) return "t1";
-    if (this.viewWidthMeters < 20000) return "t2";
+    if (this.viewWidthMeters < 7500) return "t2";
+    if (this.viewWidthMeters < 20000) return "t2b";
     if (this.viewWidthMeters < 150000) return "t3";
     return "t4";
   }

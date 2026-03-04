@@ -47,11 +47,25 @@ tiles: setup
 add-region name url: setup config-export
     @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/build_all.py' --add-region " + name + " " + url + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/build_all.py' --add-region " + name + " " + url } }}
 
-# Update one or more existing regions without a full rebuild
+# Update one or more existing regions without a full rebuild (all tilesets)
 # Usage: just update-region hamburg-latest
 # Usage: just update-region hamburg-latest schleswig-holstein-latest
 update-region +regions: setup config-export
     @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/build_all.py' --update-region " + regions + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/build_all.py' --update-region " + regions } }}
+
+# Update one or more regions for specific tilesets only (no re-download or re-convert)
+# Use when tileset config changed but underlying data is unchanged
+# Usage: just update-region-tileset hamburg-latest t2b
+# Usage: just update-region-tileset "hamburg-latest schleswig-holstein-latest" "t2b t3"
+update-region-tileset regions tilesets: setup config-export
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py' --update " + regions + " --tilesets " + tilesets + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py' --update " + regions + " --tilesets " + tilesets } }}
+
+# Regenerate specific tileset(s) for ALL existing regions (clears stale tiles first)
+# Use when tileset config changes globally (e.g. added/removed features from a tileset)
+# Usage: just regen-tileset t2b
+# Usage: just regen-tileset t2b t3
+regen-tileset +tilesets: setup config-export
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py' --regen-tilesets " + tilesets + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py' --regen-tilesets " + tilesets } }}
 
 # Clean generated tiles only
 clean:

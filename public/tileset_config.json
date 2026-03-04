@@ -14,9 +14,18 @@
       "name": "City",
       "view_range_meters": [
         3000,
-        20000
+        7500
       ],
       "tile_size_meters": 2500
+    },
+    {
+      "id": "t2b",
+      "name": "City Wide",
+      "view_range_meters": [
+        7500,
+        20000
+      ],
+      "tile_size_meters": 10000
     },
     {
       "id": "t3",

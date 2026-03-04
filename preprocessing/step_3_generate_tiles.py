@@ -2150,6 +2150,28 @@ def compute_tile_statistics(tile_dir, output_file=None, max_sample=1000):
     return output_file
 
 
+def _apply_tileset_filter(tileset_ids):
+    """Filter module-level TILESETS to only the specified IDs. Modifies globals in-place."""
+    global TILESETS, TILESET_IDS, TILESET_TILE_SIZES, TILESET_EPSILON
+    allowed = set(tileset_ids)
+    all_ids = {ts["id"] for ts in TILESETS}
+    unknown = allowed - all_ids
+    if unknown:
+        print(f"Error: Unknown tileset(s): {', '.join(sorted(unknown))}. "
+              f"Available: {', '.join(sorted(all_ids))}")
+        sys.exit(1)
+    TILESETS = [ts for ts in TILESETS if ts["id"] in allowed]
+    TILESET_IDS = [ts["id"] for ts in TILESETS]
+    TILESET_TILE_SIZES = {ts["id"]: ts["tile_size_meters"] for ts in TILESETS}
+    TILESET_EPSILON = {}
+    for _ts in TILESETS:
+        for _fd in _ts["features"]:
+            _eps = _fd.get("simplification", {}).get("epsilon_m")
+            if _eps:
+                TILESET_EPSILON[_ts["id"]] = _eps
+                break
+
+
 def _write_regions_json(output_dir, all_results):
     """Write/update regions.json from a list of process_geojson_to_tiles results."""
     regions_path = output_dir / "regions.json"
@@ -2309,14 +2331,15 @@ def _run_add_mode(args, geojson_files, regions_data):
                 new_bounds["minLat"] = min(new_bounds.get("minLat", float("inf")), b["minLat"])
                 new_bounds["maxLat"] = max(new_bounds.get("maxLat", float("-inf")), b["maxLat"])
 
+        all_config_tileset_ids = [ts["id"] for ts in TILESET_CONFIG["tilesets"]]
         tile_count = sum(
             len(list((args.output_dir / ts_id).rglob("*.json")))
-            for ts_id in TILESET_IDS
+            for ts_id in all_config_tileset_ids
             if (args.output_dir / ts_id).exists()
         )
         index_data_new = {
             "bounds": new_bounds,
-            "tilesets": TILESET_IDS,
+            "tilesets": all_config_tileset_ids,
             "tile_count": tile_count,
             "center": {"lon": HAMBURG_CENTER_LON, "lat": HAMBURG_CENTER_LAT},
             "generated": int(time.time() * 1000),
@@ -2403,8 +2426,59 @@ def main():
         help="Update existing region(s) by name (as recorded in regions.json): delete affected "
              "tiles and re-process those regions plus any overlapping neighbors",
     )
+    parser.add_argument(
+        "--tilesets",
+        nargs="+",
+        metavar="TILESET_ID",
+        help="Only generate tiles for the specified tileset IDs (e.g. --tilesets t2b). "
+             "Modifier for --add / --update / full build.",
+    )
+    parser.add_argument(
+        "--regen-tilesets",
+        nargs="+",
+        metavar="TILESET_ID",
+        help="Delete and fully rebuild the specified tileset(s) from all regions in --data-dir. "
+             "Safe to use when tileset config changes (clears stale tiles before rebuilding).",
+    )
 
     args = parser.parse_args()
+
+    # --- --regen-tilesets: delete + rebuild specific tilesets for all regions ---
+    if args.regen_tilesets:
+        _apply_tileset_filter(args.regen_tilesets)
+        print(f"Regenerating tilesets: {TILESET_IDS}")
+        print()
+
+        # Delete existing tileset dirs so stale features are removed
+        for ts_id in TILESET_IDS:
+            ts_dir = args.output_dir / ts_id
+            if ts_dir.exists():
+                shutil.rmtree(ts_dir)
+                print(f"  Deleted {ts_dir}")
+
+        # Find all region GeoJSONs in data-dir
+        geojson_files = sorted(args.data_dir.glob("*/*.osm.geojson"))
+        if not geojson_files:
+            print(f"Error: No *.osm.geojson files found under {args.data_dir}/*/")
+            sys.exit(1)
+
+        regions_json_path = args.output_dir / "regions.json"
+        if regions_json_path.exists():
+            try:
+                with open(regions_json_path) as f:
+                    regions_data = json.load(f)
+            except Exception:
+                regions_data = {"version": 1, "regions": {}}
+        else:
+            regions_data = {"version": 1, "regions": {}}
+
+        _run_add_mode(args, geojson_files, regions_data)
+        return
+
+    # --- Apply --tilesets filter (modifier for --add / --update / full build) ---
+    if args.tilesets:
+        _apply_tileset_filter(args.tilesets)
+        print(f"Generating only tilesets: {TILESET_IDS}")
 
     # --- Incremental modes (--add / --update) ---
 
@@ -2715,7 +2789,7 @@ def main():
         index_file = temp_tile_dir / "index.json"
         index_data = {
             "bounds": merged_bounds,
-            "tilesets": TILESET_IDS,
+            "tilesets": [ts["id"] for ts in TILESET_CONFIG["tilesets"]],
             "tile_count": tile_count,
             "center": {
                 "lon": HAMBURG_CENTER_LON,

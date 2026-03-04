@@ -1109,11 +1109,11 @@ tilesets:
       - <<: *pois
 
   # ===========================================================================
-  # T2: CITY (3km - 15km) — merges old t3+t4
+  # T2: CITY (3km - 7.5km) — detailed city view
   # ===========================================================================
   - id: "t2"
     name: "City"
-    view_range_meters: [3000, 20000]
+    view_range_meters: [3000, 7500]
     tile_size_meters: 2500
 
     features:
@@ -1233,6 +1233,105 @@ tilesets:
       - <<: *villages
       - <<: *suburbs
       - <<: *toilets
+
+  # ===========================================================================
+  # T2B: CITY WIDE (7.5km - 20km) — minLOD≤1 features only, 10km tiles
+  # At this zoom level LOD=1: buildings (minLOD:2) are invisible, so we
+  # exclude them entirely to cut tile count from ~170 to ~20.
+  # ===========================================================================
+  - id: "t2b"
+    name: "City Wide"
+    view_range_meters: [7500, 20000]
+    tile_size_meters: 10000
+
+    features:
+      # Only features visible at LOD≤1, moderate simplification (10m)
+      - <<: *water_bodies_all
+        simplification: { epsilon_m: 10 }
+      - <<: *major_rivers
+        simplification: { epsilon_m: 10 }
+      - <<: *minor_waterways
+        simplification: { epsilon_m: 10 }
+      - <<: *scrub_heath
+        simplification: { epsilon_m: 10 }
+      - <<: *wetland
+        simplification: { epsilon_m: 10 }
+      - <<: *beach
+        simplification: { epsilon_m: 10 }
+      - <<: *sand
+        simplification: { epsilon_m: 10 }
+      - <<: *forests_all
+        simplification: { epsilon_m: 10 }
+      - <<: *motorways
+        simplification: { epsilon_m: 10 }
+      - <<: *primary_roads
+        simplification: { epsilon_m: 10 }
+      - <<: *secondary_roads
+        simplification: { epsilon_m: 10 }
+      - <<: *tertiary_roads
+        simplification: { epsilon_m: 10 }
+      # NO residential_roads, service_roads, tracks, minor_roads (minLOD:2)
+      - <<: *major_rail
+        simplification: { epsilon_m: 10 }
+      - <<: *subway_light_rail
+        simplification: { epsilon_m: 10 }
+      # NO tram, railway_platforms (minLOD:2)
+      - <<: *railway_stations
+        simplification: { epsilon_m: 10 }
+      - <<: *parks
+        simplification: { epsilon_m: 10 }
+      - <<: *agriculture
+        simplification: { epsilon_m: 10 }
+      - <<: *residential_landuse
+        simplification: { epsilon_m: 10 }
+      - <<: *commercial_landuse
+        simplification: { epsilon_m: 10 }
+      - <<: *industrial_landuse
+        simplification: { epsilon_m: 10 }
+      - <<: *cemeteries
+        simplification: { epsilon_m: 10 }
+      - <<: *military
+        simplification: { epsilon_m: 10 }
+      - <<: *railway_yards
+        simplification: { epsilon_m: 10 }
+      - <<: *allotments
+        simplification: { epsilon_m: 10 }
+      # NO construction, education, religious, quarries (minLOD:2)
+      - <<: *port
+        simplification: { epsilon_m: 10 }
+      - <<: *institutional
+        simplification: { epsilon_m: 10 }
+      # NO flowerbed (minLOD:2)
+      - <<: *highway_service_areas
+        simplification: { epsilon_m: 10 }
+      - <<: *playground
+        simplification: { epsilon_m: 10 }
+      # NO swimming_pool, picnic_site, beach_volleyball (minLOD:2), table_tennis (minLOD:3)
+      - <<: *sports_pitch
+        simplification: { epsilon_m: 10 }
+      - <<: *sports_facility
+        simplification: { epsilon_m: 10 }
+      - <<: *miniature_golf
+        simplification: { epsilon_m: 10 }
+      - <<: *runways
+        simplification: { epsilon_m: 10 }
+      # NO taxiways, aprons (minLOD:2), helipads (minLOD:3)
+      # NO buildings (minLOD:2)
+      - <<: *country_borders
+        simplification: { epsilon_m: 10 }
+      - <<: *state_borders
+        simplification: { epsilon_m: 10 }
+      - <<: *district_borders
+        simplification: { epsilon_m: 10 }
+      - <<: *maritime_territorial
+        simplification: { epsilon_m: 10 }
+      - <<: *maritime_eez
+        simplification: { epsilon_m: 10 }
+      - <<: *cities
+      - <<: *large_towns
+      - <<: *towns
+      - <<: *large_villages
+      # NO villages, suburbs (minLOD:2), hamlets/localities (minLOD:3+)
 
   # ===========================================================================
   # T3: REGION (20km - 150km) — merges old t5+t6
