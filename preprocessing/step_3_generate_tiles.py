@@ -103,8 +103,13 @@ MAJOR_WATERWAYS = frozenset(["river", "canal"])
 
 # Load tileset configuration from YAML
 def load_tileset_config():
-    """Load tileset configuration from tileset_config.yaml."""
-    config_path = os.path.join(os.path.dirname(__file__), "..", "tileset_config.yaml")
+    """Load tileset configuration from tileset_config.yaml.
+
+    The path can be overridden via the TILESET_CONFIG_PATH environment variable,
+    which is how the NixOS module passes a custom or store-managed config file.
+    """
+    env_path = os.environ.get("TILESET_CONFIG_PATH")
+    config_path = env_path if env_path else os.path.join(os.path.dirname(__file__), "..", "tileset_config.yaml")
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
     return config

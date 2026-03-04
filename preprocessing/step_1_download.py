@@ -10,6 +10,7 @@ All downloads are parallelized with progress bars.
 """
 
 import argparse
+import json
 import shutil
 import subprocess
 import sys
@@ -340,6 +341,13 @@ def main():
         help="Download a single additional region PBF without re-downloading land polygons "
              "(e.g. --add-region sweden https://download.geofabrik.de/.../sweden-latest.osm.pbf)",
     )
+    parser.add_argument(
+        "--regions-file",
+        type=Path,
+        metavar="JSON",
+        help="JSON file with a list of {\"name\": ..., \"url\": ...} region definitions. "
+             "Overrides the built-in OSM_SOURCES list.",
+    )
 
     args = parser.parse_args()
     args.data_dir.mkdir(parents=True, exist_ok=True)
@@ -386,9 +394,17 @@ def main():
         )
         print()
 
+    # Resolve region sources: --regions-file overrides hardcoded OSM_SOURCES
+    if args.regions_file:
+        with open(args.regions_file) as f:
+            regions_list = json.load(f)
+        active_sources = {r["name"]: r["url"] for r in regions_list}
+    else:
+        active_sources = OSM_SOURCES
+
     # Download OSM files
-    print(f"Downloading OSM files ({len(OSM_SOURCES)} sources)...")
-    osm_args = [(name, url, args.data_dir) for name, url in OSM_SOURCES.items()]
+    print(f"Downloading OSM files ({len(active_sources)} sources)...")
+    osm_args = [(name, url, args.data_dir) for name, url in active_sources.items()]
 
     with Pool(args.jobs) as pool:
         osm_results = list(

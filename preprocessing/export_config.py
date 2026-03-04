@@ -6,18 +6,31 @@ This script reads tileset_config.yaml and extracts only the information
 needed by the browser renderer, outputting a minimal JSON file.
 """
 
+import argparse
 import json
-import os
+from pathlib import Path
 
 import yaml
 
 
 def main():
-    # Path to config files
-    config_path = os.path.join(os.path.dirname(__file__), "..", "tileset_config.yaml")
-    output_path = os.path.join(
-        os.path.dirname(__file__), "..", "public", "tileset_config.json"
+    parser = argparse.ArgumentParser(description="Export tileset config YAML to JSON")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path(__file__).parent.parent / "tileset_config.yaml",
+        help="Path to tileset_config.yaml",
     )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path(__file__).parent.parent / "public" / "tileset_config.json",
+        help="Path to write the output JSON file",
+    )
+    args = parser.parse_args()
+
+    config_path = args.config
+    output_path = args.output
 
     # Load YAML config
     with open(config_path, "r") as f:
