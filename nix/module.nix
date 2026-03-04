@@ -79,31 +79,20 @@ let
   '';
 
   # ── Build / update script ────────────────────────────────────────────────
+  # Regions are processed one at a time in the order listed, with an optional
+  # gap between them.  Land polygons are fetched once before the loop starts.
   buildScript = pkgs.writeShellApplication {
     name = "osm-renderer-build";
     runtimeInputs = [ pythonEnv pkgs.osmium-tool pkgs.gdal ];
     text = ''
-      set -euo pipefail
-
-      echo "=== OSM Renderer: downloading PBF data ==="
-      python3 ${flakeSrc}/preprocessing/step_1_download.py \
-        --regions-file ${regionsFile} \
-        --data-dir     ${cfg.dataDir} \
-        -j             ${toString cfg.jobs}
-
-      echo "=== OSM Renderer: converting to GeoJSON ==="
-      python3 ${flakeSrc}/preprocessing/step_2_convert_to_geojson.py \
-        --data-dir ${cfg.dataDir} \
-        -j         ${toString cfg.jobs}
-
-      echo "=== OSM Renderer: generating tiles ==="
-      TILESET_CONFIG_PATH=${tilesetConfig} \
-      python3 ${flakeSrc}/preprocessing/step_3_generate_tiles.py \
-        --data-dir   ${cfg.dataDir} \
-        --output-dir ${cfg.tilesDir} \
-        -j           ${toString cfg.jobs}
-
-      echo "=== OSM Renderer: done ==="
+      python3 ${flakeSrc}/preprocessing/run_staggered.py \
+        --regions-file    ${regionsFile}            \
+        --data-dir        ${cfg.dataDir}            \
+        --tiles-dir       ${cfg.tilesDir}           \
+        --tileset-config  ${tilesetConfig}          \
+        --land-polygon-url ${cfg.landPolygonUrl}    \
+        --gap-seconds     ${toString cfg.regionGapSeconds} \
+        -j                ${toString cfg.jobs}
     '';
   };
 
@@ -175,6 +164,27 @@ in {
       type        = types.int;
       default     = 4;
       description = "Number of parallel workers for download and tile generation.";
+    };
+
+    landPolygonUrl = mkOption {
+      type        = types.str;
+      default     = "https://osmdata.openstreetmap.de/download/land-polygons-split-4326.zip";
+      description = ''
+        URL for the global land polygon shapefile (zip containing a shapefile).
+        Used to distinguish land from ocean in tile backgrounds.
+        Override if you mirror this data locally or the upstream URL changes.
+      '';
+    };
+
+    regionGapSeconds = mkOption {
+      type        = types.int;
+      default     = 0;
+      description = ''
+        Seconds to wait between finishing one region and starting the next
+        during a staggered build.  Useful to avoid hammering the download
+        server.  Set to 0 for no delay.
+      '';
+      example = 60;
     };
 
     updateCalendar = mkOption {

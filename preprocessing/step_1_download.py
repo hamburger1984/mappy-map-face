@@ -348,6 +348,20 @@ def main():
         help="JSON file with a list of {\"name\": ..., \"url\": ...} region definitions. "
              "Overrides the built-in OSM_SOURCES list.",
     )
+    parser.add_argument(
+        "--land-polygons-only",
+        action="store_true",
+        help="Download land polygons only; skip all OSM region PBF files. "
+             "Used by the staggered build to fetch the shared land polygon data once "
+             "before processing regions individually.",
+    )
+    parser.add_argument(
+        "--land-polygon-url",
+        type=str,
+        default=None,
+        metavar="URL",
+        help="Override the default land polygon download URL.",
+    )
 
     args = parser.parse_args()
     args.data_dir.mkdir(parents=True, exist_ok=True)
@@ -371,6 +385,28 @@ def main():
         else:
             print(f"  ✗ {result['name']}: {result.get('error', 'failed')}")
             sys.exit(1)
+        return
+
+    # --land-polygons-only: fetch shared land polygon data, skip OSM PBFs
+    if args.land_polygons_only:
+        land_sources = dict(LAND_POLYGON_SOURCES)
+        if args.land_polygon_url:
+            land_sources = {"global": args.land_polygon_url}
+        print("=" * 70)
+        print("Step 1: Download Land Polygons")
+        print("=" * 70)
+        print()
+        for item in land_sources.items():
+            result = download_and_convert_land_polygons((*item, args.data_dir))
+            if result["status"] == "cached":
+                print(f"  ✓ {result['name']}: {result['size_mb']:.1f} MB ({result['age']})")
+            elif result["status"] == "downloaded":
+                print(f"  ✓ {result['name']}: {result['size_mb']:.1f} MB (newly downloaded)")
+            elif result["status"] == "skipped":
+                print(f"  ! {result['name']}: {result['reason']}")
+            else:
+                print(f"  ✗ {result['name']}: {result.get('error', 'failed')}")
+                sys.exit(1)
         return
 
     print("=" * 70)
@@ -429,8 +465,11 @@ def main():
             print(f"  ✗ {result['name']}: {result.get('error', 'failed')}")
 
     # Download land polygon data
-    print(f"\nDownloading land polygons ({len(LAND_POLYGON_SOURCES)} sources)...")
-    land_args = [(name, url, args.data_dir) for name, url in LAND_POLYGON_SOURCES.items()]
+    land_sources = dict(LAND_POLYGON_SOURCES)
+    if args.land_polygon_url:
+        land_sources = {"global": args.land_polygon_url}
+    print(f"\nDownloading land polygons ({len(land_sources)} sources)...")
+    land_args = [(name, url, args.data_dir) for name, url in land_sources.items()]
     land_results = []
     for land_arg in land_args:
         land_results.append(download_and_convert_land_polygons(land_arg))
