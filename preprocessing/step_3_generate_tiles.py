@@ -9,6 +9,7 @@ and detailed progress reporting.
 import argparse
 import copy
 import decimal
+import gzip
 import json
 import math
 import os
@@ -1563,7 +1564,8 @@ def finalize_tile(tile_jsonl_path, tile_json_path, existing_json_path=None):
     _existing_source = existing_json_path if existing_json_path is not None else tile_json_path
     if _existing_source.exists():
         try:
-            with open(_existing_source, "r", encoding="utf-8") as f:
+            _open = gzip.open if str(_existing_source).endswith(".gz") else open
+            with _open(_existing_source, "rt", encoding="utf-8") as f:
                 existing_tile = json.load(f)
                 for feat in existing_tile.get("features", []):
                     # Skip stale base_land features — they'll be regenerated fresh
@@ -1640,9 +1642,9 @@ def finalize_tile(tile_jsonl_path, tile_json_path, existing_json_path=None):
         except Exception:
             pass
 
-    # Write final tile JSON
+    # Write final tile as gzip-compressed JSON
     tile_json_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(tile_json_path, "w", encoding="utf-8") as f:
+    with gzip.open(tile_json_path, "wt", compresslevel=6, encoding="utf-8") as f:
         f.write('{"type":"FeatureCollection",')
         f.write('"_meta":{"hasLandFeatures":')
         f.write("true" if has_land_features else "false")
@@ -1869,7 +1871,7 @@ def split_geojson_into_tiles(
     for tileset_id in processing_keys:
         for x, y in tile_files_written.get(tileset_id, set()):
             jsonl_path = output_path / str(tileset_id) / str(x) / f"{y}.jsonl"
-            json_path = output_path / str(tileset_id) / str(x) / f"{y}.json"
+            json_path = output_path / str(tileset_id) / str(x) / f"{y}.json.gz"
 
             total_bytes += finalize_tile(jsonl_path, json_path)
             tile_count += 1
@@ -2054,7 +2056,7 @@ def compute_tile_statistics(tile_dir, output_file=None, max_sample=1000):
     ):
         tileset_path = tile_dir / tileset_id
         # Collect all tile files
-        tile_files = list(tileset_path.rglob("*.json"))
+        tile_files = list(tileset_path.rglob("*.json.gz"))
         if not tile_files:
             continue
 
@@ -2076,7 +2078,7 @@ def compute_tile_statistics(tile_dir, output_file=None, max_sample=1000):
 
         for tile_file in sampled:
             try:
-                with open(tile_file, "r", encoding="utf-8") as f:
+                with gzip.open(tile_file, "rt", encoding="utf-8") as f:
                     data = json.load(f)
             except (json.JSONDecodeError, IOError):
                 continue
@@ -2275,7 +2277,7 @@ def _run_add_mode(args, geojson_files, regions_data):
                         key = (ts, x, y)
                         if key not in all_tile_files_written:
                             jsonl = str(temp_tile_dir / ts / str(x) / f"{y}.jsonl")
-                            live_json = str(args.output_dir / ts / str(x) / f"{y}.json")
+                            live_json = str(args.output_dir / ts / str(x) / f"{y}.json.gz")
                             all_tile_files_written[key] = (jsonl, live_json)
 
         _LAND_POLYGON_BUFFER_DEG = 1.5
@@ -2338,7 +2340,7 @@ def _run_add_mode(args, geojson_files, regions_data):
 
         all_config_tileset_ids = [ts["id"] for ts in TILESET_CONFIG["tilesets"]]
         tile_count = sum(
-            len(list((args.output_dir / ts_id).rglob("*.json")))
+            len(list((args.output_dir / ts_id).rglob("*.json.gz")))
             for ts_id in all_config_tileset_ids
             if (args.output_dir / ts_id).exists()
         )
@@ -2529,7 +2531,7 @@ def main():
         deleted = 0
         for ts_id, tile_size_m in TILESET_TILE_SIZES.items():
             for x, y in tiles_in_bounds(union_bounds, tile_size_m):
-                tile_path = args.output_dir / ts_id / str(x) / f"{y}.json"
+                tile_path = args.output_dir / ts_id / str(x) / f"{y}.json.gz"
                 if tile_path.exists():
                     tile_path.unlink()
                     deleted += 1
@@ -2672,7 +2674,7 @@ def main():
                         if key not in all_tile_files_written:
                             all_tile_files_written[key] = (
                                 str(temp_tile_dir / ts / str(x) / f"{y}.jsonl"),
-                                str(temp_tile_dir / ts / str(x) / f"{y}.json"),
+                                str(temp_tile_dir / ts / str(x) / f"{y}.json.gz"),
                             )
 
         # Expand merged bounds so border tiles get complete land polygons
@@ -2760,7 +2762,7 @@ def main():
     # Write tile index
     if success_count > 0:
         tile_count = sum(
-            len(list((temp_tile_dir / tileset_id).rglob("*.json")))
+            len(list((temp_tile_dir / tileset_id).rglob("*.json.gz")))
             for tileset_id in TILESET_IDS
         )
 

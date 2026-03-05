@@ -2438,7 +2438,7 @@ class MapRenderer {
       const cacheBuster = this.tileIndex?.generated || Date.now();
       const fetchStart = performance.now();
       const response = await fetch(
-        `tiles/${tileset}/${x}/${y}.json?v=${cacheBuster}`,
+        `tiles/${tileset}/${x}/${y}.json.gz?v=${cacheBuster}`,
       );
       const fetchTime = performance.now() - fetchStart;
 
@@ -2449,9 +2449,11 @@ class MapRenderer {
         return this.tileCache.get(key);
       }
 
-      // Parse JSON directly (no decompression needed)
+      // Decompress gzip then parse JSON
       const parseStart = performance.now();
-      const tileData = await response.json();
+      const ds = new DecompressionStream("gzip");
+      const text = await new Response(response.body.pipeThrough(ds)).text();
+      const tileData = JSON.parse(text);
       const parseTime = performance.now() - parseStart;
 
       // Track per-tile timing for instrumentation

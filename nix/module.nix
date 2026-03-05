@@ -295,14 +295,14 @@ in {
         enableACME = cfg.nginx.ssl;
 
         # Generated tiles — served from mutable state directory.
+        # Tiles are pre-compressed as .json.gz; disable nginx gzip to avoid double-compression.
         # Long cache: tiles only change after a rebuild.
         locations."/tiles/" = {
           alias       = "${cfg.tilesDir}/";
           extraConfig = ''
             expires 7d;
             add_header Cache-Control "public";
-            gzip on;
-            gzip_types application/json;
+            gzip off;
           '';
         };
 
