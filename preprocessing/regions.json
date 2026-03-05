@@ -1,0 +1,46 @@
+[
+  {
+    "name": "brandenburg",
+    "url": "https://download.geofabrik.de/europe/germany/brandenburg-latest.osm.pbf"
+  },
+  {
+    "name": "hamburg",
+    "url": "https://download.geofabrik.de/europe/germany/hamburg-latest.osm.pbf"
+  },
+  {
+    "name": "hessen",
+    "url": "https://download.geofabrik.de/europe/germany/hessen-latest.osm.pbf"
+  },
+  {
+    "name": "mecklenburg-vorpommern",
+    "url": "https://download.geofabrik.de/europe/germany/mecklenburg-vorpommern-latest.osm.pbf"
+  },
+  {
+    "name": "niedersachsen",
+    "url": "https://download.geofabrik.de/europe/germany/niedersachsen-latest.osm.pbf"
+  },
+  {
+    "name": "nordrhein-westfalen",
+    "url": "https://download.geofabrik.de/europe/germany/nordrhein-westfalen-latest.osm.pbf"
+  },
+  {
+    "name": "sachsen-anhalt",
+    "url": "https://download.geofabrik.de/europe/germany/sachsen-anhalt-latest.osm.pbf"
+  },
+  {
+    "name": "schleswig-holstein",
+    "url": "https://download.geofabrik.de/europe/germany/schleswig-holstein-latest.osm.pbf"
+  },
+  {
+    "name": "th\u00fcringen",
+    "url": "https://download.geofabrik.de/europe/germany/thueringen-latest.osm.pbf"
+  },
+  {
+    "name": "denmark",
+    "url": "https://download.geofabrik.de/europe/denmark-latest.osm.pbf"
+  },
+  {
+    "name": "poland",
+    "url": "https://download.geofabrik.de/europe/poland-latest.osm.pbf"
+  }
+]

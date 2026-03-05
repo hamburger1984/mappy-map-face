@@ -23,16 +23,18 @@ all: setup build
 setup:
     @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'Setting up Python virtual environment...'; " + "if (-not (Test-Path venv)) { python -m venv venv }; " + "Write-Host 'Installing dependencies...'; " + "& venv/Scripts/pip install -q -r requirements.txt; " + "Write-Host 'Setup complete!'\"" } else { "echo 'Setting up Python virtual environment...' && " + "if [ ! -d venv ]; then python -m venv venv; fi && " + "echo 'Installing dependencies...' && " + "venv/bin/pip install -q -r requirements.txt && " + "echo 'Setup complete!'" } }}
 
-# Build tiles (downloads OSM if needed, converts to GeoJSON, generates tiles)
-build: setup config-export
-    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/build_all.py'\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/build_all.py'" } }}
+# Build tiles using staggered per-region processing (downloads, converts, tiles one region at a time)
+# Usage: just build
+# Usage: just build gap=60   (wait 60s between regions)
+build gap="0": setup config-export
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --tiles-dir '" + justfile_directory() + "/public/tiles' --gap-seconds " + gap + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --tiles-dir '" + justfile_directory() + "/public/tiles' --gap-seconds " + gap } }}
 
 config-export: setup
     @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/export_config.py'\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/export_config.py'" } }}
 
-# Run only step 1: Download OSM data and land polygons
+# Run only step 1: Download OSM data and land polygons (uses preprocessing/regions.json)
 download: setup
-    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/step_1_download.py'\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/step_1_download.py'" } }}
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/step_1_download.py' --regions-file '" + justfile_directory() + "/preprocessing/regions.json'\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/step_1_download.py' --regions-file '" + justfile_directory() + "/preprocessing/regions.json'" } }}
 
 # Run only step 2: Convert PBF to GeoJSON
 convert: setup
@@ -42,16 +44,29 @@ convert: setup
 tiles: setup
     @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py'\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py'" } }}
 
-# Add a new region without a full rebuild
-# Usage: just add-region sweden https://download.geofabrik.de/.../sweden-latest.osm.pbf
-add-region name url: setup config-export
-    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/build_all.py' --add-region " + name + " " + url + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/build_all.py' --add-region " + name + " " + url } }}
+# Download, convert, and add a single new region; appends it to preprocessing/regions.json
+# URL is looked up from the Geofabrik index automatically when omitted.
+# Usage: just add-region hamburg
+# Usage: just add-region hamburg https://download.geofabrik.de/europe/germany/hamburg-latest.osm.pbf
+add-region name url="": setup config-export
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --add-region " + name + (if url != "" { " --url " + url } else { "" }) + " --tiles-dir '" + justfile_directory() + "/public/tiles'\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --add-region " + name + (if url != "" { " --url " + url } else { "" }) + " --tiles-dir '" + justfile_directory() + "/public/tiles'" } }}
 
-# Update one or more existing regions without a full rebuild (all tilesets)
-# Usage: just update-region hamburg-latest
-# Usage: just update-region hamburg-latest schleswig-holstein-latest
+# List local regions from preprocessing/regions.json with their build status
+list-regions:
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/list_regions.py'\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/list_regions.py'" } }}
+
+# List available regions from Geofabrik (optionally filter by query)
+# Usage: just list-regions-remote
+# Usage: just list-regions-remote germany
+list-regions-remote query="":
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/list_regions.py' --remote " + query + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/list_regions.py' --remote " + query } }}
+
+# Re-tile one or more existing regions from their cached GeoJSON (no re-download/re-convert)
+# Use when tileset config changed for specific regions. For data changes, use `just build`.
+# Usage: just update-region hamburg
+# Usage: just update-region hamburg schleswig-holstein
 update-region +regions: setup config-export
-    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/build_all.py' --update-region " + regions + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/build_all.py' --update-region " + regions } }}
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py' --update " + regions + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py' --update " + regions } }}
 
 # Update one or more regions for specific tilesets only (no re-download or re-convert)
 # Use when tileset config changed but underlying data is unchanged

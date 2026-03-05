@@ -45,10 +45,11 @@ def main() -> None:
     parser.add_argument(
         "--regions-file",
         type=Path,
-        required=True,
+        default=SCRIPTS_DIR / "regions.json",
         metavar="JSON",
         help="JSON file with a list of {\"name\": ..., \"url\": ...} region definitions "
-             "(same format as step_1_download.py --regions-file).",
+             "(same format as step_1_download.py --regions-file). "
+             "Defaults to regions.json in the same directory as this script.",
     )
     parser.add_argument(
         "--data-dir",
@@ -59,9 +60,22 @@ def main() -> None:
     parser.add_argument(
         "--tiles-dir",
         type=Path,
-        required=True,
+        default=Path("public/tiles"),
         metavar="DIR",
         help="Directory where tile JSON files are written.",
+    )
+    parser.add_argument(
+        "--add-region",
+        metavar="NAME",
+        help="Download, convert, and add a single new region without processing all of "
+             "regions.json. The region is appended to regions.json if not already listed. "
+             "URL is looked up from the Geofabrik index when --url is omitted.",
+    )
+    parser.add_argument(
+        "--url",
+        metavar="URL",
+        default=None,
+        help="Explicit PBF download URL for --add-region (skips Geofabrik lookup).",
     )
     parser.add_argument(
         "--tileset-config",
@@ -93,12 +107,49 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    with open(args.regions_file) as f:
-        regions = json.load(f)
+    if args.add_region:
+        # Single-region mode: bypass regions-file, process the one given region.
+        name = args.add_region
+        url  = args.url
 
-    if not regions:
-        print("Error: regions file is empty.")
-        sys.exit(1)
+        if not url:
+            import geofabrik
+            try:
+                url, full_id = geofabrik.lookup_url(name)
+                print(f"Resolved {name!r} → {full_id}")
+                print(f"  URL: {url}")
+            except ValueError as e:
+                print(f"Error: {e}", file=sys.stderr)
+                sys.exit(1)
+
+        regions = [{"name": name, "url": url}]
+
+        # Append to regions.json so future `just build` includes it.
+        raw_name = name[: -len("-latest")] if name.endswith("-latest") else name
+        if args.regions_file.exists():
+            with open(args.regions_file) as f:
+                existing = json.load(f)
+            existing_raw = {
+                r["name"][: -len("-latest")] if r["name"].endswith("-latest") else r["name"]
+                for r in existing
+            }
+            if raw_name not in existing_raw:
+                existing.append({"name": name, "url": url})
+                with open(args.regions_file, "w") as f:
+                    json.dump(existing, f, indent=2)
+                print(f"Added {name!r} to {args.regions_file}")
+    else:
+        if not args.regions_file.exists():
+            print(f"Error: regions file not found: {args.regions_file}")
+            print("Create preprocessing/regions.json or pass --regions-file <path>.")
+            sys.exit(1)
+
+        with open(args.regions_file) as f:
+            regions = json.load(f)
+
+        if not regions:
+            print("Error: regions file is empty.")
+            sys.exit(1)
 
     # Extra environment for step_3 (tileset config path)
     step3_env = {}

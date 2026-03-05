@@ -52,3 +52,6 @@ tile_build*.db*
 # Temporary files
 *.tmp
 *.bak
+
+# Geofabrik region index cache
+preprocessing/.geofabrik_cache.json
