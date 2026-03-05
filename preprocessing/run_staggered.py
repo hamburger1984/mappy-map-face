@@ -105,6 +105,13 @@ def main() -> None:
         default=4,
         help="Parallel workers passed to conversion and tile generation steps.",
     )
+    parser.add_argument(
+        "--only",
+        nargs="+",
+        metavar="NAME",
+        help="Limit processing to these region names (subset of regions.json). "
+             "Matches on the short name with or without the -latest suffix.",
+    )
     args = parser.parse_args()
 
     if args.add_region:
@@ -150,6 +157,20 @@ def main() -> None:
         if not regions:
             print("Error: regions file is empty.")
             sys.exit(1)
+
+        if args.only:
+            only_raw = {
+                n[: -len("-latest")] if n.endswith("-latest") else n
+                for n in args.only
+            }
+            regions = [
+                r for r in regions
+                if (r["name"][: -len("-latest")] if r["name"].endswith("-latest") else r["name"])
+                in only_raw
+            ]
+            if not regions:
+                print(f"Error: none of {args.only} matched any region in {args.regions_file}.")
+                sys.exit(1)
 
     # Extra environment for step_3 (tileset config path)
     step3_env = {}

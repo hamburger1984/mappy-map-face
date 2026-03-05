@@ -61,6 +61,11 @@ list-regions:
 list-regions-remote query="":
     @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/list_regions.py' --remote " + query + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/list_regions.py' --remote " + query } }}
 
+# Build tiles for a subset of regions from regions.json (useful for validation)
+# Usage: just build-regions hamburg schleswig-holstein
+build-regions +regions: setup config-export
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --only " + regions + " --tiles-dir '" + justfile_directory() + "/public/tiles'\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --only " + regions + " --tiles-dir '" + justfile_directory() + "/public/tiles'" } }}
+
 # Re-tile one or more existing regions from their cached GeoJSON (no re-download/re-convert)
 # Use when tileset config changed for specific regions. For data changes, use `just build`.
 # Usage: just update-region hamburg
