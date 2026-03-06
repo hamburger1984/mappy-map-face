@@ -72,6 +72,7 @@ export const THEMES = {
       railway: { r: 210, g: 205, b: 210, a: 255 }, // Light purple-gray
       quarry: { r: 210, g: 200, b: 190, a: 255 }, // Gray-brown
       recreation: { r: 218, g: 238, b: 205, a: 255 }, // Very subtle green
+      camping: { r: 223, g: 250, b: 188, a: 255 }, // Light lime-green for camp sites
       services: { r: 220, g: 230, b: 240, a: 255 }, // Light blue for rest areas/services
     },
 
@@ -309,6 +310,7 @@ export const THEMES = {
       railway: { r: 45, g: 42, b: 48, a: 255 },
       quarry: { r: 48, g: 44, b: 40, a: 255 },
       recreation: { r: 30, g: 55, b: 35, a: 255 },
+      camping: { r: 32, g: 62, b: 28, a: 255 }, // Dark lime-green for camp sites
       services: { r: 38, g: 42, b: 55, a: 255 },
     },
 

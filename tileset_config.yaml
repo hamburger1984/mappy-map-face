@@ -359,6 +359,19 @@ feature_templates:
       fill: true
       minLOD: 1
 
+  camping_areas: &camping_areas
+    name: "camping_areas"
+    osm_match:
+      geometry: ["Polygon", "MultiPolygon"]
+      tags:
+        leisure: ["camp_site"]
+        tourism: ["camp_site", "caravan_site"]
+    render:
+      layer: "natural_background"
+      themeKey: "specialPurpose.camping"
+      fill: true
+      minLOD: 1
+
   agriculture: &agriculture
     name: "agriculture"
     osm_match:
@@ -1033,6 +1046,8 @@ tilesets:
         simplification: { epsilon_m: 0.05 }
       - <<: *parks
         simplification: { epsilon_m: 0.05 }
+      - <<: *camping_areas
+        simplification: { epsilon_m: 0.05 }
       - <<: *agriculture
         simplification: { epsilon_m: 0.05 }
       - <<: *residential_landuse
@@ -1160,6 +1175,8 @@ tilesets:
         simplification: { epsilon_m: 3 }
       - <<: *parks
         simplification: { epsilon_m: 3 }
+      - <<: *camping_areas
+        simplification: { epsilon_m: 3 }
       - <<: *agriculture
         simplification: { epsilon_m: 3 }
       - <<: *residential_landuse
@@ -1279,6 +1296,8 @@ tilesets:
       - <<: *railway_stations
         simplification: { epsilon_m: 10 }
       - <<: *parks
+        simplification: { epsilon_m: 10 }
+      - <<: *camping_areas
         simplification: { epsilon_m: 10 }
       - <<: *agriculture
         simplification: { epsilon_m: 10 }

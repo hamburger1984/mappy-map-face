@@ -1295,8 +1295,10 @@ def classify_feature_importance(props, geom_type):
     if effective_highway in SECONDARY_HIGHWAYS:
         return (6, 50)  # Z6-Z10
 
-    # Parks and green spaces
-    if leisure == "park" or landuse in PARK_LANDUSE or landuse in FARM_LANDUSE:
+    # Parks, green spaces, and camping areas
+    if (leisure in ("park", "camp_site")
+            or props.get("tourism") in ("camp_site", "caravan_site")
+            or landuse in PARK_LANDUSE or landuse in FARM_LANDUSE):
         return (6, 40)  # Z6-Z10
 
     # Tertiary and residential roads
