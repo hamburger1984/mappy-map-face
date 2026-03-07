@@ -320,7 +320,9 @@ class MapRenderer {
       70000, // 17
       100000, // 18: Wide regional
       150000, // 19
-      200000, // 20: Full extent
+      200000, // 20
+      400000, // 21
+      750000, // 22: Full extent
     ];
 
     // Viewport state (in real-world meters)
@@ -3115,6 +3117,19 @@ class MapRenderer {
         continue;
       }
 
+      // At 750km+: skip all non-water polygons and non-capital place labels
+      if (this.viewWidthMeters >= 750000) {
+        const l = featureInfo.layer;
+        if (featureInfo.fill && l !== "water_areas" && l !== "base_land") {
+          lodCulledCount++;
+          continue;
+        }
+        if (l === "place_labels" && !featureInfo.isCapital) {
+          lodCulledCount++;
+          continue;
+        }
+      }
+
       // Add to appropriate layer
       if (featureInfo.layer) {
         layers[featureInfo.layer].push({
@@ -3343,6 +3358,11 @@ class MapRenderer {
       this.renderStreetNames(layers.bridge_roads, adjustedBounds, _wsAllowed);
     }
     layerTimings.streetNames = performance.now() - layerStart;
+
+    // 10b2. Highway ref shields (Autobahn/Bundesstraße/E-road badges)
+    layerStart = performance.now();
+    this.renderHighwayShields(_allRoads, adjustedBounds);
+    layerTimings.highwayShields = performance.now() - layerStart;
 
     // 10c. Building labels (house numbers — fine detail, least label priority)
     layerStart = performance.now();
@@ -3723,6 +3743,7 @@ class MapRenderer {
       fontSize: r.fontSize,
       maxViewWidth: r.maxViewWidth,
       population: r.population,
+      isCapital: !!props.capital,
       tunnel: r.tunnel,
       bridgeLayer: r.bridgeLayer,
       pattern: r.pattern,
@@ -4977,6 +4998,7 @@ class MapRenderer {
           placePriority,
           fontSize,
           population,
+          isCapital: !!props.capital,
         };
       }
 
@@ -6419,6 +6441,231 @@ class MapRenderer {
       // Register in occupancy so water/building labels yield to road names
       this.labelOccupancyRegister(midPt.x, midPt.y, textWidth, fontSize * 1.4);
     }
+  }
+
+  renderHighwayShields(allRoads, bounds) {
+    // Render compact ref badges (A7, B5, E45) at the midpoint of each road segment.
+    // Only shown at zoomed-out views where full road names don't fit.
+    if (this.viewWidthMeters < 5000) return;
+
+    const lonRange = bounds.maxLon - bounds.minLon;
+    const latRange = bounds.maxLat - bounds.minLat;
+    const scaleX = this.canvasWidth / lonRange;
+    const scaleY = this.canvasHeight / latRange;
+    const toScreenX = (lon) => (lon - bounds.minLon) * scaleX;
+    const toScreenY = (lat) => this.canvasHeight - (lat - bounds.minLat) * scaleY;
+
+    // OSM network tag → shield type key
+    const NETWORK_TYPE = {
+      "de:motorway":       "de_motorway",
+      "de:federal_road":   "de_federal",
+      "gb:motorway":       "gb_motorway",
+      "gb:A-road-primary": "gb_a_primary",
+      "gb:A-road":         "gb_a",
+      "fr:A-road":         "fr_motorway",
+      "fr:N-road":         "fr_national",
+      "fr:D-road":         "fr_departmental",
+      "nl:motorway":       "nl_motorway",
+      "nl:national":       "nl_national",
+      "be:motorway":       "be_motorway",
+      "be:regional":       "be_regional",
+      "at:motorway":       "at_motorway",
+      "at:expressway":     "at_expressway",
+      "ch:motorway":       "ch_motorway",
+      "it:motorway":       "it_motorway",
+      "es:motorway":       "es_motorway",
+      "es:primary":        "es_primary",
+      "pl:motorway":       "pl_motorway",
+      "pl:expressway":     "pl_expressway",
+      "cz:motorway":       "cz_motorway",
+      "hu:motorway":       "hu_motorway",
+      "dk:motorway":       "dk_motorway",
+      "se:national":       "se_national",
+      "no:national":       "no_national",
+    };
+
+    // Shield visual styles per type
+    const SHIELD = {
+      // Germany
+      de_motorway:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      de_federal:      { bg: "#FFCC00", border: "#b89900", text: "#000000" },
+      // UK
+      gb_motorway:     { bg: "#6b2d8c", border: "#4a1f6e", text: "#ffffff" },
+      gb_a_primary:    { bg: "#007229", border: "#004d1a", text: "#ffffff" },
+      gb_a:            { bg: "#f0f0f0", border: "#888888", text: "#000000" },
+      // France
+      fr_motorway:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      fr_national:     { bg: "#cc0000", border: "#990000", text: "#ffffff" },
+      fr_departmental: { bg: "#FFCC00", border: "#b89900", text: "#000000" },
+      // Netherlands
+      nl_motorway:     { bg: "#cc2200", border: "#991a00", text: "#ffffff" },
+      nl_national:     { bg: "#FFCC00", border: "#b89900", text: "#000000" },
+      // Belgium
+      be_motorway:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      be_regional:     { bg: "#cc2200", border: "#991a00", text: "#ffffff" },
+      // Green motorways: Austria, Switzerland, Italy, Czech Republic, Hungary
+      at_motorway:     { bg: "#007229", border: "#004d1a", text: "#ffffff" },
+      at_expressway:   { bg: "#007229", border: "#004d1a", text: "#ffffff" },
+      ch_motorway:     { bg: "#007229", border: "#004d1a", text: "#ffffff" },
+      it_motorway:     { bg: "#007229", border: "#004d1a", text: "#ffffff" },
+      cz_motorway:     { bg: "#007229", border: "#004d1a", text: "#ffffff" },
+      hu_motorway:     { bg: "#007229", border: "#004d1a", text: "#ffffff" },
+      // Blue motorways: Denmark, Sweden, Norway, Spain
+      dk_motorway:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      se_national:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      no_national:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      es_motorway:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      es_primary:      { bg: "#cc0000", border: "#990000", text: "#ffffff" },
+      // Poland
+      pl_motorway:     { bg: "#cc2200", border: "#991a00", text: "#ffffff" },
+      pl_expressway:   { bg: "#cc2200", border: "#991a00", text: "#ffffff" },
+      // Pan-European E-roads (always green regardless of country)
+      europe:          { bg: "#00802b", border: "#004d1a", text: "#ffffff" },
+    };
+
+    const FONT = "bold 10px Arial, sans-serif";
+    const FS = 10, PAD_X = 5, PAD_Y = 3, RADIUS = 3, GAP = 3;
+
+    // Parse OSM ref tag into typed shield descriptors.
+    // network tag resolves ambiguous prefixes (e.g. "A" means different things in DE/NL/AT).
+    // E-roads always get the European green style regardless of network.
+    const parseRefs = (refStr, network) => {
+      if (!refStr) return [];
+
+      // Resolve network tag to a shield type (first matching value wins)
+      let networkType = null;
+      if (network) {
+        for (const n of network.split(";").map((s) => s.trim())) {
+          if (NETWORK_TYPE[n]) { networkType = NETWORK_TYPE[n]; break; }
+        }
+      }
+
+      return refStr.split(";").map((s) => s.trim()).flatMap((r) => {
+        // E-roads always use European green
+        if (/^E\d/.test(r)) return [{ text: r, type: "europe" }];
+        // Network tag takes priority for all other refs
+        if (networkType) return [{ text: r, type: networkType }];
+        // Fallback: guess from ref prefix (biased toward countries in our data)
+        if (/^A\d/.test(r)) return [{ text: r, type: "de_motorway" }];
+        if (/^B\d/.test(r)) return [{ text: r, type: "de_federal" }];
+        if (/^M\d/.test(r)) return [{ text: r, type: "gb_motorway" }];
+        if (/^N\d/.test(r)) return [{ text: r, type: "fr_national" }];
+        if (/^D\d/.test(r)) return [{ text: r, type: "fr_departmental" }];
+        if (/^S\d/.test(r)) return [{ text: r, type: "at_expressway" }];
+        return [];
+      });
+    };
+
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.font = FONT;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    const drawRoundedRect = (x, y, w, h) => {
+      ctx.beginPath();
+      ctx.moveTo(x + RADIUS, y);
+      ctx.lineTo(x + w - RADIUS, y);
+      ctx.arcTo(x + w, y, x + w, y + RADIUS, RADIUS);
+      ctx.lineTo(x + w, y + h - RADIUS);
+      ctx.arcTo(x + w, y + h, x + w - RADIUS, y + h, RADIUS);
+      ctx.lineTo(x + RADIUS, y + h);
+      ctx.arcTo(x, y + h, x, y + h - RADIUS, RADIUS);
+      ctx.lineTo(x, y + RADIUS);
+      ctx.arcTo(x, y, x + RADIUS, y, RADIUS);
+      ctx.closePath();
+    };
+
+    for (const item of allRoads) {
+      const refs = parseRefs(item.props?.ref, item.props?.network);
+      if (refs.length === 0) continue;
+
+      const geom = item.feature.geometry;
+      if (!geom?.coordinates) continue;
+
+      const coordArrays =
+        item.type === "LineString"
+          ? [geom.coordinates]
+          : item.type === "MultiLineString"
+            ? geom.coordinates
+            : null;
+      if (!coordArrays) continue;
+
+      for (const coords of coordArrays) {
+        if (coords.length < 2) continue;
+
+        const screen = coords.map((c) => ({
+          x: toScreenX(c[0]),
+          y: toScreenY(c[1]),
+        }));
+
+        // Total segment length in screen pixels
+        let totalLen = 0;
+        for (let i = 1; i < screen.length; i++) {
+          const dx = screen[i].x - screen[i - 1].x;
+          const dy = screen[i].y - screen[i - 1].y;
+          totalLen += Math.sqrt(dx * dx + dy * dy);
+        }
+        if (totalLen < 20) continue;
+
+        // Find midpoint
+        let target = totalLen / 2, acc = 0;
+        let midX = screen[0].x, midY = screen[0].y;
+        for (let i = 1; i < screen.length; i++) {
+          const dx = screen[i].x - screen[i - 1].x;
+          const dy = screen[i].y - screen[i - 1].y;
+          const sl = Math.sqrt(dx * dx + dy * dy);
+          if (acc + sl >= target) {
+            const t = (target - acc) / sl;
+            midX = screen[i - 1].x + dx * t;
+            midY = screen[i - 1].y + dy * t;
+            break;
+          }
+          acc += sl;
+        }
+
+        if (
+          midX < -30 || midX > this.canvasWidth + 30 ||
+          midY < -30 || midY > this.canvasHeight + 30
+        ) continue;
+
+        // Measure each shield
+        const shields = refs.map((ref) => {
+          const tw = ctx.measureText(ref.text).width;
+          return { ...ref, w: tw + PAD_X * 2, h: FS + PAD_Y * 2 };
+        });
+
+        const totalW = shields.reduce((s, sh) => s + sh.w, 0) + GAP * (shields.length - 1);
+        const maxH = Math.max(...shields.map((sh) => sh.h));
+
+        // Check combined occupancy before drawing anything
+        if (this.labelOccupancyCheck(midX, midY, totalW + 4, maxH + 4)) continue;
+
+        // Draw shields left-to-right, centred on midpoint
+        let sx = midX - totalW / 2;
+        for (const sh of shields) {
+          const style = SHIELD[sh.type];
+          const left = sx;
+          const top = midY - sh.h / 2;
+
+          drawRoundedRect(left, top, sh.w, sh.h);
+          ctx.fillStyle = style.bg;
+          ctx.fill();
+          ctx.strokeStyle = style.border;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          ctx.fillStyle = style.text;
+          ctx.fillText(sh.text, sx + sh.w / 2, midY);
+
+          sx += sh.w + GAP;
+        }
+
+        this.labelOccupancyRegister(midX, midY, totalW + 4, maxH + 4);
+      }
+    }
+
+    ctx.restore();
   }
 
   renderPlaceLabels(layerFeatures, bounds) {
