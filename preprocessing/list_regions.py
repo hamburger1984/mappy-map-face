@@ -11,6 +11,7 @@ Usage:
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 SCRIPTS_DIR = Path(__file__).parent
@@ -40,6 +41,30 @@ def list_local(data_dir: Path, tiles_dir: Path) -> None:
         except Exception:
             pass
 
+    RED    = "\033[31m"
+    ORANGE = "\033[33m"
+    RESET  = "\033[0m"
+    TEN_DAYS  = 10 * 24 * 3600
+    FOUR_DAYS =  4 * 24 * 3600
+
+    def check(path: Path) -> str:
+        if not path.exists():
+            return "·"
+        age = time.time() - path.stat().st_mtime
+        if age > TEN_DAYS:
+            return f"{RED}✓{RESET}"
+        if age > FOUR_DAYS:
+            return f"{ORANGE}✓{RESET}"
+        return "✓"
+
+    def center(mark: str, width: int) -> str:
+        """Center mark in field, ignoring invisible ANSI escape bytes."""
+        visible = mark if "\033" not in mark else "✓"
+        pad = width - len(visible)
+        left = pad // 2
+        right = pad - left
+        return " " * left + mark + " " * right
+
     header = f"{'Region':<35} {'PBF':^5} {'GeoJSON':^7} {'Tiled':^5}"
     print(header)
     print("-" * len(header))
@@ -49,15 +74,15 @@ def list_local(data_dir: Path, tiles_dir: Path) -> None:
         raw  = name[: -len("-latest")] if name.endswith("-latest") else name
         pbf  = f"{raw}-latest"
 
-        pbf_ok     = (data_dir / f"{pbf}.osm.pbf").exists()
-        geojson_ok = (data_dir / pbf / f"{pbf}.osm.geojson").exists()
-        tiled_ok   = raw in tiled
+        pbf_mark     = check(data_dir / f"{pbf}.osm.pbf")
+        geojson_mark = check(data_dir / pbf / f"{pbf}.osm.geojson")
+        tiled_mark   = "✓" if raw in tiled else "·"
 
         print(
             f"{name:<35} "
-            f"{'✓' if pbf_ok else '·':^5} "
-            f"{'✓' if geojson_ok else '·':^7} "
-            f"{'✓' if tiled_ok else '·':^5}"
+            f"{center(pbf_mark, 5)} "
+            f"{center(geojson_mark, 7)} "
+            f"{center(tiled_mark, 5)}"
         )
 
     print(f"\n{len(regions)} region(s) in preprocessing/regions.json")
