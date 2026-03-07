@@ -12,9 +12,85 @@
 #   just serve    - Start development web server
 #   just info     - Show system and project information
 
-# List all available commands
+# Show all available commands with descriptions
 default:
-    @just --list
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" +
+    "Write-Host 'OSM Map Renderer - Available Commands'; " +
+    "Write-Host ''; " +
+    "Write-Host 'SETUP & BUILD'; " +
+    "Write-Host '  just setup                           Initialize Python venv and install dependencies'; " +
+    "Write-Host '  just all                             Setup then download and tile all regions'; " +
+    "Write-Host '  just build [gap=0]                   Download, convert, tile all regions in regions.json'; " +
+    "Write-Host '                                       Optional gap (seconds) between regions to reduce server load'; " +
+    "Write-Host '  just download                        Step 1: Download OSM data for all regions in regions.json'; " +
+    "Write-Host '  just convert                         Step 2: Convert downloaded PBF files to GeoJSON'; " +
+    "Write-Host '  just tiles                           Step 3: Generate map tiles from GeoJSON'; " +
+    "Write-Host ''; " +
+    "Write-Host 'REGION MANAGEMENT'; " +
+    "Write-Host '  just add-region <name> [url]         Download, convert and tile a new region'; " +
+    "Write-Host '                                       Geofabrik URL is looked up automatically when omitted'; " +
+    "Write-Host '                                       Example: just add-region hamburg'; " +
+    "Write-Host '  just build-regions <region...>       Build specific regions only (subset of regions.json)'; " +
+    "Write-Host '                                       Example: just build-regions hamburg berlin'; " +
+    "Write-Host '  just list-regions                    List local regions from regions.json with build status'; " +
+    "Write-Host '  just list-regions-remote [query]     Browse regions available on Geofabrik'; " +
+    "Write-Host '                                       Example: just list-regions-remote germany'; " +
+    "Write-Host ''; " +
+    "Write-Host 'UPDATES (no re-download)'; " +
+    "Write-Host '  just update-region <region...>       Re-tile region(s) from cached GeoJSON'; " +
+    "Write-Host '                                       Use after tile config changes. Example: just update-region hamburg'; " +
+    "Write-Host '  just update-region-tileset <r> <t>   Re-tile specific tileset(s) for specific region(s)'; " +
+    "Write-Host '                                       Example: just update-region-tileset hamburg-latest t2b'; " +
+    "Write-Host '  just regen-tileset <tileset...>      Regenerate tileset(s) for ALL regions (clears stale tiles)'; " +
+    "Write-Host '                                       Example: just regen-tileset t2b t3'; " +
+    "Write-Host ''; " +
+    "Write-Host 'DEVELOPMENT'; " +
+    "Write-Host '  just serve                           Start local web server at http://localhost:8888'; " +
+    "Write-Host '  just info                            Show system info and project status'; " +
+    "Write-Host ''; " +
+    "Write-Host 'CLEANUP'; " +
+    "Write-Host '  just clean                           Remove generated tiles'; " +
+    "Write-Host '  just clean-data                      Remove tiles and downloaded data'; " +
+    "Write-Host '  just clean-all                       Remove everything (tiles, data, venv)'\"" }
+    else {
+    "echo 'OSM Map Renderer - Available Commands' && " +
+    "echo '' && " +
+    "echo 'SETUP & BUILD' && " +
+    "echo '  just setup                           Initialize Python venv and install dependencies' && " +
+    "echo '  just all                             Setup then download and tile all regions' && " +
+    "echo '  just build [gap=0]                   Download, convert, tile all regions in regions.json' && " +
+    "echo '                                       Optional gap (seconds) between regions to reduce server load' && " +
+    "echo '  just download                        Step 1: Download OSM data for all regions in regions.json' && " +
+    "echo '  just convert                         Step 2: Convert downloaded PBF files to GeoJSON' && " +
+    "echo '  just tiles                           Step 3: Generate map tiles from GeoJSON' && " +
+    "echo '' && " +
+    "echo 'REGION MANAGEMENT' && " +
+    "echo '  just add-region <name> [url]         Download, convert and tile a new region' && " +
+    "echo '                                       Geofabrik URL is looked up automatically when omitted' && " +
+    "echo '                                       Example: just add-region hamburg' && " +
+    "echo '  just build-regions <region...>       Build specific regions only (subset of regions.json)' && " +
+    "echo '                                       Example: just build-regions hamburg berlin' && " +
+    "echo '  just list-regions                    List local regions from regions.json with build status' && " +
+    "echo '  just list-regions-remote [query]     Browse regions available on Geofabrik' && " +
+    "echo '                                       Example: just list-regions-remote germany' && " +
+    "echo '' && " +
+    "echo 'UPDATES (no re-download)' && " +
+    "echo '  just update-region <region...>       Re-tile region(s) from cached GeoJSON' && " +
+    "echo '                                       Use after tile config changes. Example: just update-region hamburg' && " +
+    "echo '  just update-region-tileset <r> <t>   Re-tile specific tileset(s) for specific region(s)' && " +
+    "echo '                                       Example: just update-region-tileset hamburg-latest t2b' && " +
+    "echo '  just regen-tileset <tileset...>      Regenerate tileset(s) for ALL regions (clears stale tiles)' && " +
+    "echo '                                       Example: just regen-tileset t2b t3' && " +
+    "echo '' && " +
+    "echo 'DEVELOPMENT' && " +
+    "echo '  just serve                           Start local web server at http://localhost:8888' && " +
+    "echo '  just info                            Show system info and project status' && " +
+    "echo '' && " +
+    "echo 'CLEANUP' && " +
+    "echo '  just clean                           Remove generated tiles' && " +
+    "echo '  just clean-data                      Remove tiles and downloaded data' && " +
+    "echo '  just clean-all                       Remove everything (tiles, data, venv)'"
+    } }}
 
 # Build everything (setup and build tiles with auto-download)
 all: setup build
@@ -25,7 +101,7 @@ setup:
 
 # Build tiles using staggered per-region processing (downloads, converts, tiles one region at a time)
 # Usage: just build
-# Usage: just build gap=60   (wait 60s between regions)
+# Usage: just build 60   (wait 60s between regions)
 build gap="0": setup config-export
     @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --tiles-dir '" + justfile_directory() + "/public/tiles' --gap-seconds " + gap + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --tiles-dir '" + justfile_directory() + "/public/tiles' --gap-seconds " + gap } }}
 
@@ -97,7 +173,7 @@ clean-data:
 
 # Clean everything including build artifacts and virtual environment
 clean-all: clean-data
-    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'Cleaning build artifacts...'; " + "if (Test-Path zig-out) { Remove-Item -Recurse -Force zig-out }; " + "if (Test-Path .zig-cache) { Remove-Item -Recurse -Force .zig-cache }; " + "if (Test-Path venv) { Remove-Item -Recurse -Force venv }; " + "Write-Host 'All generated files cleaned'\"" } else { "echo 'Cleaning build artifacts...' && " + "rm -rf zig-out .zig-cache venv && " + "echo 'All generated files cleaned'" } }}
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'Cleaning build artifacts...'; " + "if (Test-Path venv) { Remove-Item -Recurse -Force venv }; " + "Write-Host 'All generated files cleaned'\"" } else { "echo 'Cleaning build artifacts...' && " + "rm -rf venv && " + "echo 'All generated files cleaned'" } }}
 
 # Start local web server
 serve:
@@ -109,4 +185,4 @@ dev:
 
 # Show project info
 info:
-    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'OSM Map Renderer'; " + "Write-Host '================'; " + "Write-Host ''; " + "Write-Host 'OS:             Windows'; " + "Write-Host ('Python:         ' + $(python --version 2>&1)); " + "Write-Host ('Zig:            ' + $(try { zig version 2>&1 } catch { 'not installed' })); " + "Write-Host ('Repository:     ' + $(try { git rev-parse --short HEAD 2>&1 } catch { 'not a git repo' })); " + "Write-Host ''; " + "Write-Host 'Python venv:'; " + "if (Test-Path venv) { Write-Host '  Virtual environment exists' } " + "else { Write-Host '  Not set up (run: just setup)' }; " + "Write-Host ''; " + "Write-Host 'Data files:'; " + "if (Test-Path preprocessing/data/hamburg-region.geojson) { " + "Get-Item preprocessing/data/hamburg-region.geojson | ForEach-Object { " + "Write-Host ('  ' + $_.Name + ' (' + '{0:N1} MB' -f ($_.Length / 1MB) + ')') } } " + "else { Write-Host '  GeoJSON not created (run: just data)' }; " + "Write-Host 'Tile status:'; " + "if (Test-Path public/tiles) { Write-Host '  Tiles generated' } " + "else { Write-Host '  Tiles not generated (run: just tiles)' }\"" } else { "echo 'OSM Map Renderer' && " + "echo '=================' && " + "echo '' && " + "echo 'OS:             " + os() + "' && " + "printf 'Python:         ' && (python --version 2>&1 || echo 'not installed') && " + "printf 'Zig:            ' && (zig version 2>&1 || echo 'not installed') && " + "printf 'Repository:     ' && (git rev-parse --short HEAD 2>&1 || echo 'not a git repo') && " + "echo '' && " + "echo 'Python venv:' && " + "if [ -d venv ]; then echo '  Virtual environment exists'; " + "else echo '  Not set up (run: just setup)'; fi && " + "echo '' && " + "echo 'Data files:' && " + "if [ -f preprocessing/data/hamburg-region.geojson ]; then " + "size=$(du -h preprocessing/data/hamburg-region.geojson | cut -f1); " + "echo \"  hamburg-region.geojson ($size)\"; " + "else echo '  GeoJSON not created (run: just data)'; fi && " + "echo 'Tile status:' && " + "if [ -d public/tiles ]; then echo '  Tiles generated'; " + "else echo '  Tiles not generated (run: just tiles)'; fi" } }}
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'OSM Map Renderer'; " + "Write-Host '================'; " + "Write-Host ''; " + "Write-Host 'OS:             Windows'; " + "Write-Host ('Python:         ' + $(python --version 2>&1)); " + "Write-Host ('Repository:     ' + $(try { git rev-parse --short HEAD 2>&1 } catch { 'not a git repo' })); " + "Write-Host ''; " + "Write-Host 'Python venv:'; " + "if (Test-Path venv) { Write-Host '  Virtual environment exists' } " + "else { Write-Host '  Not set up (run: just setup)' }; " + "Write-Host ''; " + "Write-Host 'Data files:'; " + "$rc = @(Get-ChildItem preprocessing/data -Directory -Filter '*-latest' -ErrorAction SilentlyContinue).Count; " + "if ($rc -gt 0) { Write-Host \"  $rc region(s) downloaded\" } " + "else { Write-Host '  No regions downloaded (run: just download)' }; " + "Write-Host 'Tile status:'; " + "if (Test-Path public/tiles) { Write-Host '  Tiles generated' } " + "else { Write-Host '  Tiles not generated (run: just tiles)' }\"" } else { "echo 'OSM Map Renderer' && " + "echo '=================' && " + "echo '' && " + "echo 'OS:             " + os() + "' && " + "printf 'Python:         ' && (python --version 2>&1 || echo 'not installed') && " + "printf 'Repository:     ' && (git rev-parse --short HEAD 2>&1 || echo 'not a git repo') && " + "echo '' && " + "echo 'Python venv:' && " + "if [ -d venv ]; then echo '  Virtual environment exists'; " + "else echo '  Not set up (run: just setup)'; fi && " + "echo '' && " + "echo 'Data files:' && " + "region_count=$(ls -d preprocessing/data/*-latest 2>/dev/null | wc -l | tr -d ' '); " + "if [ \"$region_count\" -gt 0 ]; then echo \"  $region_count region(s) downloaded\"; " + "else echo '  No regions downloaded (run: just download)'; fi && " + "echo 'Tile status:' && " + "if [ -d public/tiles ]; then echo '  Tiles generated'; " + "else echo '  Tiles not generated (run: just tiles)'; fi" } }}
