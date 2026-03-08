@@ -3144,22 +3144,22 @@ class MapRenderer {
         continue;
       }
 
-      // At 400km+: skip non-water polygons and non-capital place labels
+      // At 400km+: skip non-water polygons; hide 2nd-level roads (primary, priority 6)
       if (this.viewWidthMeters >= 400000) {
         const l = featureInfo.layer;
         if (featureInfo.fill && l !== "water_areas" && l !== "base_land") {
           lodCulledCount++;
           continue;
         }
+        // Hide primary roads (priority 6) and below — only motorway/trunk (7) remain
+        const isRoadLayer = l === "surface_roads" || l === "bridge_roads" ||
+                            l === "tunnels" || l === "steps";
+        if (isRoadLayer && (featureInfo.roadPriority || 0) < 7) {
+          lodCulledCount++;
+          continue;
+        }
         if (this.viewWidthMeters >= 750000) {
           if (l === "place_labels" && !featureInfo.isCapital) {
-            lodCulledCount++;
-            continue;
-          }
-          // Skip sub-primary roads (priority < 6) — keep motorway/trunk/primary and railways
-          const isRoadLayer = l === "surface_roads" || l === "bridge_roads" ||
-                              l === "tunnels" || l === "steps";
-          if (isRoadLayer && (featureInfo.roadPriority || 0) < 6) {
             lodCulledCount++;
             continue;
           }
@@ -6532,78 +6532,193 @@ class MapRenderer {
 
     // OSM network tag → shield type key
     const NETWORK_TYPE = {
+      // Germany
       "de:motorway":       "de_motorway",
       "de:federal_road":   "de_federal",
+      // United Kingdom / Ireland
       "gb:motorway":       "gb_motorway",
       "gb:A-road-primary": "gb_a_primary",
       "gb:A-road":         "gb_a",
+      "ie:motorway":       "ie_motorway",
+      "ie:national":       "ie_national",
+      // France
       "fr:A-road":         "fr_motorway",
       "fr:N-road":         "fr_national",
       "fr:D-road":         "fr_departmental",
+      // Benelux
       "nl:motorway":       "nl_motorway",
       "nl:national":       "nl_national",
       "be:motorway":       "be_motorway",
+      "be:national":       "be_national",
       "be:regional":       "be_regional",
+      "lu:motorway":       "lu_motorway",
+      // DACH
       "at:motorway":       "at_motorway",
       "at:expressway":     "at_expressway",
+      "at:B-road":         "at_national",
       "ch:motorway":       "ch_motorway",
-      "it:motorway":       "it_motorway",
+      "ch:national":       "ch_national",
+      // Iberia
       "es:motorway":       "es_motorway",
       "es:primary":        "es_primary",
+      "pt:motorway":       "pt_motorway",
+      "pt:national":       "pt_national",
+      // Italy
+      "it:motorway":       "it_motorway",
+      "it:A-road":         "it_motorway",
+      "it:national":       "it_national",
+      // Poland
       "pl:motorway":       "pl_motorway",
       "pl:expressway":     "pl_expressway",
+      "pl:national":       "pl_national",
+      // Central Europe
       "cz:motorway":       "cz_motorway",
+      "cz:expressway":     "cz_motorway",
+      "cz:national":       "cz_national",
+      "sk:motorway":       "sk_motorway",
+      "sk:expressway":     "sk_motorway",
+      "sk:national":       "sk_national",
       "hu:motorway":       "hu_motorway",
+      "hu:national":       "hu_national",
+      // Southeast Europe
+      "ro:motorway":       "ro_motorway",
+      "ro:national":       "ro_national",
+      "hr:motorway":       "hr_motorway",
+      "hr:national":       "hr_national",
+      "si:motorway":       "si_motorway",
+      "si:national":       "si_national",
+      "bg:motorway":       "bg_motorway",
+      "rs:motorway":       "rs_motorway",
+      "gr:motorway":       "gr_motorway",
+      "gr:national":       "gr_national",
+      // Scandinavia
       "dk:motorway":       "dk_motorway",
+      "dk:primary":        "dk_national",
       "se:national":       "se_national",
+      "se:primary":        "se_primary",
       "no:national":       "no_national",
+      "no:primary":        "no_primary",
+      "fi:motorway":       "fi_motorway",
+      "fi:national":       "fi_national",
+      // Baltics
+      "lt:motorway":       "lt_motorway",
+      "lt:national":       "lt_national",
+      "lv:motorway":       "lv_motorway",
+      "lv:national":       "lv_national",
+      "ee:motorway":       "ee_motorway",
+      "ee:national":       "ee_national",
     };
 
     // Shield visual styles per type
     const SHIELD = {
-      // Germany
+      // ── Germany ──────────────────────────────────────────────────────────────
       de_motorway:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
       de_federal:      { bg: "#FFCC00", border: "#b89900", text: "#000000" },
-      // UK
+      // ── United Kingdom ───────────────────────────────────────────────────────
       gb_motorway:     { bg: "#6b2d8c", border: "#4a1f6e", text: "#ffffff" },
       gb_a_primary:    { bg: "#007229", border: "#004d1a", text: "#ffffff" },
       gb_a:            { bg: "#f0f0f0", border: "#888888", text: "#000000" },
-      // France
+      // ── Ireland ──────────────────────────────────────────────────────────────
+      ie_motorway:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      ie_national:     { bg: "#007229", border: "#004d1a", text: "#ffffff" },
+      // ── France ───────────────────────────────────────────────────────────────
       fr_motorway:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
       fr_national:     { bg: "#cc0000", border: "#990000", text: "#ffffff" },
       fr_departmental: { bg: "#FFCC00", border: "#b89900", text: "#000000" },
-      // Netherlands
+      // ── Benelux ──────────────────────────────────────────────────────────────
       nl_motorway:     { bg: "#cc2200", border: "#991a00", text: "#ffffff" },
       nl_national:     { bg: "#FFCC00", border: "#b89900", text: "#000000" },
-      // Belgium
       be_motorway:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      be_national:     { bg: "#cc0000", border: "#990000", text: "#ffffff" },
       be_regional:     { bg: "#cc2200", border: "#991a00", text: "#ffffff" },
-      // Green motorways: Austria, Switzerland, Italy, Czech Republic, Hungary
+      lu_motorway:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      // ── DACH ─────────────────────────────────────────────────────────────────
       at_motorway:     { bg: "#007229", border: "#004d1a", text: "#ffffff" },
       at_expressway:   { bg: "#007229", border: "#004d1a", text: "#ffffff" },
+      at_national:     { bg: "#FFCC00", border: "#b89900", text: "#000000" },
       ch_motorway:     { bg: "#007229", border: "#004d1a", text: "#ffffff" },
-      it_motorway:     { bg: "#007229", border: "#004d1a", text: "#ffffff" },
-      cz_motorway:     { bg: "#007229", border: "#004d1a", text: "#ffffff" },
-      hu_motorway:     { bg: "#007229", border: "#004d1a", text: "#ffffff" },
-      // Blue motorways: Denmark, Sweden, Norway, Spain
-      dk_motorway:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
-      se_national:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
-      no_national:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      ch_national:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      // ── Iberia ───────────────────────────────────────────────────────────────
       es_motorway:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
       es_primary:      { bg: "#cc0000", border: "#990000", text: "#ffffff" },
-      // Poland
+      pt_motorway:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      pt_national:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      // ── Italy ────────────────────────────────────────────────────────────────
+      it_motorway:     { bg: "#007229", border: "#004d1a", text: "#ffffff" },
+      it_national:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      // ── Poland ───────────────────────────────────────────────────────────────
       pl_motorway:     { bg: "#cc2200", border: "#991a00", text: "#ffffff" },
       pl_expressway:   { bg: "#cc2200", border: "#991a00", text: "#ffffff" },
-      // Pan-European E-roads (always green regardless of country)
+      pl_national:     { bg: "#cc0000", border: "#990000", text: "#ffffff" },
+      // ── Central Europe ───────────────────────────────────────────────────────
+      cz_motorway:     { bg: "#007229", border: "#004d1a", text: "#ffffff" },
+      cz_national:     { bg: "#FFCC00", border: "#b89900", text: "#000000" },
+      sk_motorway:     { bg: "#007229", border: "#004d1a", text: "#ffffff" },
+      sk_national:     { bg: "#FFCC00", border: "#b89900", text: "#000000" },
+      hu_motorway:     { bg: "#007229", border: "#004d1a", text: "#ffffff" },
+      hu_national:     { bg: "#FFCC00", border: "#b89900", text: "#000000" },
+      // ── Southeast Europe ─────────────────────────────────────────────────────
+      ro_motorway:     { bg: "#007229", border: "#004d1a", text: "#ffffff" },
+      ro_national:     { bg: "#FFCC00", border: "#b89900", text: "#000000" },
+      hr_motorway:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      hr_national:     { bg: "#FFCC00", border: "#b89900", text: "#000000" },
+      si_motorway:     { bg: "#007229", border: "#004d1a", text: "#ffffff" },
+      si_national:     { bg: "#FFCC00", border: "#b89900", text: "#000000" },
+      bg_motorway:     { bg: "#007229", border: "#004d1a", text: "#ffffff" },
+      rs_motorway:     { bg: "#007229", border: "#004d1a", text: "#ffffff" },
+      gr_motorway:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      gr_national:     { bg: "#FFCC00", border: "#b89900", text: "#000000" },
+      // ── Scandinavia ──────────────────────────────────────────────────────────
+      dk_motorway:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      dk_national:     { bg: "#FFCC00", border: "#b89900", text: "#000000" },
+      se_national:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      se_primary:      { bg: "#FFCC00", border: "#b89900", text: "#000000" },
+      no_national:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      no_primary:      { bg: "#FFCC00", border: "#b89900", text: "#000000" },
+      fi_motorway:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      fi_national:     { bg: "#cc0000", border: "#990000", text: "#ffffff" },
+      // ── Baltics ──────────────────────────────────────────────────────────────
+      lt_motorway:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      lt_national:     { bg: "#FFCC00", border: "#b89900", text: "#000000" },
+      lv_motorway:     { bg: "#cc0000", border: "#990000", text: "#ffffff" },
+      lv_national:     { bg: "#FFCC00", border: "#b89900", text: "#000000" },
+      ee_motorway:     { bg: "#003399", border: "#4466cc", text: "#ffffff" },
+      ee_national:     { bg: "#FFCC00", border: "#b89900", text: "#000000" },
+      // ── Pan-European E-roads ─────────────────────────────────────────────────
       europe:          { bg: "#00802b", border: "#004d1a", text: "#ffffff" },
     };
 
     const FONT = "bold 10px Arial, sans-serif";
     const FS = 10, PAD_X = 5, PAD_Y = 3, RADIUS = 3, GAP = 3;
+    // Minimum pixel distance between two shields with the same ref text
+    const MIN_SHIELD_SPACING = 300;
 
     // Parse OSM ref tag into typed shield descriptors.
     // network tag resolves ambiguous prefixes (e.g. "A" means different things in DE/NL/AT).
     // E-roads always get the European green style regardless of network.
+    // 2nd-level road types hidden when zoomed out beyond 200km
+    const SECONDARY_TYPES = new Set([
+      "de_federal",
+      "gb_a_primary", "gb_a",
+      "fr_national", "fr_departmental",
+      "nl_national",
+      "be_national", "be_regional",
+      "at_national",
+      "ch_national",
+      "es_primary",
+      "pt_national",
+      "it_national",
+      "pl_national",
+      "cz_national", "sk_national", "hu_national",
+      "ro_national", "hr_national", "si_national", "gr_national",
+      "dk_national",
+      "se_primary", "no_primary",
+      "fi_national",
+      "ie_national",
+      "lt_national", "lv_national", "ee_national",
+    ]);
+    const hideSecondary = this.viewWidthMeters > 200000;
+
     const parseRefs = (refStr, network) => {
       if (!refStr) return [];
 
@@ -6616,20 +6731,30 @@ class MapRenderer {
       }
 
       return refStr.split(";").map((s) => s.trim()).flatMap((r) => {
-        // E-roads always use European green
-        if (/^E\d/.test(r)) return [{ text: r, type: "europe" }];
+        // E-roads always use European green ("E45" or "E 45" format)
+        if (/^E\s*\d/.test(r)) return [{ text: r, type: "europe" }];
         // Network tag takes priority for all other refs
-        if (networkType) return [{ text: r, type: networkType }];
-        // Fallback: guess from ref prefix (biased toward countries in our data)
-        if (/^A\d/.test(r)) return [{ text: r, type: "de_motorway" }];
-        if (/^B\d/.test(r)) return [{ text: r, type: "de_federal" }];
+        if (networkType) {
+          if (hideSecondary && SECONDARY_TYPES.has(networkType)) return [];
+          return [{ text: r, type: networkType }];
+        }
+        // Fallback: guess from ref prefix.
+        // German refs use "A 7" / "B 34" format (letter + space + number).
+        // The space disambiguates from Polish "A1", Austrian "A1", etc.
+        if (/^A \d/.test(r)) return [{ text: r, type: "de_motorway" }];
+        if (/^B \d/.test(r)) return hideSecondary ? [] : [{ text: r, type: "de_federal" }];
         if (/^M\d/.test(r)) return [{ text: r, type: "gb_motorway" }];
         if (/^N\d/.test(r)) return [{ text: r, type: "fr_national" }];
         if (/^D\d/.test(r)) return [{ text: r, type: "fr_departmental" }];
-        if (/^S\d/.test(r)) return [{ text: r, type: "at_expressway" }];
         return [];
       });
     };
+
+    // Track placed refs to enforce minimum spacing and cap repeats
+    const lastPlaced = new Map(); // ref text → {x, y}
+    const placedCount = new Map(); // ref text → number of times placed
+    // At fine zoom (≤50km) only 1 instance per ref; at wider zoom allow more
+    const maxPerRef = this.viewWidthMeters <= 50000 ? 1 : 3;
 
     const ctx = this.ctx;
     ctx.save();
@@ -6713,8 +6838,24 @@ class MapRenderer {
         const totalW = shields.reduce((s, sh) => s + sh.w, 0) + GAP * (shields.length - 1);
         const maxH = Math.max(...shields.map((sh) => sh.h));
 
+        // Skip if any ref in this group has hit its repeat cap or is too close to a prior placement
+        const skip = refs.some((ref) => {
+          if ((placedCount.get(ref.text) || 0) >= maxPerRef) return true;
+          const prev = lastPlaced.get(ref.text);
+          if (!prev) return false;
+          const dx = midX - prev.x, dy = midY - prev.y;
+          return dx * dx + dy * dy < MIN_SHIELD_SPACING * MIN_SHIELD_SPACING;
+        });
+        if (skip) continue;
+
         // Check combined occupancy before drawing anything
         if (this.labelOccupancyCheck(midX, midY, totalW + 4, maxH + 4)) continue;
+
+        // Record placement position and count for each ref
+        for (const ref of refs) {
+          lastPlaced.set(ref.text, { x: midX, y: midY });
+          placedCount.set(ref.text, (placedCount.get(ref.text) || 0) + 1);
+        }
 
         // Draw shields left-to-right, centred on midpoint
         let sx = midX - totalW / 2;
