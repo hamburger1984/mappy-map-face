@@ -46,5 +46,9 @@
   {
     "name": "sweden",
     "url": "https://download.geofabrik.de/europe/sweden-latest.osm.pbf"
+  },
+  {
+    "name": "lithuania",
+    "url": "https://download.geofabrik.de/europe/lithuania-latest.osm.pbf"
   }
 ]

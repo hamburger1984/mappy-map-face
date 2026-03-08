@@ -2486,18 +2486,11 @@ def main():
 
     args = parser.parse_args()
 
-    # --- --regen-tilesets: delete + rebuild specific tilesets for all regions ---
+    # --- --regen-tilesets: rebuild specific tilesets for all regions, then swap ---
     if args.regen_tilesets:
         _apply_tileset_filter(args.regen_tilesets)
         print(f"Regenerating tilesets: {TILESET_IDS}")
         print()
-
-        # Delete existing tileset dirs so stale features are removed
-        for ts_id in TILESET_IDS:
-            ts_dir = args.output_dir / ts_id
-            if ts_dir.exists():
-                shutil.rmtree(ts_dir)
-                print(f"  Deleted {ts_dir}")
 
         # Find all region GeoJSONs in data-dir
         geojson_files = sorted(args.data_dir.glob("*/*.osm.geojson"))
@@ -2515,7 +2508,30 @@ def main():
         else:
             regions_data = {"version": 1, "regions": {}}
 
-        _run_add_mode(args, geojson_files, regions_data)
+        # Build into a staging dir so the live tilesets stay intact during the build
+        staging_dir = args.output_dir.parent / f".regen_staging_{os.getpid()}"
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            staging_args = argparse.Namespace(**vars(args))
+            staging_args.output_dir = staging_dir
+            _run_add_mode(staging_args, geojson_files, regions_data)
+
+            # Atomically swap each tileset dir: rename live→old, staging→live, delete old
+            print("\nSwapping tileset directories...")
+            for ts_id in TILESET_IDS:
+                live = args.output_dir / ts_id
+                new = staging_dir / ts_id
+                old = args.output_dir / f".old_{ts_id}"
+                if not new.exists():
+                    continue
+                if live.exists():
+                    os.rename(live, old)
+                os.rename(new, live)
+                if old.exists():
+                    shutil.rmtree(old)
+                print(f"  ✓ {ts_id}")
+        finally:
+            shutil.rmtree(staging_dir, ignore_errors=True)
         return
 
     # --- Apply --tilesets filter (modifier for --add / --update / full build) ---
