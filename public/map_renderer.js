@@ -2390,7 +2390,8 @@ class MapRenderer {
     if (this.viewWidthMeters < 7500) return "t2";
     if (this.viewWidthMeters < 20000) return "t2b";
     if (this.viewWidthMeters < 150000) return "t3";
-    return "t4";
+    if (this.viewWidthMeters < 400000) return "t4";
+    return "t5";
   }
 
   getVisibleTiles(bounds) {
@@ -5263,16 +5264,6 @@ class MapRenderer {
       }
     };
 
-    // Phase-aligned dashes for taxiway centerlines.
-    const alignedDash = (pts, dashLen) => {
-      if (pts.length < 2) return;
-      const dx = pts[pts.length-1].x - pts[0].x;
-      const dy = pts[pts.length-1].y - pts[0].y;
-      const len = Math.sqrt(dx*dx + dy*dy) || 1;
-      const phase = (pts[0].x * (dx/len) + pts[0].y * (dy/len)) % (dashLen * 2);
-      this.ctx.lineDashOffset = -phase;
-    };
-
     // --- Taxiways: multi-pass (border, fill, centerline) ---
     this.ctx.lineCap = "butt";
     this.ctx.lineJoin = "round";
@@ -5291,21 +5282,12 @@ class MapRenderer {
       this.ctx.lineWidth = w > 4 ? w - 2 : w;
       for (const pts of screenPaths) { tracePath(pts); this.ctx.stroke(); }
     }
-    // Pass 3: taxiway centerline — use coordinate-based dash offset so dashes
-    // align across tile boundaries even without merging taxiway segments.
+    // Pass 3: taxiway centerline — faint solid line
+    this.ctx.strokeStyle = toRGBA(getColor("aeroway", "taxiwayCenterline"));
     for (const { screenPaths, w } of taxiways) {
       if (w > 6) {
-        const dashLen = Math.max(3, w * 0.4);
-        this.ctx.strokeStyle = toRGBA(getColor("aeroway", "taxiwayCenterline"));
-        this.ctx.lineWidth = Math.max(1, w * 0.05);
-        this.ctx.setLineDash([dashLen, dashLen]);
-        for (const pts of screenPaths) {
-          alignedDash(pts, dashLen);
-          tracePath(pts);
-          this.ctx.stroke();
-        }
-        this.ctx.setLineDash([]);
-        this.ctx.lineDashOffset = 0;
+        this.ctx.lineWidth = Math.max(0.5, w * 0.03);
+        for (const pts of screenPaths) { tracePath(pts); this.ctx.stroke(); }
       }
     }
 
@@ -5327,76 +5309,49 @@ class MapRenderer {
       this.ctx.lineWidth = w > 6 ? w - 3 : w;
       for (const pts of screenPaths) { tracePath(pts); this.ctx.stroke(); }
     }
-    // Pass 3: runway centerline dashes using a canvas pattern anchored to the
-    // canvas origin, rotated to align with each segment. The pattern is sampled
-    // by screen position, not path direction, so two tile-clipped segments of the
-    // same runway produce identical dashes regardless of which way they were stored.
-    const clColor = getColor("aeroway", "runwayCenterline");
-    for (const { screenPaths, w } of runways) {
-      const dashLen = Math.ceil(Math.max(4, w * 0.6));
-      const period = dashLen * 2;
-      const pc = document.createElement("canvas");
-      pc.width = period;
-      pc.height = 1;
-      const px = pc.getContext("2d");
-      px.fillStyle = `rgb(${clColor.r},${clColor.g},${clColor.b})`;
-      px.fillRect(0, 0, dashLen, 1); // first half solid, second half transparent
-      const pattern = this.ctx.createPattern(pc, "repeat");
-      this.ctx.lineWidth = Math.max(1, w * 0.06);
-      for (const pts of screenPaths) {
-        if (pts.length < 2) continue;
-        const dx = pts[pts.length - 1].x - pts[0].x;
-        const dy = pts[pts.length - 1].y - pts[0].y;
-        const angle = Math.atan2(dy, dx);
-        pattern.setTransform(new DOMMatrix().rotate((angle * 180) / Math.PI));
-        this.ctx.strokeStyle = pattern;
-        tracePath(pts);
-        this.ctx.stroke();
-      }
-    }
     this.ctx.strokeStyle = "#000";
 
-    // Pass 4: runway designation labels — drawn at the true merged endpoints,
-    // so each ref appears exactly once and at the correct position.
-    // Only draw if enough of the runway is visible (> 60% of stated length),
-    // so we don't label tile-edge stub segments when the runway barely enters view.
+    // Pass 4: runway designation labels.
+    // Collect all candidates first, then deduplicate by designation — each ref
+    // is drawn at most once, using the longest visible segment as the winner.
+    // This prevents tile-clipped copies of the same runway from each drawing labels.
     const mpp = this.viewWidthMeters / this.canvasWidth; // metres per pixel
+    // refCandidates: ref_string -> { x, y, angle, visibleM, fontSize }
+    const refCandidates = new Map();
     for (const { item, screenPaths, w } of runways) {
       if (!item.runwayRef || w <= 10) continue;
+      const fontSize = Math.max(8, Math.min(14, w * 0.25));
       for (const pts of screenPaths) {
-        // Measure visible path length in metres
         let pxLen = 0;
         for (let i = 1; i < pts.length; i++) {
           const dx = pts[i].x - pts[i-1].x, dy = pts[i].y - pts[i-1].y;
           pxLen += Math.sqrt(dx*dx + dy*dy);
         }
         const visibleM = pxLen * mpp;
-        if (item.runwayLength && visibleM < item.runwayLength * 0.6) continue;
 
         const first = pts[0], last = pts[pts.length - 1];
         const dx = last.x - first.x, dy = last.y - first.y;
         const angle = Math.atan2(dy, dx);
-        const refs = item.runwayRef.split("/");
-        const fontSize = Math.max(8, Math.min(14, w * 0.25));
-        this.ctx.font = `bold ${fontSize}px Arial, sans-serif`;
-        this.ctx.fillStyle = toRGBA(getColor("aeroway", "runwayLabel"));
-        this.ctx.textAlign = "center";
-        this.ctx.textBaseline = "middle";
-        if (refs[0]) {
-          this.ctx.save();
-          this.ctx.translate(first.x + dx * 0.08, first.y + dy * 0.08);
-          this.ctx.rotate(angle);
-          this.ctx.fillText(refs[0], 0, 0);
-          this.ctx.restore();
-        }
-        if (refs[1]) {
-          this.ctx.save();
-          this.ctx.translate(last.x - dx * 0.08, last.y - dy * 0.08);
-          this.ctx.rotate(angle + Math.PI);
-          this.ctx.fillText(refs[1], 0, 0);
-          this.ctx.restore();
+        const ref = item.runwayRef;
+        const cx = (first.x + last.x) / 2, cy = (first.y + last.y) / 2;
+        if (cx < 0 || cx > this.canvasWidth || cy < 0 || cy > this.canvasHeight) continue;
+
+        const prev = refCandidates.get(ref);
+        if (!prev || visibleM > prev.visibleM) {
+          refCandidates.set(ref, { x: cx, y: cy, angle, visibleM, fontSize });
         }
       }
+    }
+    this.ctx.fillStyle = toRGBA(getColor("aeroway", "runwayLabel"));
+    this.ctx.textAlign = "center";
+    this.ctx.textBaseline = "middle";
+    for (const [ref, { x, y, angle, fontSize }] of refCandidates) {
+      this.ctx.font = `bold ${fontSize}px Arial, sans-serif`;
+      this.ctx.save();
+      this.ctx.translate(x, y);
+      this.ctx.rotate(angle);
+      this.ctx.fillText(ref, 0, 0);
+      this.ctx.restore();
     }
 
     // Pass 5: runway edge lighting (on merged path for consistent dot spacing)

@@ -1428,7 +1428,7 @@ tilesets:
   # ===========================================================================
   - id: "t4"
     name: "Overview"
-    view_range_meters: [200000, 1000000]
+    view_range_meters: [150000, 400000]
     tile_size_meters: 50000
 
     features:
@@ -1477,6 +1477,60 @@ tilesets:
         simplification: { epsilon_m: 200 }
       - <<: *maritime_eez
         simplification: { epsilon_m: 200 }
+      - <<: *cities
+      - <<: *large_towns
+
+  # ===========================================================================
+  # T5: CONTINENTAL (400km - 1000km)
+  # ===========================================================================
+  - id: "t5"
+    name: "Continental"
+    view_range_meters: [400000, 1000000]
+    tile_size_meters: 100000
+
+    features:
+      - name: "water_bodies_huge"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["water"]
+            waterway: ["riverbank"]
+            landuse: ["basin", "reservoir", "salt_pond"]
+          min_area_km2: 10.0
+        render:
+          layer: "water_areas"
+          themeKey: "water.area"
+          fill: true
+          minLOD: 0
+        simplification: { epsilon_m: 500 }
+      - name: "forests_huge"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            landuse: ["forest"]
+            natural: ["wood"]
+          min_area_km2: 10.0
+          preserve_tags: ["leaf_type"]
+        render:
+          layer: "forests"
+          themeKey: "natural.forest"
+          fill: true
+          minLOD: 0
+        simplification: { epsilon_m: 500 }
+      - <<: *motorways
+        simplification: { epsilon_m: 500 }
+      - <<: *primary_roads
+        simplification: { epsilon_m: 500 }
+      # NO secondary/tertiary/residential/minor roads
+      - <<: *major_rail
+        simplification: { epsilon_m: 500 }
+      # NO landuse, aeroways
+      - <<: *country_borders
+        simplification: { epsilon_m: 500 }
+      - <<: *maritime_territorial
+        simplification: { epsilon_m: 500 }
+      - <<: *maritime_eez
+        simplification: { epsilon_m: 500 }
       - <<: *cities
       - <<: *large_towns
 

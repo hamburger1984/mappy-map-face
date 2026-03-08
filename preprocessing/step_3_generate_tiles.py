@@ -1683,7 +1683,8 @@ def split_geojson_into_tiles(
     """
 
     processing_keys = TILESET_IDS
-    print(f"Generating tilesets: {processing_keys}")
+    region_name = Path(geojson_file).stem.replace(".osm", "")
+    print(f"  [{region_name}] Generating tilesets: {processing_keys}")
     if clip_to_tiles:
         print(f"  Clipping enabled (buffer: {clip_buffer_pct * 100:.1f}% of tile size)")
 
@@ -1921,7 +1922,8 @@ def split_geojson_into_tiles(
 
 def process_geojson_to_tiles(args):
     """Process a single GeoJSON file into tiles."""
-    geojson_file, output_dir, source_file, clip_to_tiles, clip_buffer_pct, defer_finalization = args
+    geojson_file, output_dir, source_file, clip_to_tiles, clip_buffer_pct, defer_finalization, active_tileset_ids = args
+    _apply_tileset_filter(active_tileset_ids)
 
     geojson_path = Path(geojson_file)
     source_path = Path(source_file) if source_file else geojson_path
@@ -2158,7 +2160,11 @@ def compute_tile_statistics(tile_dir, output_file=None, max_sample=1000):
 def _apply_tileset_filter(tileset_ids):
     """Filter module-level TILESETS to only the specified IDs. Modifies globals in-place."""
     global TILESETS, TILESET_IDS, TILESET_TILE_SIZES, TILESET_EPSILON
-    allowed = set(tileset_ids)
+    # Accept both space-separated and comma-separated lists (e.g. "t4,t5" or ["t4", "t5"])
+    flat = []
+    for item in tileset_ids:
+        flat.extend(s.strip() for s in item.split(",") if s.strip())
+    allowed = set(flat)
     all_ids = {ts["id"] for ts in TILESETS}
     unknown = allowed - all_ids
     if unknown:
@@ -2265,6 +2271,7 @@ def _run_add_mode(args, geojson_files, regions_data):
                 args.clip,
                 args.clip_buffer,
                 True,  # defer_finalization
+                TILESET_IDS,
             ))
 
         print("Phase 1: Writing features...")
@@ -2608,6 +2615,7 @@ def main():
                     args.clip,
                     args.clip_buffer,
                     True,  # defer_finalization
+                    TILESET_IDS,
                 ))
 
             print("\nPhase 1: Writing features...")
@@ -2810,6 +2818,7 @@ def main():
                     args.clip,
                     args.clip_buffer,
                     True,  # defer_finalization — Phase 2 runs globally below
+                    TILESET_IDS,
                 )
             )
 

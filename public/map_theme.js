@@ -185,7 +185,7 @@ export const THEMES = {
       apron:             { r: 160, g: 160, b: 160, a: 255 },
       helipad:           { r: 100, g: 100, b: 100, a: 255 },
       taxiwayBorder:     { r: 255, g: 255, b: 255, a: 102 }, // White at 0.4 opacity
-      taxiwayCenterline: { r: 255, g: 255, b: 200, a: 128 }, // Yellow-white at 0.5
+      taxiwayCenterline: { r: 255, g: 255, b: 200, a:  60 }, // Yellow-white at 0.24
       runwayEdge:        { r: 255, g: 255, b: 255, a: 153 }, // White at 0.6 opacity
       runwayCenterline:  { r: 255, g: 255, b: 255, a: 204 }, // White at 0.8 opacity
       runwayLabel:       { r: 255, g: 255, b: 255, a: 230 }, // White at 0.9 opacity
