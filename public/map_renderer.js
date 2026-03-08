@@ -11,6 +11,24 @@ import {
   setTheme,
 } from "./map_theme.js";
 
+// Shorten long German place names with locative suffixes for zoomed-out views.
+// e.g. "Brandenburg an der Havel" → "Brandenburg a.d.H."
+//      "Frankfurt am Main"        → "Frankfurt a.M."
+function abbreviatePlaceName(name) {
+  if (!name) return name;
+  return name
+    // "an/in/ob + der + Word" → "a/i/o.d.W."
+    .replace(
+      /\s+(an|in|ob)\s+der\s+([A-ZÄÖÜ])\S*/,
+      (_, prep, first) => ` ${prep[0]}.d.${first}.`,
+    )
+    // "am/an/im + Word" → "a/a/i.W."
+    .replace(
+      /\s+(am|an|im)\s+([A-ZÄÖÜ])\S*/,
+      (_, prep, first) => ` ${prep[0]}.${first}.`,
+    );
+}
+
 // Tunnel opacity constants (alpha 0-255)
 const TUNNEL_ROAD_ALPHA = 80; // ~30% opacity for road/rail tunnels
 const TUNNEL_WATER_ALPHA = 51; // ~20% opacity for water tunnels
@@ -294,6 +312,7 @@ class MapRenderer {
     this.canvas = null;
     this.ctx = null;
     this.mapData = null;
+    this._lastTileSetSig = null;
     this.canvasWidth = 1200;
     this.canvasHeight = 800;
 
@@ -2692,26 +2711,26 @@ class MapRenderer {
             let keyParts;
 
             if (geom.type === "Point") {
-              keyParts = `${typeId},${coords[0].toFixed(6)},${coords[1].toFixed(6)}`;
+              keyParts = `${typeId},${coords[0]*1e6|0},${coords[1]*1e6|0}`;
             } else if (geom.type === "LineString") {
               const mid = coords[Math.floor(coords.length / 2)];
-              keyParts = `${typeId},${coords.length},${coords[0][0].toFixed(6)},${coords[0][1].toFixed(6)},${mid[0].toFixed(6)},${mid[1].toFixed(6)}`;
+              keyParts = `${typeId},${coords.length},${coords[0][0]*1e6|0},${coords[0][1]*1e6|0},${mid[0]*1e6|0},${mid[1]*1e6|0}`;
             } else if (geom.type === "Polygon") {
               const ring = coords[0];
               const mid = ring[Math.floor(ring.length / 2)];
-              keyParts = `${typeId},${ring.length},${ring[0][0].toFixed(6)},${ring[0][1].toFixed(6)},${mid[0].toFixed(6)},${mid[1].toFixed(6)}`;
+              keyParts = `${typeId},${ring.length},${ring[0][0]*1e6|0},${ring[0][1]*1e6|0},${mid[0]*1e6|0},${mid[1]*1e6|0}`;
             } else if (geom.type === "MultiLineString") {
               const first = coords[0][0];
               const lastLine = coords[coords.length - 1];
               const last = lastLine[lastLine.length - 1];
               const totalVerts = coords.reduce((s, c) => s + c.length, 0);
-              keyParts = `${typeId},${totalVerts},${first[0].toFixed(6)},${first[1].toFixed(6)},${last[0].toFixed(6)},${last[1].toFixed(6)}`;
+              keyParts = `${typeId},${totalVerts},${first[0]*1e6|0},${first[1]*1e6|0},${last[0]*1e6|0},${last[1]*1e6|0}`;
             } else if (geom.type === "MultiPolygon") {
               const first = coords[0][0][0];
               const lastPoly = coords[coords.length - 1][0];
               const mid = lastPoly[Math.floor(lastPoly.length / 2)];
               const totalVerts = coords.reduce((s, p) => s + p[0].length, 0);
-              keyParts = `${typeId},${totalVerts},${first[0].toFixed(6)},${first[1].toFixed(6)},${mid[0].toFixed(6)},${mid[1].toFixed(6)}`;
+              keyParts = `${typeId},${totalVerts},${first[0]*1e6|0},${first[1]*1e6|0},${mid[0]*1e6|0},${mid[1]*1e6|0}`;
             }
 
             // Include feature ID if available
@@ -2980,8 +2999,16 @@ class MapRenderer {
       this.tileCache.has(this.getTileKey(tileset, x, y)),
     ).length;
 
-    this.mapData = await this.loadVisibleTiles(adjustedBounds);
-    perfTimings.tileLoad = performance.now() - tileLoadStart;
+    const currentLOD = this.getLOD();
+    const tileSetSig = visibleTiles.map(t => `${t.tileset}/${t.x}/${t.y}`).join(',') + `|${currentLOD}`;
+    if (this._lastTileSetSig === tileSetSig && this.mapData) {
+      // Reuse cached mapData — skip expensive merge+dedup
+      perfTimings.tileLoad = performance.now() - tileLoadStart;
+    } else {
+      this.mapData = await this.loadVisibleTiles(adjustedBounds);
+      this._lastTileSetSig = tileSetSig;
+      perfTimings.tileLoad = performance.now() - tileLoadStart;
+    }
 
     // Update tile stats
     document.getElementById("tileCount").textContent = visibleTiles.length;
@@ -3117,16 +3144,25 @@ class MapRenderer {
         continue;
       }
 
-      // At 750km+: skip all non-water polygons and non-capital place labels
-      if (this.viewWidthMeters >= 750000) {
+      // At 400km+: skip non-water polygons and non-capital place labels
+      if (this.viewWidthMeters >= 400000) {
         const l = featureInfo.layer;
         if (featureInfo.fill && l !== "water_areas" && l !== "base_land") {
           lodCulledCount++;
           continue;
         }
-        if (l === "place_labels" && !featureInfo.isCapital) {
-          lodCulledCount++;
-          continue;
+        if (this.viewWidthMeters >= 750000) {
+          if (l === "place_labels" && !featureInfo.isCapital) {
+            lodCulledCount++;
+            continue;
+          }
+          // Skip sub-primary roads (priority < 6) — keep motorway/trunk/primary and railways
+          const isRoadLayer = l === "surface_roads" || l === "bridge_roads" ||
+                              l === "tunnels" || l === "steps";
+          if (isRoadLayer && (featureInfo.roadPriority || 0) < 6) {
+            lodCulledCount++;
+            continue;
+          }
         }
       }
 
@@ -3414,11 +3450,16 @@ class MapRenderer {
     const totalParseTime = fetchStats.reduce((s, t) => s + t.parseTime, 0);
 
     // Build layer size + timing table
+    const TIMING_KEY_MAP = {
+      roads: 'surface_roads', railways: 'surface_railways',
+      bridges: 'bridge_roads', tunnels: 'tunnels',
+      streetNames: 'surface_roads', highwayShields: 'surface_roads',
+    };
     const layerRows = Object.entries(layerTimings)
       .map(([name, time]) => ({
         name,
         time,
-        count: layers[name]?.length || 0,
+        count: (layers[TIMING_KEY_MAP[name] || name])?.length || 0,
       }))
       .filter((r) => r.count > 0 || r.time > 1);
 
@@ -5207,8 +5248,11 @@ class MapRenderer {
         w: item.width || (item.isRunway ? 4 : 2),
         c: item.color,
       };
-      if (item.isRunway) runways.push(entry);
-      else taxiways.push(entry);
+      if (item.isRunway) {
+        runways.push(entry);
+      } else {
+        taxiways.push(entry);
+      }
     }
 
     const tracePath = (pts) => {
@@ -5219,31 +5263,36 @@ class MapRenderer {
       }
     };
 
+    // Phase-aligned dashes for taxiway centerlines.
+    const alignedDash = (pts, dashLen) => {
+      if (pts.length < 2) return;
+      const dx = pts[pts.length-1].x - pts[0].x;
+      const dy = pts[pts.length-1].y - pts[0].y;
+      const len = Math.sqrt(dx*dx + dy*dy) || 1;
+      const phase = (pts[0].x * (dx/len) + pts[0].y * (dy/len)) % (dashLen * 2);
+      this.ctx.lineDashOffset = -phase;
+    };
+
     // --- Taxiways: multi-pass (border, fill, centerline) ---
-    // Pass 1: taxiway borders
     this.ctx.lineCap = "butt";
     this.ctx.lineJoin = "round";
     this.ctx.setLineDash([]);
-    for (const { screenPaths, w, c } of taxiways) {
+    // Pass 1: taxiway borders
+    for (const { screenPaths, w } of taxiways) {
       if (w > 4) {
         this.ctx.strokeStyle = toRGBA(getColor("aeroway", "taxiwayBorder"));
         this.ctx.lineWidth = w;
-        for (const pts of screenPaths) {
-          tracePath(pts);
-          this.ctx.stroke();
-        }
+        for (const pts of screenPaths) { tracePath(pts); this.ctx.stroke(); }
       }
     }
     // Pass 2: taxiway fill
     for (const { screenPaths, w, c } of taxiways) {
       this.ctx.strokeStyle = `rgba(${c.r},${c.g},${c.b},${c.a / 255})`;
       this.ctx.lineWidth = w > 4 ? w - 2 : w;
-      for (const pts of screenPaths) {
-        tracePath(pts);
-        this.ctx.stroke();
-      }
+      for (const pts of screenPaths) { tracePath(pts); this.ctx.stroke(); }
     }
-    // Pass 3: taxiway centerline
+    // Pass 3: taxiway centerline — use coordinate-based dash offset so dashes
+    // align across tile boundaries even without merging taxiway segments.
     for (const { screenPaths, w } of taxiways) {
       if (w > 6) {
         const dashLen = Math.max(3, w * 0.4);
@@ -5251,122 +5300,125 @@ class MapRenderer {
         this.ctx.lineWidth = Math.max(1, w * 0.05);
         this.ctx.setLineDash([dashLen, dashLen]);
         for (const pts of screenPaths) {
+          alignedDash(pts, dashLen);
           tracePath(pts);
           this.ctx.stroke();
         }
         this.ctx.setLineDash([]);
+        this.ctx.lineDashOffset = 0;
       }
     }
 
-    // --- Runways: multi-pass (edge lines, surface, centerline, labels, lighting) ---
-    // Pass 1: runway edge lines (white outline — drawn widest first)
+    // --- Runways: multi-pass ---
     this.ctx.lineCap = "butt";
     this.ctx.lineJoin = "round";
     this.ctx.setLineDash([]);
+    // Pass 1: runway edge lines
     for (const { screenPaths, w } of runways) {
       if (w > 6) {
         this.ctx.strokeStyle = toRGBA(getColor("aeroway", "runwayEdge"));
         this.ctx.lineWidth = w;
-        for (const pts of screenPaths) {
-          tracePath(pts);
-          this.ctx.stroke();
-        }
+        for (const pts of screenPaths) { tracePath(pts); this.ctx.stroke(); }
       }
     }
-
-    // Pass 2: runway surface fill (slightly narrower to leave edge lines visible)
+    // Pass 2: runway surface fill
     for (const { screenPaths, w, c } of runways) {
-      this.ctx.strokeStyle = `rgba(${c.r},${c.g},${c.b},${c.a / 255})`;
+      this.ctx.strokeStyle = `rgb(${c.r},${c.g},${c.b})`;
       this.ctx.lineWidth = w > 6 ? w - 3 : w;
-      for (const pts of screenPaths) {
-        tracePath(pts);
-        this.ctx.stroke();
-      }
+      for (const pts of screenPaths) { tracePath(pts); this.ctx.stroke(); }
     }
-
-    // Pass 3: runway centerline dashes
+    // Pass 3: runway centerline dashes using a canvas pattern anchored to the
+    // canvas origin, rotated to align with each segment. The pattern is sampled
+    // by screen position, not path direction, so two tile-clipped segments of the
+    // same runway produce identical dashes regardless of which way they were stored.
+    const clColor = getColor("aeroway", "runwayCenterline");
     for (const { screenPaths, w } of runways) {
-      const dashLen = Math.max(4, w * 0.6);
-      this.ctx.strokeStyle = toRGBA(getColor("aeroway", "runwayCenterline"));
+      const dashLen = Math.ceil(Math.max(4, w * 0.6));
+      const period = dashLen * 2;
+      const pc = document.createElement("canvas");
+      pc.width = period;
+      pc.height = 1;
+      const px = pc.getContext("2d");
+      px.fillStyle = `rgb(${clColor.r},${clColor.g},${clColor.b})`;
+      px.fillRect(0, 0, dashLen, 1); // first half solid, second half transparent
+      const pattern = this.ctx.createPattern(pc, "repeat");
       this.ctx.lineWidth = Math.max(1, w * 0.06);
-      this.ctx.setLineDash([dashLen, dashLen]);
       for (const pts of screenPaths) {
+        if (pts.length < 2) continue;
+        const dx = pts[pts.length - 1].x - pts[0].x;
+        const dy = pts[pts.length - 1].y - pts[0].y;
+        const angle = Math.atan2(dy, dx);
+        pattern.setTransform(new DOMMatrix().rotate((angle * 180) / Math.PI));
+        this.ctx.strokeStyle = pattern;
         tracePath(pts);
         this.ctx.stroke();
       }
     }
-    this.ctx.setLineDash([]);
+    this.ctx.strokeStyle = "#000";
 
-    // Pass 4: runway designation labels
+    // Pass 4: runway designation labels — drawn at the true merged endpoints,
+    // so each ref appears exactly once and at the correct position.
+    // Only draw if enough of the runway is visible (> 60% of stated length),
+    // so we don't label tile-edge stub segments when the runway barely enters view.
+    const mpp = this.viewWidthMeters / this.canvasWidth; // metres per pixel
     for (const { item, screenPaths, w } of runways) {
-      if (item.runwayRef && w > 10) {
-        for (const pts of screenPaths) {
-          const first = pts[0];
-          const last = pts[pts.length - 1];
-          const refs = item.runwayRef.split("/");
-          const fontSize = Math.max(8, Math.min(14, w * 0.25));
-          this.ctx.font = `bold ${fontSize}px Arial, sans-serif`;
-          this.ctx.fillStyle = toRGBA(getColor("aeroway", "runwayLabel"));
-          this.ctx.textAlign = "center";
-          this.ctx.textBaseline = "middle";
-          const dx = last.x - first.x;
-          const dy = last.y - first.y;
-          const angle = Math.atan2(dy, dx);
-          if (refs[0]) {
-            this.ctx.save();
-            this.ctx.translate(first.x + dx * 0.08, first.y + dy * 0.08);
-            this.ctx.rotate(angle);
-            this.ctx.fillText(refs[0], 0, 0);
-            this.ctx.restore();
-          }
-          if (refs[1]) {
-            this.ctx.save();
-            this.ctx.translate(last.x - dx * 0.08, last.y - dy * 0.08);
-            this.ctx.rotate(angle + Math.PI);
-            this.ctx.fillText(refs[1], 0, 0);
-            this.ctx.restore();
-          }
+      if (!item.runwayRef || w <= 10) continue;
+      for (const pts of screenPaths) {
+        // Measure visible path length in metres
+        let pxLen = 0;
+        for (let i = 1; i < pts.length; i++) {
+          const dx = pts[i].x - pts[i-1].x, dy = pts[i].y - pts[i-1].y;
+          pxLen += Math.sqrt(dx*dx + dy*dy);
+        }
+        const visibleM = pxLen * mpp;
+        if (item.runwayLength && visibleM < item.runwayLength * 0.6) continue;
+
+        const first = pts[0], last = pts[pts.length - 1];
+        const dx = last.x - first.x, dy = last.y - first.y;
+        const angle = Math.atan2(dy, dx);
+        const refs = item.runwayRef.split("/");
+        const fontSize = Math.max(8, Math.min(14, w * 0.25));
+        this.ctx.font = `bold ${fontSize}px Arial, sans-serif`;
+        this.ctx.fillStyle = toRGBA(getColor("aeroway", "runwayLabel"));
+        this.ctx.textAlign = "center";
+        this.ctx.textBaseline = "middle";
+        if (refs[0]) {
+          this.ctx.save();
+          this.ctx.translate(first.x + dx * 0.08, first.y + dy * 0.08);
+          this.ctx.rotate(angle);
+          this.ctx.fillText(refs[0], 0, 0);
+          this.ctx.restore();
+        }
+        if (refs[1]) {
+          this.ctx.save();
+          this.ctx.translate(last.x - dx * 0.08, last.y - dy * 0.08);
+          this.ctx.rotate(angle + Math.PI);
+          this.ctx.fillText(refs[1], 0, 0);
+          this.ctx.restore();
         }
       }
     }
 
-    // Pass 5: runway edge lighting
+    // Pass 5: runway edge lighting (on merged path for consistent dot spacing)
     for (const { item, screenPaths, w } of runways) {
-      if (item.runwayLit && w > 8) {
-        const spacing = Math.max(6, w * 0.5);
-        this.ctx.fillStyle = toRGBA(getColor("aeroway", "runwayLight"));
-        const halfW = w * 0.48;
-        const dotR = Math.max(1, w * 0.04);
-        for (const pts of screenPaths) {
-          for (let i = 0; i < pts.length - 1; i++) {
-            const segDx = pts[i + 1].x - pts[i].x;
-            const segDy = pts[i + 1].y - pts[i].y;
-            const segLen = Math.sqrt(segDx * segDx + segDy * segDy);
-            if (segLen < 1) continue;
-            const nx = -segDy / segLen,
-              ny = segDx / segLen;
-            const steps = Math.floor(segLen / spacing);
-            for (let s = 0; s <= steps; s++) {
-              const t = s / Math.max(1, steps);
-              const px = pts[i].x + segDx * t;
-              const py = pts[i].y + segDy * t;
+      if (!item.runwayLit || w <= 8) continue;
+      const spacing = Math.max(6, w * 0.5);
+      this.ctx.fillStyle = toRGBA(getColor("aeroway", "runwayLight"));
+      const halfW = w * 0.48;
+      const dotR = Math.max(1, w * 0.04);
+      for (const pts of screenPaths) {
+        for (let i = 0; i < pts.length - 1; i++) {
+          const segDx = pts[i+1].x - pts[i].x, segDy = pts[i+1].y - pts[i].y;
+          const segLen = Math.sqrt(segDx*segDx + segDy*segDy);
+          if (segLen < 1) continue;
+          const nx = -segDy / segLen, ny = segDx / segLen;
+          const steps = Math.floor(segLen / spacing);
+          for (let s = 0; s <= steps; s++) {
+            const t = s / Math.max(1, steps);
+            const px = pts[i].x + segDx * t, py = pts[i].y + segDy * t;
+            for (const side of [1, -1]) {
               this.ctx.beginPath();
-              this.ctx.arc(
-                px + nx * halfW,
-                py + ny * halfW,
-                dotR,
-                0,
-                Math.PI * 2,
-              );
-              this.ctx.fill();
-              this.ctx.beginPath();
-              this.ctx.arc(
-                px - nx * halfW,
-                py - ny * halfW,
-                dotR,
-                0,
-                Math.PI * 2,
-              );
+              this.ctx.arc(px + nx*halfW*side, py + ny*halfW*side, dotR, 0, Math.PI*2);
               this.ctx.fill();
             }
           }
@@ -5956,7 +6008,9 @@ class MapRenderer {
       )
         continue;
       places.push({
-        name: props.name,
+        name: this.viewWidthMeters > 70000
+          ? abbreviatePlaceName(props.name)
+          : props.name,
         x: sx,
         y: sy,
         priority: item.placePriority || 9,
@@ -5967,31 +6021,33 @@ class MapRenderer {
     }
     if (places.length === 0) return;
 
-    places.sort((a, b) => a.priority - b.priority);
+    // Sort by priority first; within the same priority use population descending
+    // so that larger cities win slots in dense areas (e.g. Rhine-Main, Ruhr).
+    places.sort((a, b) =>
+      a.priority !== b.priority
+        ? a.priority - b.priority
+        : (b.population || 0) - (a.population || 0),
+    );
 
+    // At zoomed-out views, cities are sparse enough that we want all of them visible.
+    // The LOD-0 cap of 15 is too tight at 400km+ and causes labels to flicker in/out
+    // as new cities scroll into view and displace previously accepted ones.
     let maxLabels;
-    if (lod === 0) maxLabels = 15;
+    if (this.viewWidthMeters >= 400000) maxLabels = 200;
+    else if (this.viewWidthMeters >= 200000) maxLabels = 60;
+    else if (lod === 0) maxLabels = 15;
     else if (lod === 1) maxLabels = 30;
     else if (lod === 2) maxLabels = 60;
     else if (lod === 3) maxLabels = 100;
     else maxLabels = 200;
 
-    const minSpacing = 30;
+    const LABEL_PAD = 4; // px gap between adjacent labels
     const accepted = [];
+    const acceptedBoxes = []; // screen-space bounding boxes for overlap detection
     this.ctx.save();
 
     for (const place of places) {
       if (accepted.length >= maxLabels) break;
-      let tooClose = false;
-      for (const pos of accepted) {
-        const dx = place.x - pos.x,
-          dy = place.y - pos.y;
-        if (Math.sqrt(dx * dx + dy * dy) < minSpacing) {
-          tooClose = true;
-          break;
-        }
-      }
-      if (tooClose) continue;
 
       const fontWeight = place.priority <= 6 ? "bold" : "";
       this.ctx.font =
@@ -5999,8 +6055,27 @@ class MapRenderer {
       const tw = this.ctx.measureText(place.name).width;
       const th = place.fontSize * 1.4;
 
+      // Build the bounding box this label would occupy
+      const box = {
+        x: place.x - tw / 2 - LABEL_PAD,
+        y: place.y - th / 2 - LABEL_PAD,
+        r: place.x + tw / 2 + LABEL_PAD,
+        b: place.y + th / 2 + LABEL_PAD,
+      };
+
+      // Skip if this label's text box overlaps any already-accepted label
+      let overlaps = false;
+      for (const ab of acceptedBoxes) {
+        if (box.x < ab.r && box.r > ab.x && box.y < ab.b && box.b > ab.y) {
+          overlaps = true;
+          break;
+        }
+      }
+      if (overlaps) continue;
+
       // Register in global occupancy so road/water labels yield
       this.labelOccupancyRegister(place.x, place.y, tw + 6, th + 4);
+      acceptedBoxes.push(box);
       accepted.push(place);
     }
     this.ctx.restore();

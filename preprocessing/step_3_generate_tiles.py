@@ -1177,24 +1177,20 @@ def get_tiles_for_feature_in_tileset(feature, tileset_id, tile_size_m):
     if not bounds:
         return []
 
-    # Convert tile size to degrees (approximate at latitude 53°)
-    lat_avg = (bounds["minLat"] + bounds["maxLat"]) / 2
-    meters_per_deg_lon = 111320 * math.cos(math.radians(lat_avg))
-    meters_per_deg_lat = 111320
+    tile_height_deg = tile_size_m / 111320
 
-    tile_width_deg = tile_size_m / meters_per_deg_lon
-    tile_height_deg = tile_size_m / meters_per_deg_lat
-
-    # Calculate tile indices
-    # Use 0,0 as origin at lat=0, lon=0
-    min_x = int(math.floor(bounds["minLon"] / tile_width_deg))
-    max_x = int(math.floor(bounds["maxLon"] / tile_width_deg))
     min_y = int(math.floor(bounds["minLat"] / tile_height_deg))
     max_y = int(math.floor(bounds["maxLat"] / tile_height_deg))
 
+    # For each tile row use that row's center latitude to compute tile_width_deg,
+    # matching compute_tile_bounds() exactly so features land in consistent tiles.
     tiles = []
-    for x in range(min_x, max_x + 1):
-        for y in range(min_y, max_y + 1):
+    for y in range(min_y, max_y + 1):
+        tile_center_lat = (y + 0.5) * tile_height_deg
+        tile_width_deg = tile_size_m / (111320 * math.cos(math.radians(tile_center_lat)))
+        min_x = int(math.floor(bounds["minLon"] / tile_width_deg))
+        max_x = int(math.floor(bounds["maxLon"] / tile_width_deg))
+        for x in range(min_x, max_x + 1):
             tiles.append((tileset_id, x, y))
 
     return tiles
@@ -1404,20 +1400,18 @@ def tiles_in_bounds(bounds, tile_size_m):
 
     Uses the same coordinate math as get_tiles_for_feature_in_tileset().
     """
-    lat_avg = (bounds["minLat"] + bounds["maxLat"]) / 2
-    mpdlon = 111320 * math.cos(math.radians(lat_avg))
-    mpdlat = 111320
-    tw = tile_size_m / mpdlon
-    th = tile_size_m / mpdlat
-    xs = range(
-        int(math.floor(bounds["minLon"] / tw)),
-        int(math.floor(bounds["maxLon"] / tw)) + 1,
-    )
-    ys = range(
-        int(math.floor(bounds["minLat"] / th)),
-        int(math.floor(bounds["maxLat"] / th)) + 1,
-    )
-    return [(x, y) for x in xs for y in ys]
+    th = tile_size_m / 111320
+    min_y = int(math.floor(bounds["minLat"] / th))
+    max_y = int(math.floor(bounds["maxLat"] / th))
+    result = []
+    for y in range(min_y, max_y + 1):
+        tile_center_lat = (y + 0.5) * th
+        tw = tile_size_m / (111320 * math.cos(math.radians(tile_center_lat)))
+        min_x = int(math.floor(bounds["minLon"] / tw))
+        max_x = int(math.floor(bounds["maxLon"] / tw))
+        for x in range(min_x, max_x + 1):
+            result.append((x, y))
+    return result
 
 
 def compute_tile_bounds(tile_x, tile_y, tile_size_m):
@@ -1524,7 +1518,7 @@ def build_land_polygon_for_tile(tile_x, tile_y, tile_size_m, epsilon_m=None, wat
     }
 
 
-def finalize_tile(tile_jsonl_path, tile_json_path, existing_json_path=None):
+def finalize_tile(tile_jsonl_path, tile_json_path, existing_json_path=None, strip_srcs=None):
     """Read a .jsonl tile, deduplicate, sort by importance, compute _meta, write final .json.
 
     existing_json_path: path to an existing tile to merge features from (defaults to
@@ -1572,6 +1566,9 @@ def finalize_tile(tile_jsonl_path, tile_json_path, existing_json_path=None):
                 for feat in existing_tile.get("features", []):
                     # Skip stale base_land features — they'll be regenerated fresh
                     if feat.get("properties", {}).get("base_land"):
+                        continue
+                    # Strip features belonging to regions being updated
+                    if strip_srcs and feat.get("_render", {}).get("_src") in strip_srcs:
                         continue
                     feat_str = json.dumps(feat, separators=(",", ":"))
                     if feat_str not in seen:
@@ -1700,6 +1697,9 @@ def split_geojson_into_tiles(
 
     output_path = Path(output_dir)
 
+    # Derive region short name for _src tagging (matches the key in regions.json)
+    region_short_name = Path(geojson_file).name.replace(".geojson", "").replace("-latest.osm", "")
+
     # Track all .jsonl files written per tileset for finalization
     tile_files_written = defaultdict(set)  # tileset_id -> set of (x, y)
     # Cache which directories have been created
@@ -1796,6 +1796,7 @@ def split_geojson_into_tiles(
                 )
                 tileset_feature["_render"] = dict(feature_config["render"])  # copy, don't mutate YAML
                 augment_render_from_props(tileset_feature["_render"], props, geom_type)
+                tileset_feature["_render"]["_src"] = region_short_name
 
                 feature_tiles = get_tiles_for_feature_in_tileset(
                     tileset_feature, tileset_id, tile_size_m
@@ -1959,10 +1960,10 @@ def process_geojson_to_tiles(args):
 
 def _finalize_tile_worker(args):
     """Worker for Phase 2: initialize land polygon tree with merged bounds, finalize one tile."""
-    jsonl_path, json_path, merged_expanded_bounds, existing_json_path = args
+    jsonl_path, json_path, merged_expanded_bounds, existing_json_path, strip_srcs = args
     init_land_polygons(_DATA_DIR, merged_expanded_bounds)
     existing = Path(existing_json_path) if existing_json_path else None
-    return finalize_tile(Path(jsonl_path), Path(json_path), existing)
+    return finalize_tile(Path(jsonl_path), Path(json_path), existing, strip_srcs=strip_srcs)
 
 
 def _categorize_feature(feature):
@@ -2215,6 +2216,29 @@ def _write_regions_json(output_dir, all_results):
         json.dump(data, f, indent=2)
 
 
+def _write_region_tile_index(output_dir, region_name, tile_files_written):
+    """Write a per-region tile index to regions/{region_name}.tiles.json.gz."""
+    regions_dir = Path(output_dir) / "regions"
+    regions_dir.mkdir(parents=True, exist_ok=True)
+    index = {ts: [[x, y] for x, y in sorted(coords)] for ts, coords in tile_files_written.items()}
+    out_path = regions_dir / f"{region_name}.tiles.json.gz"
+    with gzip.open(out_path, "wt", encoding="utf-8") as f:
+        json.dump(index, f, separators=(",", ":"))
+
+
+def _load_region_tile_index(output_dir, region_name):
+    """Load regions/{region_name}.tiles.json.gz. Returns dict[str, set[tuple]] or None."""
+    out_path = Path(output_dir) / "regions" / f"{region_name}.tiles.json.gz"
+    if not out_path.exists():
+        return None
+    try:
+        with gzip.open(out_path, "rt", encoding="utf-8") as f:
+            data = json.load(f)
+        return {ts: {(int(x), int(y)) for x, y in coords} for ts, coords in data.items()}
+    except Exception:
+        return None
+
+
 def _run_add_mode(args, geojson_files, regions_data):
     """Add/update regions into the live output dir without a full rebuild.
 
@@ -2296,7 +2320,7 @@ def _run_add_mode(args, geojson_files, regions_data):
         # Phase 2: finalize tiles into the live output dir, merging with existing tiles
         print(f"\nPhase 2: Finalizing {len(all_tile_files_written):,} tiles...")
         finalize_args = [
-            (jsonl, live_json, expanded_merged_bounds, live_json)
+            (jsonl, live_json, expanded_merged_bounds, live_json, None)
             for (ts, x, y), (jsonl, live_json) in all_tile_files_written.items()
         ]
         with Pool(min(args.jobs, max(len(finalize_args), 1))) as pool:
@@ -2360,6 +2384,13 @@ def _run_add_mode(args, geojson_files, regions_data):
         # --- Update regions.json ---
         _write_regions_json(args.output_dir, write_results)
         print("  ✓ Updated regions.json")
+
+        # --- Write per-region tile indices (enables zero-downtime --update) ---
+        for r in write_results:
+            if r["status"] == "success" and r.get("tile_files_written") and "land" not in r["name"]:
+                rname = r["name"].replace(".geojson", "").replace("-latest.osm", "")
+                _write_region_tile_index(args.output_dir, rname, r["tile_files_written"])
+        print("  ✓ Updated region tile indices")
 
         # Summary
         success_count = sum(1 for r in write_results if r["status"] == "success")
@@ -2500,7 +2531,7 @@ def main():
             regions_data = json.load(f)
         regions = regions_data.get("regions", {})
 
-        # Gather target region GeoJSON paths and union bounds
+        # Validate target regions and collect GeoJSON paths
         target_geojsons = []
         union_bounds = {
             "minLon": float("inf"), "maxLon": float("-inf"),
@@ -2518,28 +2549,169 @@ def main():
             union_bounds["minLat"] = min(union_bounds["minLat"], b["minLat"])
             union_bounds["maxLat"] = max(union_bounds["maxLat"], b["maxLat"])
 
-        # Find overlapping neighbor regions to restore their features in border tiles
         target_names = set(args.update)
-        neighbor_geojsons = []
-        for name, entry in regions.items():
-            if name in target_names:
-                continue
-            if bounds_overlap(entry["bounds"], union_bounds):
-                neighbor_geojsons.append(Path(entry["geojson"]))
-                print(f"  Including overlapping neighbor: {name}")
 
-        # Delete affected tiles from the live output dir
-        print(f"\nDeleting tiles in bounds of updated region(s)...")
-        deleted = 0
-        for ts_id, tile_size_m in TILESET_TILE_SIZES.items():
-            for x, y in tiles_in_bounds(union_bounds, tile_size_m):
-                tile_path = args.output_dir / ts_id / str(x) / f"{y}.json.gz"
-                if tile_path.exists():
-                    tile_path.unlink()
-                    deleted += 1
-        print(f"  Deleted {deleted:,} tiles")
+        # Check if all target regions have tile indices for zero-downtime update
+        all_have_indices = all(
+            _load_region_tile_index(args.output_dir, name) is not None
+            for name in args.update
+        )
 
-        _run_add_mode(args, target_geojsons + neighbor_geojsons, regions_data)
+        if not all_have_indices:
+            # Fallback: delete-then-rebuild (no tile indices available yet)
+            print("  Note: tile indices missing — using delete-then-rebuild fallback")
+            neighbor_geojsons = []
+            for name, entry in regions.items():
+                if name in target_names:
+                    continue
+                if bounds_overlap(entry["bounds"], union_bounds):
+                    neighbor_geojsons.append(Path(entry["geojson"]))
+                    print(f"  Including overlapping neighbor: {name}")
+            print(f"\nDeleting tiles in bounds of updated region(s)...")
+            deleted = 0
+            for ts_id, tile_size_m in TILESET_TILE_SIZES.items():
+                for x, y in tiles_in_bounds(union_bounds, tile_size_m):
+                    tile_path = args.output_dir / ts_id / str(x) / f"{y}.json.gz"
+                    if tile_path.exists():
+                        tile_path.unlink()
+                        deleted += 1
+            print(f"  Deleted {deleted:,} tiles")
+            _run_add_mode(args, target_geojsons + neighbor_geojsons, regions_data)
+            return
+
+        # Zero-downtime update: stage → strip → merge → atomic swap
+        print("=" * 70)
+        print("Step 3: Update Regions (zero-downtime)")
+        print("=" * 70)
+        print()
+        print(f"Updating {len(target_geojsons)} region(s): {', '.join(sorted(target_names))}")
+
+        # Phase 0: Load existing tile indices to determine affected tiles
+        print("\nPhase 0: Loading tile indices...")
+        affected_tiles = set()  # set of (ts, x, y)
+        for name in args.update:
+            idx = _load_region_tile_index(args.output_dir, name)
+            if idx:
+                for ts, coords in idx.items():
+                    for x, y in coords:
+                        affected_tiles.add((ts, x, y))
+        print(f"  {len(affected_tiles):,} tiles in existing indices")
+
+        temp_tile_dir = Path(tempfile.mkdtemp(prefix="tiles_stage_", dir=args.output_dir.parent))
+        staging_dir = Path(tempfile.mkdtemp(prefix="tiles_live_", dir=args.output_dir.parent))
+        try:
+            # Phase 1: Stream features to temp dir (deferred finalization)
+            tile_args = []
+            for gj in target_geojsons:
+                pbf_file = gj.parent.parent / f"{gj.parent.name}.osm.pbf"
+                source_file = str(pbf_file) if pbf_file.exists() else str(gj)
+                tile_args.append((
+                    str(gj),
+                    str(temp_tile_dir),
+                    source_file,
+                    args.clip,
+                    args.clip_buffer,
+                    True,  # defer_finalization
+                ))
+
+            print("\nPhase 1: Writing features...")
+            with Pool(min(args.jobs, len(tile_args))) as pool:
+                write_results = list(
+                    tqdm(
+                        pool.imap_unordered(process_geojson_to_tiles, tile_args),
+                        total=len(tile_args),
+                        desc="Writing regions",
+                        unit="region",
+                    )
+                )
+
+            # Expand affected_tiles with any new tiles from this build
+            merged_land_bounds = {
+                "minLon": float("inf"), "maxLon": float("-inf"),
+                "minLat": float("inf"), "maxLat": float("-inf"),
+            }
+            for r in write_results:
+                if r["status"] == "success":
+                    b = r.get("bounds")
+                    if b and "land" not in r["name"]:
+                        merged_land_bounds["minLon"] = min(merged_land_bounds["minLon"], b["minLon"])
+                        merged_land_bounds["maxLon"] = max(merged_land_bounds["maxLon"], b["maxLon"])
+                        merged_land_bounds["minLat"] = min(merged_land_bounds["minLat"], b["minLat"])
+                        merged_land_bounds["maxLat"] = max(merged_land_bounds["maxLat"], b["maxLat"])
+                    for ts, coords in r.get("tile_files_written", {}).items():
+                        for x, y in coords:
+                            affected_tiles.add((ts, x, y))
+
+            _LAND_POLYGON_BUFFER_DEG = 1.5
+            if merged_land_bounds["minLon"] != float("inf"):
+                expanded_merged_bounds = {
+                    "minLon": merged_land_bounds["minLon"] - _LAND_POLYGON_BUFFER_DEG,
+                    "maxLon": merged_land_bounds["maxLon"] + _LAND_POLYGON_BUFFER_DEG,
+                    "minLat": merged_land_bounds["minLat"] - _LAND_POLYGON_BUFFER_DEG,
+                    "maxLat": merged_land_bounds["maxLat"] + _LAND_POLYGON_BUFFER_DEG,
+                }
+            else:
+                expanded_merged_bounds = None
+
+            # Ensure every affected tile has a .jsonl (even empty) so finalize runs
+            for ts, x, y in affected_tiles:
+                jsonl = temp_tile_dir / ts / str(x) / f"{y}.jsonl"
+                if not jsonl.exists():
+                    jsonl.parent.mkdir(parents=True, exist_ok=True)
+                    jsonl.touch()
+
+            # Phase 2: Finalize to staging dir, stripping old region features
+            strip_srcs = frozenset(target_names)
+            finalize_args = []
+            for ts, x, y in affected_tiles:
+                jsonl = str(temp_tile_dir / ts / str(x) / f"{y}.jsonl")
+                staging_json = str(staging_dir / ts / str(x) / f"{y}.json.gz")
+                live_json = str(args.output_dir / ts / str(x) / f"{y}.json.gz")
+                finalize_args.append((jsonl, staging_json, expanded_merged_bounds, live_json, strip_srcs))
+
+            print(f"\nPhase 2: Finalizing {len(finalize_args):,} tiles to staging...")
+            with Pool(min(args.jobs, max(len(finalize_args), 1))) as pool:
+                byte_counts = list(
+                    tqdm(
+                        pool.imap_unordered(_finalize_tile_worker, finalize_args),
+                        total=len(finalize_args),
+                        desc="Finalizing tiles",
+                        unit="tile",
+                    )
+                )
+            total_bytes = sum(b for b in byte_counts if b)
+
+            # Phase 3: Atomic swap staging → live
+            print("\nPhase 3: Swapping tiles atomically...")
+            swapped = 0
+            for ts, x, y in affected_tiles:
+                staging_json = staging_dir / ts / str(x) / f"{y}.json.gz"
+                live_json = args.output_dir / ts / str(x) / f"{y}.json.gz"
+                if staging_json.exists():
+                    live_json.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(str(staging_json), str(live_json))
+                    swapped += 1
+            print(f"  Swapped {swapped:,} tiles ({_format_size(total_bytes)})")
+
+            # Update regions.json and per-region tile indices
+            _write_regions_json(args.output_dir, write_results)
+            for r in write_results:
+                if r["status"] == "success" and r.get("tile_files_written") and "land" not in r["name"]:
+                    rname = r["name"].replace(".geojson", "").replace("-latest.osm", "")
+                    _write_region_tile_index(args.output_dir, rname, r["tile_files_written"])
+            print("  ✓ Updated regions.json and tile indices")
+
+            fail_count = sum(1 for r in write_results if r["status"] != "success")
+            if fail_count:
+                for r in write_results:
+                    if r["status"] != "success":
+                        print(f"  ✗ {r['name']}: {r.get('error', 'unknown error')}")
+                sys.exit(1)
+
+        finally:
+            shutil.rmtree(temp_tile_dir, ignore_errors=True)
+            shutil.rmtree(staging_dir, ignore_errors=True)
+
         return
 
     if args.add:
