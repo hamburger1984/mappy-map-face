@@ -43,6 +43,13 @@ except ImportError:
     print("Install with: pip install PyYAML")
     sys.exit(1)
 
+try:
+    import orjson
+except ImportError:
+    print("Error: orjson is required for fast JSON serialization")
+    print("Install with: pip install orjson")
+    sys.exit(1)
+
 
 def decimal_default(o):
     """Handle decimal.Decimal values from ijson (more efficient than JSONEncoder subclass)."""
@@ -1570,7 +1577,7 @@ def finalize_tile(tile_jsonl_path, tile_json_path, existing_json_path=None, stri
                     # Strip features belonging to regions being updated
                     if strip_srcs and feat.get("_render", {}).get("_src") in strip_srcs:
                         continue
-                    feat_str = json.dumps(feat, separators=(",", ":"))
+                    feat_str = orjson.dumps(feat).decode()
                     if feat_str not in seen:
                         seen.add(feat_str)
                         # Use importance 5 (medium) for existing features without importance
@@ -1635,15 +1642,13 @@ def finalize_tile(tile_jsonl_path, tile_json_path, existing_json_path=None, stri
             if base_feat is not None:
                 has_base_land = True
                 has_land_features = True  # ensure land background fallback
-                feature_strings.insert(0, json.dumps(
-                    base_feat, separators=(",", ":"), default=decimal_default
-                ))
+                feature_strings.insert(0, orjson.dumps(base_feat, default=decimal_default).decode())
         except Exception:
             pass
 
     # Write final tile as gzip-compressed JSON
     tile_json_path.parent.mkdir(parents=True, exist_ok=True)
-    with gzip.open(tile_json_path, "wt", compresslevel=6, encoding="utf-8") as f:
+    with gzip.open(tile_json_path, "wt", compresslevel=1, encoding="utf-8") as f:
         f.write('{"type":"FeatureCollection",')
         f.write('"_meta":{"hasLandFeatures":')
         f.write("true" if has_land_features else "false")
@@ -1817,21 +1822,13 @@ def split_geojson_into_tiles(
                         )
                         if clipped is None:
                             continue
-                        clipped_json = json.dumps(
-                            clipped,
-                            separators=(",", ":"),
-                            default=decimal_default,
-                        )
+                        clipped_json = orjson.dumps(clipped, default=decimal_default).decode()
                         append_to_tile(ts, x, y, f"{importance}\t{clipped_json}\n")
                         tile_files_written[ts].add((x, y))
                         stats[ts] += 1
                 else:
                     # No clipping — serialize once, write to all tiles
-                    feature_json = json.dumps(
-                        tileset_feature,
-                        separators=(",", ":"),
-                        default=decimal_default,
-                    )
+                    feature_json = orjson.dumps(tileset_feature, default=decimal_default).decode()
                     for tile_coords in feature_tiles:
                         ts, x, y = tile_coords
                         append_to_tile(ts, x, y, f"{importance}\t{feature_json}\n")
@@ -1959,9 +1956,8 @@ def process_geojson_to_tiles(args):
 
 
 def _finalize_tile_worker(args):
-    """Worker for Phase 2: initialize land polygon tree with merged bounds, finalize one tile."""
-    jsonl_path, json_path, merged_expanded_bounds, existing_json_path, strip_srcs = args
-    init_land_polygons(_DATA_DIR, merged_expanded_bounds)
+    """Worker for Phase 2: finalize one tile. Land polygons initialized via Pool initializer."""
+    jsonl_path, json_path, existing_json_path, strip_srcs = args
     existing = Path(existing_json_path) if existing_json_path else None
     return finalize_tile(Path(jsonl_path), Path(json_path), existing, strip_srcs=strip_srcs)
 
@@ -2088,8 +2084,7 @@ def compute_tile_statistics(tile_dir, output_file=None, max_sample=1000):
 
             features = data.get("features", []) if isinstance(data, dict) else data
             for feat in features:
-                feat_json = json.dumps(feat, separators=(",", ":"))
-                feat_bytes = len(feat_json.encode("utf-8"))
+                feat_bytes = len(orjson.dumps(feat))
                 coord_count = _count_coordinates(feat.get("geometry", {}))
                 group, category = _categorize_feature(feat)
 
@@ -2320,10 +2315,11 @@ def _run_add_mode(args, geojson_files, regions_data):
         # Phase 2: finalize tiles into the live output dir, merging with existing tiles
         print(f"\nPhase 2: Finalizing {len(all_tile_files_written):,} tiles...")
         finalize_args = [
-            (jsonl, live_json, expanded_merged_bounds, live_json, None)
+            (jsonl, live_json, live_json, None)
             for (ts, x, y), (jsonl, live_json) in all_tile_files_written.items()
         ]
-        with Pool(min(args.jobs, max(len(finalize_args), 1))) as pool:
+        n_workers = min(args.jobs, max(len(finalize_args), 1))
+        with Pool(n_workers, initializer=init_land_polygons, initargs=(_DATA_DIR, expanded_merged_bounds)) as pool:
             byte_counts = list(
                 tqdm(
                     pool.imap_unordered(_finalize_tile_worker, finalize_args),
@@ -2437,8 +2433,8 @@ def main():
         "-j",
         "--jobs",
         type=int,
-        default=3,
-        help="Number of parallel tile generation processes",
+        default=max(1, (os.cpu_count() or 2) // 2),
+        help="Number of parallel tile generation processes (default: half of CPU count)",
     )
     parser.add_argument(
         "--clip",
@@ -2667,10 +2663,11 @@ def main():
                 jsonl = str(temp_tile_dir / ts / str(x) / f"{y}.jsonl")
                 staging_json = str(staging_dir / ts / str(x) / f"{y}.json.gz")
                 live_json = str(args.output_dir / ts / str(x) / f"{y}.json.gz")
-                finalize_args.append((jsonl, staging_json, expanded_merged_bounds, live_json, strip_srcs))
+                finalize_args.append((jsonl, staging_json, live_json, strip_srcs))
 
             print(f"\nPhase 2: Finalizing {len(finalize_args):,} tiles to staging...")
-            with Pool(min(args.jobs, max(len(finalize_args), 1))) as pool:
+            n_workers = min(args.jobs, max(len(finalize_args), 1))
+            with Pool(n_workers, initializer=init_land_polygons, initargs=(_DATA_DIR, expanded_merged_bounds)) as pool:
                 byte_counts = list(
                     tqdm(
                         pool.imap_unordered(_finalize_tile_worker, finalize_args),
@@ -2866,11 +2863,12 @@ def main():
         # Phase 2: finalize all tiles once, using the merged land polygon bounds
         print(f"\nPhase 2: Finalizing {len(all_tile_files_written):,} tiles...")
         finalize_args = [
-            (jsonl, json_, expanded_merged_bounds, None)
+            (jsonl, json_, None, None)
             for jsonl, json_ in all_tile_files_written.values()
         ]
         total_finalize_bytes = 0
-        with Pool(min(args.jobs, len(finalize_args))) as pool:
+        n_workers = min(args.jobs, max(len(finalize_args), 1))
+        with Pool(n_workers, initializer=init_land_polygons, initargs=(_DATA_DIR, expanded_merged_bounds)) as pool:
             byte_counts = list(
                 tqdm(
                     pool.imap_unordered(_finalize_tile_worker, finalize_args),
