@@ -24,6 +24,10 @@
     "url": "https://download.geofabrik.de/europe/germany/hessen-latest.osm.pbf"
   },
   {
+    "name": "kaliningrad",
+    "url": "https://download.geofabrik.de/europe/kaliningrad-latest.osm.pbf"
+  },
+  {
     "name": "latvia",
     "url": "https://download.geofabrik.de/europe/latvia-latest.osm.pbf"
   },
@@ -34,6 +38,10 @@
   {
     "name": "mecklenburg-vorpommern",
     "url": "https://download.geofabrik.de/europe/germany/mecklenburg-vorpommern-latest.osm.pbf"
+  },
+  {
+    "name": "netherlands",
+    "url": "https://download.geofabrik.de/europe/netherlands-latest.osm.pbf"
   },
   {
     "name": "niedersachsen",
