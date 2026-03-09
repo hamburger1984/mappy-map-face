@@ -31,6 +31,8 @@ def list_local(data_dir: Path, tiles_dir: Path) -> None:
         print("regions.json is empty.")
         return
 
+    regions = sorted(regions, key=lambda r: r["name"].lower())
+
     # Load tiled-region manifest from the live tile output
     tiled: set[str] = set()
     tiles_manifest = tiles_dir / "regions.json"

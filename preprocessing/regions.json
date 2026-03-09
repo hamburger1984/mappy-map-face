@@ -1,7 +1,19 @@
 [
   {
+    "name": "belgium",
+    "url": "https://download.geofabrik.de/europe/belgium-latest.osm.pbf"
+  },
+  {
     "name": "brandenburg",
     "url": "https://download.geofabrik.de/europe/germany/brandenburg-latest.osm.pbf"
+  },
+  {
+    "name": "denmark",
+    "url": "https://download.geofabrik.de/europe/denmark-latest.osm.pbf"
+  },
+  {
+    "name": "estonia",
+    "url": "https://download.geofabrik.de/europe/estonia-latest.osm.pbf"
   },
   {
     "name": "hamburg",
@@ -10,6 +22,14 @@
   {
     "name": "hessen",
     "url": "https://download.geofabrik.de/europe/germany/hessen-latest.osm.pbf"
+  },
+  {
+    "name": "latvia",
+    "url": "https://download.geofabrik.de/europe/latvia-latest.osm.pbf"
+  },
+  {
+    "name": "lithuania",
+    "url": "https://download.geofabrik.de/europe/lithuania-latest.osm.pbf"
   },
   {
     "name": "mecklenburg-vorpommern",
@@ -24,6 +44,10 @@
     "url": "https://download.geofabrik.de/europe/germany/nordrhein-westfalen-latest.osm.pbf"
   },
   {
+    "name": "poland",
+    "url": "https://download.geofabrik.de/europe/poland-latest.osm.pbf"
+  },
+  {
     "name": "sachsen-anhalt",
     "url": "https://download.geofabrik.de/europe/germany/sachsen-anhalt-latest.osm.pbf"
   },
@@ -32,23 +56,11 @@
     "url": "https://download.geofabrik.de/europe/germany/schleswig-holstein-latest.osm.pbf"
   },
   {
-    "name": "th\u00fcringen",
-    "url": "https://download.geofabrik.de/europe/germany/thueringen-latest.osm.pbf"
-  },
-  {
-    "name": "denmark",
-    "url": "https://download.geofabrik.de/europe/denmark-latest.osm.pbf"
-  },
-  {
-    "name": "poland",
-    "url": "https://download.geofabrik.de/europe/poland-latest.osm.pbf"
-  },
-  {
     "name": "sweden",
     "url": "https://download.geofabrik.de/europe/sweden-latest.osm.pbf"
   },
   {
-    "name": "lithuania",
-    "url": "https://download.geofabrik.de/europe/lithuania-latest.osm.pbf"
+    "name": "thüringen",
+    "url": "https://download.geofabrik.de/europe/germany/thueringen-latest.osm.pbf"
   }
 ]
