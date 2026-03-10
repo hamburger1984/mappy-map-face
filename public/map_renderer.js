@@ -2702,13 +2702,30 @@ class MapRenderer {
               continue;
             }
           }
+          // Skip features whose maxViewWidth is exceeded (mirrors classify-phase check)
+          if (feature._render?.maxViewWidth && this.viewWidthMeters > feature._render.maxViewWidth) {
+            lodFilteredCount++;
+            continue;
+          }
+          // At 400km+: skip filled non-water polygons early (mirrors classify-phase check)
+          if (this.viewWidthMeters >= 400000 && feature._render?.fill) {
+            const l = feature._render.layer;
+            if (l !== "water_areas" && l !== "base_land") {
+              lodFilteredCount++;
+              continue;
+            }
+          }
           // Fast deduplication: use multiple coordinates + vertex count + geometry type as string key
           // GeoJSON polygons are closed rings (first == last coord), so we use
-          // first coord, a midpoint, and vertex count for better discrimination
+          // first coord, a midpoint, and vertex count for better discrimination.
+          // _dedupeKey is cached on feature objects from tile cache to avoid
+          // rebuilding the string on every frame for cached tiles.
           const geom = feature.geometry;
           let featureKey;
 
-          if (geom && geom.coordinates) {
+          if (feature._dedupeKey) {
+            featureKey = feature._dedupeKey;
+          } else if (geom && geom.coordinates) {
             const coords = geom.coordinates;
             const typeId = geomTypeId[geom.type] || 0;
             let keyParts;
@@ -2742,6 +2759,7 @@ class MapRenderer {
             }
 
             featureKey = keyParts;
+            feature._dedupeKey = featureKey;
           } else {
             // Fallback for features without geometry - use object reference
             featureKey = Math.random();
@@ -2750,17 +2768,17 @@ class MapRenderer {
           // Only add if we haven't seen this feature before
           if (!seenFeatures.has(featureKey)) {
             seenFeatures.add(featureKey);
-
-            // Pre-compute bounding box for fast viewport culling
-            if (geom && geom.coordinates) {
-              const bboxStart = performance.now();
-              feature._bbox = this.computeBoundingBox(geom);
-              bboxTime += performance.now() - bboxStart;
-            }
-
             features.push(feature);
           }
         }
+      }
+    }
+    // Compute bboxes in a single pass after dedup (avoids per-feature timing overhead)
+    const bboxStart = performance.now();
+    for (const feature of features) {
+      const geom = feature.geometry;
+      if (geom && geom.coordinates) {
+        if (!feature._bbox) feature._bbox = this.computeBoundingBox(geom);
       }
     }
     const mergeTime = performance.now() - mergeStart;
@@ -2780,7 +2798,7 @@ class MapRenderer {
       features: features.length,
       lodFiltered: lodFilteredCount,
       duplicatesRemoved,
-      bboxTime,
+      bboxTime: performance.now() - bboxStart,
     };
 
     return {
@@ -3384,9 +3402,12 @@ class MapRenderer {
     // Water labels render first, street names second.
     layerStart = performance.now();
     const _allRoads = [...layers.surface_roads, ...layers.bridge_roads];
-    const _wsAllowed = this._preResolveWaterStreetLabels(
-      layers.water_labels, _allRoads, adjustedBounds,
-    );
+    // Cache conflict resolution: rerun only when road/water counts or LOD change
+    const _wsKey = `${layers.surface_roads.length},${layers.bridge_roads.length},${layers.water_labels.length},${this.getLOD()}`;
+    if (!this._wsCache || this._wsCache.key !== _wsKey) {
+      this._wsCache = { key: _wsKey, allowed: this._preResolveWaterStreetLabels(layers.water_labels, _allRoads, adjustedBounds) };
+    }
+    const _wsAllowed = this._wsCache.allowed;
     this.renderWaterLabels(layers.water_labels, adjustedBounds, _wsAllowed);
     layerTimings.waterLabels = performance.now() - layerStart;
 
@@ -7498,6 +7519,7 @@ class MapRenderer {
   }
 
   renderLayer(layerFeatures, bounds, useFill) {
+    if (!layerFeatures.length) return;
     // Batch features by style to minimize Canvas2D state changes.
     // Key = "r,g,b,a|width", value = array of coordinate arrays to draw.
     const lineBatches = new Map(); // key -> { coords: [...], features: [...] }
