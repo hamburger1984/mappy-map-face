@@ -17,15 +17,17 @@ import {
 function abbreviatePlaceName(name) {
   if (!name) return name;
   return name
-    // "an/in/ob + der + Word" → "a/i/o.d.W."
+    // two lowercase words + uppercase word → "a.b.C."
+    // e.g. "vor der Höhe" → "v.d.H.", "an der Havel" → "a.d.H."
     .replace(
-      /\s+(an|in|ob)\s+der\s+([A-ZÄÖÜ])\S*/,
-      (_, prep, first) => ` ${prep[0]}.d.${first}.`,
+      /\s+([a-zäöüß]+)\s+([a-zäöüß]+)\s+([A-ZÄÖÜ])\S*/,
+      (_, w1, w2, W) => ` ${w1[0]}.${w2[0]}.${W}.`,
     )
-    // "am/an/im + Word" → "a/a/i.W."
+    // one lowercase word + uppercase word → "a.B."
+    // e.g. "am Main" → "a.M."
     .replace(
-      /\s+(am|an|im)\s+([A-ZÄÖÜ])\S*/,
-      (_, prep, first) => ` ${prep[0]}.${first}.`,
+      /\s+([a-zäöüß]+)\s+([A-ZÄÖÜ])\S*/,
+      (_, w, W) => ` ${w[0]}.${W}.`,
     );
 }
 
