@@ -26,6 +26,18 @@ from pathlib import Path
 SCRIPTS_DIR = Path(__file__).parent
 
 
+def is_tile_fresh(tile_index: Path, pbf_path: Path, max_age_days: int) -> bool:
+    """Return True if tiles are up-to-date and all processing steps can be skipped."""
+    if not tile_index.exists():
+        return False
+    tile_mtime = tile_index.stat().st_mtime
+    if pbf_path.exists() and tile_mtime < pbf_path.stat().st_mtime:
+        return False
+    if max_age_days > 0 and time.time() - tile_mtime > max_age_days * 86400:
+        return False
+    return True
+
+
 def run(script: Path, args: list[str], extra_env: dict | None = None) -> None:
     """Run a sibling preprocessing script, inheriting stdio."""
     env = {**os.environ, **(extra_env or {})}
@@ -98,6 +110,14 @@ def main() -> None:
         default=0,
         metavar="N",
         help="Seconds to wait between finishing one region and starting the next.",
+    )
+    parser.add_argument(
+        "--max-tile-age",
+        type=int,
+        default=14,
+        metavar="DAYS",
+        help="Skip all processing for a region if its tile index is newer than the "
+             "PBF file and younger than this many days (default: 14). Set to 0 to always rebuild.",
     )
     parser.add_argument(
         "-j", "--jobs",
@@ -203,6 +223,16 @@ def main() -> None:
         print(f"Region {i + 1}/{len(regions)}: {pbf_name}")
         print("=" * 70)
 
+        pbf_path     = args.data_dir / f"{pbf_name}.osm.pbf"
+        geojson_path = args.data_dir / pbf_name / f"{pbf_name}.osm.geojson"
+        tile_index   = args.tiles_dir / "regions" / f"{raw_name}.tiles.json.gz"
+
+        # ── freshness check ───────────────────────────────────────────────────
+        if is_tile_fresh(tile_index, pbf_path, args.max_tile_age):
+            age_days = (time.time() - tile_index.stat().st_mtime) / 86400
+            print(f"  Tiles are {age_days:.1f}d old and newer than PBF — skipping.")
+            continue
+
         # ── a) Download PBF ───────────────────────────────────────────────────
         run(SCRIPTS_DIR / "step_1_download.py", [
             "--add-region", name, url,
@@ -210,9 +240,6 @@ def main() -> None:
         ])
 
         # ── b) Convert PBF → GeoJSON ──────────────────────────────────────────
-        pbf_path     = args.data_dir / f"{pbf_name}.osm.pbf"
-        geojson_path = args.data_dir / pbf_name / f"{pbf_name}.osm.geojson"
-
         run(SCRIPTS_DIR / "step_2_convert_to_geojson.py", [
             str(pbf_path),
             "--data-dir", str(args.data_dir),

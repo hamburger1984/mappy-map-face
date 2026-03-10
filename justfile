@@ -20,7 +20,8 @@ default:
     "Write-Host 'SETUP & BUILD'; " +
     "Write-Host '  just setup                           Initialize Python venv and install dependencies'; " +
     "Write-Host '  just all                             Setup then download and tile all regions'; " +
-    "Write-Host '  just build [gap=0]                   Download, convert, tile all regions in regions.json'; " +
+    "Write-Host '  just build [gap=0] [max_tile_age=14]  Download, convert, tile all regions in regions.json'; " +
+    "Write-Host '                                       Skips regions whose tiles are newer than PBF and < max_tile_age days'; " +
     "Write-Host '                                       Optional gap (seconds) between regions to reduce server load'; " +
     "Write-Host '  just download                        Step 1: Download OSM data for all regions in regions.json'; " +
     "Write-Host '  just convert                         Step 2: Convert downloaded PBF files to GeoJSON'; " +
@@ -58,7 +59,8 @@ default:
     "echo 'SETUP & BUILD' && " +
     "echo '  just setup                           Initialize Python venv and install dependencies' && " +
     "echo '  just all                             Setup then download and tile all regions' && " +
-    "echo '  just build [gap=0]                   Download, convert, tile all regions in regions.json' && " +
+    "echo '  just build [gap=0] [max_tile_age=14]  Download, convert, tile all regions in regions.json' && " +
+    "echo '                                       Skips regions whose tiles are newer than PBF and < max_tile_age days' && " +
     "echo '                                       Optional gap (seconds) between regions to reduce server load' && " +
     "echo '  just download                        Step 1: Download OSM data for all regions in regions.json' && " +
     "echo '  just convert                         Step 2: Convert downloaded PBF files to GeoJSON' && " +
@@ -100,10 +102,13 @@ setup:
     @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'Setting up Python virtual environment...'; " + "if (-not (Test-Path venv)) { python -m venv venv }; " + "Write-Host 'Installing dependencies...'; " + "& venv/Scripts/pip install -q -r requirements.txt; " + "Write-Host 'Setup complete!'\"" } else { "echo 'Setting up Python virtual environment...' && " + "if [ ! -d venv ]; then python -m venv venv; fi && " + "echo 'Installing dependencies...' && " + "venv/bin/pip install -q -r requirements.txt && " + "echo 'Setup complete!'" } }}
 
 # Build tiles using staggered per-region processing (downloads, converts, tiles one region at a time)
+# Skips regions whose tiles are newer than the PBF file and younger than max_tile_age days (default: 14).
 # Usage: just build
-# Usage: just build 60   (wait 60s between regions)
-build gap="0": setup config-export
-    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --tiles-dir '" + justfile_directory() + "/public/tiles' --gap-seconds " + gap + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --tiles-dir '" + justfile_directory() + "/public/tiles' --gap-seconds " + gap } }}
+# Usage: just build 60        (wait 60s between regions)
+# Usage: just build 0 7       (rebuild if tiles older than 7 days)
+# Usage: just build 0 0       (always rebuild all regions)
+build gap="0" max_tile_age="14": setup config-export
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --tiles-dir '" + justfile_directory() + "/public/tiles' --gap-seconds " + gap + " --max-tile-age " + max_tile_age + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --tiles-dir '" + justfile_directory() + "/public/tiles' --gap-seconds " + gap + " --max-tile-age " + max_tile_age } }}
 
 config-export: setup
     @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/export_config.py'\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/export_config.py'" } }}
