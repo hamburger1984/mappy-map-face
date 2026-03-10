@@ -9,6 +9,7 @@ Usage:
 """
 
 import argparse
+import datetime
 import json
 import sys
 import time
@@ -44,10 +45,23 @@ def list_local(data_dir: Path, tiles_dir: Path) -> None:
             pass
 
     RED    = "\033[31m"
+    GREEN  = "\033[32m"
     ORANGE = "\033[33m"
     RESET  = "\033[0m"
     TEN_DAYS  = 10 * 24 * 3600
     FOUR_DAYS =  4 * 24 * 3600
+
+    def age_str(seconds: float) -> str:
+        if seconds < 3600:
+            return f"{int(seconds // 60)}m"
+        if seconds < 86400:
+            return f"{int(seconds // 3600)}h"
+        if seconds < 7 * 86400:
+            return f"{int(seconds // 86400)}d"
+        if seconds < 30 * 86400:
+            return f"{int(seconds // (7 * 86400))}w"
+        dt = datetime.datetime.fromtimestamp(time.time() - seconds)
+        return dt.strftime("%-d %b")
 
     def check(path: Path) -> str:
         if not path.exists():
@@ -59,15 +73,28 @@ def list_local(data_dir: Path, tiles_dir: Path) -> None:
             return f"{ORANGE}✓{RESET}"
         return "✓"
 
+    def tiled_check(path: Path) -> str:
+        if not path.exists():
+            return "·"
+        age = time.time() - path.stat().st_mtime
+        label = age_str(age)
+        if age > TEN_DAYS:
+            return f"{RED}{label}{RESET}"
+        if age > FOUR_DAYS:
+            return f"{ORANGE}{label}{RESET}"
+        return f"{GREEN}{label}{RESET}"
+
     def center(mark: str, width: int) -> str:
         """Center mark in field, ignoring invisible ANSI escape bytes."""
-        visible = mark if "\033" not in mark else "✓"
+        # Strip ANSI to measure visible length
+        import re
+        visible = re.sub(r"\033\[[0-9;]*m", "", mark)
         pad = width - len(visible)
         left = pad // 2
         right = pad - left
         return " " * left + mark + " " * right
 
-    header = f"{'Region':<35} {'PBF':^5} {'GeoJSON':^7} {'Tiled':^5}"
+    header = f"{'Region':<35} {'PBF':^5} {'GeoJSON':^7} {'Tiled':^8}"
     print(header)
     print("-" * len(header))
 
@@ -78,13 +105,14 @@ def list_local(data_dir: Path, tiles_dir: Path) -> None:
 
         pbf_mark     = check(data_dir / f"{pbf}.osm.pbf")
         geojson_mark = check(data_dir / pbf / f"{pbf}.osm.geojson")
-        tiled_mark   = "✓" if raw in tiled else "·"
+        tile_index   = tiles_dir / "regions" / f"{raw}.tiles.json.gz"
+        tiled_mark   = tiled_check(tile_index) if raw in tiled else "·"
 
         print(
             f"{name:<35} "
             f"{center(pbf_mark, 5)} "
             f"{center(geojson_mark, 7)} "
-            f"{center(tiled_mark, 5)}"
+            f"{center(tiled_mark, 8)}"
         )
 
     print(f"\n{len(regions)} region(s) in preprocessing/regions.json")
