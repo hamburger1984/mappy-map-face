@@ -52,12 +52,24 @@
     "url": "https://download.geofabrik.de/europe/germany/nordrhein-westfalen-latest.osm.pbf"
   },
   {
+    "name": "norway",
+    "url": "https://download.geofabrik.de/europe/norway-latest.osm.pbf"
+  },
+  {
     "name": "poland",
     "url": "https://download.geofabrik.de/europe/poland-latest.osm.pbf"
   },
   {
+    "name": "rheinland-pfalz",
+    "url": "https://download.geofabrik.de/europe/germany/rheinland-pfalz-latest.osm.pbf"
+  },
+  {
     "name": "sachsen-anhalt",
     "url": "https://download.geofabrik.de/europe/germany/sachsen-anhalt-latest.osm.pbf"
+  },
+  {
+    "name": "sachsen",
+    "url": "https://download.geofabrik.de/europe/germany/sachsen-latest.osm.pbf"
   },
   {
     "name": "schleswig-holstein",

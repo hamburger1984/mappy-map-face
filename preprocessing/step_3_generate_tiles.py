@@ -952,6 +952,10 @@ def _clip_linestring_extend_outside(coords, min_lon, min_lat, max_lon, max_lat):
 
     Returns a list of coordinate-list segments (each with >= 2 points).
     Empty list means the line has no overlap with this tile.
+
+    NOTE: This is used as a fallback when Shapely is unavailable. It misses
+    "skip segments" where both endpoints of an edge are outside the tile but
+    the edge itself crosses the tile — use Shapely intersection as the primary.
     """
     def inside(p):
         return min_lon <= p[0] <= max_lon and min_lat <= p[1] <= max_lat
@@ -989,6 +993,35 @@ def _clip_linestring_extend_outside(coords, min_lon, min_lat, max_lon, max_lat):
         segments.append(seg)
 
     return segments
+
+
+def _extract_linestring_coords(shapely_geom):
+    """
+    Extract coordinate lists from a Shapely geometry, keeping only
+    LineString/MultiLineString parts and discarding Point artifacts
+    (which occur when a line touches a tile corner).
+
+    Returns a list of coordinate lists (each with >= 2 points).
+    """
+    from shapely.geometry import LineString, MultiLineString, GeometryCollection
+
+    geom_type = shapely_geom.geom_type
+    if geom_type == "LineString":
+        coords = list(shapely_geom.coords)
+        return [coords] if len(coords) >= 2 else []
+    elif geom_type == "MultiLineString":
+        result = []
+        for line in shapely_geom.geoms:
+            coords = list(line.coords)
+            if len(coords) >= 2:
+                result.append(coords)
+        return result
+    elif geom_type == "GeometryCollection":
+        result = []
+        for geom in shapely_geom.geoms:
+            result.extend(_extract_linestring_coords(geom))
+        return result
+    return []  # Point or other non-line geometry
 
 
 def clip_feature_to_tile(feature, tile_x, tile_y, tile_size_m, buffer_pct=0.02):
@@ -1031,48 +1064,57 @@ def clip_feature_to_tile(feature, tile_x, tile_y, tile_size_m, buffer_pct=0.02):
     tile_width_deg = tile_size_m / meters_per_deg_lon
     tile_height_deg = tile_size_m / meters_per_deg_lat
 
-    min_lon = tile_x * tile_width_deg
-    min_lat = tile_y * tile_height_deg
-    max_lon = min_lon + tile_width_deg
-    max_lat = min_lat + tile_height_deg
+    exact_min_lon = tile_x * tile_width_deg
+    exact_min_lat = tile_y * tile_height_deg
+    exact_max_lon = exact_min_lon + tile_width_deg
+    exact_max_lat = exact_min_lat + tile_height_deg
 
-    # Add buffer to avoid edge artifacts
+    # Buffered bounds for polygon clipping (avoids seam artifacts at tile edges)
     buf_lon = tile_width_deg * buffer_pct
     buf_lat = tile_height_deg * buffer_pct
-    min_lon -= buf_lon
-    min_lat -= buf_lat
-    max_lon += buf_lon
-    max_lat += buf_lat
+    min_lon = exact_min_lon - buf_lon
+    min_lat = exact_min_lat - buf_lat
+    max_lon = exact_max_lon + buf_lon
+    max_lat = exact_max_lat + buf_lat
 
     geom_type = geom["type"]
 
-    # --- LineString / MultiLineString: vertex-based clip with outside extension ---
+    # --- LineString / MultiLineString: Shapely with exact bounds ---
+    # Using exact (unbuffered) tile bounds ensures adjacent tiles clip to the
+    # same geographic line with no overlap, so borders connect cleanly without
+    # double-rendering. This also correctly handles "skip segments" — long edges
+    # that cross the tile diagonally with no vertex inside — which the vertex-based
+    # approach misses whenever other parts of the same feature are inside the tile.
     if geom_type in ("LineString", "MultiLineString"):
+        try:
+            from shapely.geometry import box, shape
+
+            shapely_geom = shape(geom)
+            tile_box = box(exact_min_lon, exact_min_lat, exact_max_lon, exact_max_lat)
+            clipped = shapely_geom.intersection(tile_box)
+            if clipped.is_empty:
+                return None
+            clipped_lines = _extract_linestring_coords(clipped)
+            if not clipped_lines:
+                return None
+            if len(clipped_lines) == 1:
+                feature["geometry"] = {"type": "LineString", "coordinates": clipped_lines[0]}
+            else:
+                feature["geometry"] = {"type": "MultiLineString", "coordinates": clipped_lines}
+            return feature
+        except Exception:
+            pass
+
+        # Fallback: vertex-based clip with outside extension (no Shapely dependency)
         coords = geom.get("coordinates", [])
         raw_lines = [coords] if geom_type == "LineString" else coords
-
         clipped_lines = []
         for line in raw_lines:
             clipped_lines.extend(
                 _clip_linestring_extend_outside(line, min_lon, min_lat, max_lon, max_lat)
             )
-
         if not clipped_lines:
-            # Fallback: Shapely intersection handles the rare case where a long
-            # segment crosses the tile but no vertex lies inside or adjacent.
-            try:
-                from shapely.geometry import box, mapping, shape
-
-                shapely_geom = shape(geom)
-                tile_box = box(min_lon, min_lat, max_lon, max_lat)
-                clipped = shapely_geom.intersection(tile_box)
-                if clipped.is_empty:
-                    return None
-                feature["geometry"] = mapping(clipped)
-                return feature
-            except Exception:
-                return None
-
+            return None
         if len(clipped_lines) == 1:
             feature["geometry"] = {"type": "LineString", "coordinates": clipped_lines[0]}
         else:
@@ -2200,7 +2242,7 @@ def _write_regions_json(output_dir, all_results):
         if result["status"] != "success":
             continue
         bounds = result.get("bounds")
-        if not bounds or "land" in result["name"]:
+        if not bounds or "land-polygon" in result["name"]:
             continue
         name = result["name"].replace(".geojson", "").replace("-latest.osm", "")
         geojson_path = result.get("geojson_path", "")
@@ -2295,7 +2337,7 @@ def _run_add_mode(args, geojson_files, regions_data):
         for r in write_results:
             if r["status"] == "success":
                 b = r.get("bounds")
-                if b and "land" not in r["name"]:
+                if b and "land-polygon" not in r["name"]:
                     merged_land_bounds["minLon"] = min(merged_land_bounds["minLon"], b["minLon"])
                     merged_land_bounds["maxLon"] = max(merged_land_bounds["maxLon"], b["maxLon"])
                     merged_land_bounds["minLat"] = min(merged_land_bounds["minLat"], b["minLat"])
@@ -2360,7 +2402,7 @@ def _run_add_mode(args, geojson_files, regions_data):
 
         new_bounds = dict(old_bounds)
         for r in write_results:
-            if r["status"] == "success" and r.get("bounds") and "land" not in r["name"]:
+            if r["status"] == "success" and r.get("bounds") and "land-polygon" not in r["name"]:
                 b = r["bounds"]
                 new_bounds["minLon"] = min(new_bounds.get("minLon", float("inf")), b["minLon"])
                 new_bounds["maxLon"] = max(new_bounds.get("maxLon", float("-inf")), b["maxLon"])
@@ -2390,7 +2432,7 @@ def _run_add_mode(args, geojson_files, regions_data):
 
         # --- Write per-region tile indices (enables zero-downtime --update) ---
         for r in write_results:
-            if r["status"] == "success" and r.get("tile_files_written") and "land" not in r["name"]:
+            if r["status"] == "success" and r.get("tile_files_written") and "land-polygon" not in r["name"]:
                 rname = r["name"].replace(".geojson", "").replace("-latest.osm", "")
                 _write_region_tile_index(args.output_dir, rname, r["tile_files_written"])
         print("  ✓ Updated region tile indices")
@@ -2653,7 +2695,7 @@ def main():
             for r in write_results:
                 if r["status"] == "success":
                     b = r.get("bounds")
-                    if b and "land" not in r["name"]:
+                    if b and "land-polygon" not in r["name"]:
                         merged_land_bounds["minLon"] = min(merged_land_bounds["minLon"], b["minLon"])
                         merged_land_bounds["maxLon"] = max(merged_land_bounds["maxLon"], b["maxLon"])
                         merged_land_bounds["minLat"] = min(merged_land_bounds["minLat"], b["minLat"])
@@ -2717,7 +2759,7 @@ def main():
             # Update regions.json and per-region tile indices
             _write_regions_json(args.output_dir, write_results)
             for r in write_results:
-                if r["status"] == "success" and r.get("tile_files_written") and "land" not in r["name"]:
+                if r["status"] == "success" and r.get("tile_files_written") and "land-polygon" not in r["name"]:
                     rname = r["name"].replace(".geojson", "").replace("-latest.osm", "")
                     _write_region_tile_index(args.output_dir, rname, r["tile_files_written"])
             print("  ✓ Updated regions.json and tile indices")
@@ -2859,7 +2901,7 @@ def main():
         for r in write_results:
             if r["status"] == "success":
                 b = r.get("bounds")
-                if b and "land" not in r["name"]:
+                if b and "land-polygon" not in r["name"]:
                     merged_land_bounds["minLon"] = min(merged_land_bounds["minLon"], b["minLon"])
                     merged_land_bounds["maxLon"] = max(merged_land_bounds["maxLon"], b["maxLon"])
                     merged_land_bounds["minLat"] = min(merged_land_bounds["minLat"], b["minLat"])
@@ -2928,7 +2970,7 @@ def main():
             bounds = result["bounds"]
             # Don't include land polygon bounds in final merge - they're filtered to OSM bounds anyway
             # and before filtering they cover the entire world
-            if bounds and "land" not in result["name"]:
+            if bounds and "land-polygon" not in result["name"]:
                 merged_bounds["minLon"] = min(merged_bounds["minLon"], bounds["minLon"])
                 merged_bounds["maxLon"] = max(merged_bounds["maxLon"], bounds["maxLon"])
                 merged_bounds["minLat"] = min(merged_bounds["minLat"], bounds["minLat"])
@@ -2943,7 +2985,7 @@ def main():
                 size_str = f"{tile_bytes / 1024:.0f} KB"
             else:
                 size_str = f"{tile_bytes} B"
-            if "land" in name:
+            if "land-polygon" in name:
                 print(f"  ✓ {name} ({size_str} tiles)")
             else:
                 print(f"  ✓ {name.replace('-', ' ').title()} ({size_str} tiles)")
