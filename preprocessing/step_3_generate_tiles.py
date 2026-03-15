@@ -142,6 +142,26 @@ for _ts in TILESETS:
             break
 
 
+def tile_set_bounds(tiles):
+    """Return the geographic bounding box covering all (ts, x, y) tiles.
+
+    Used to compute the correct bbox for land polygon loading: derived from
+    the actual tile extents rather than region feature bounds, so tiles that
+    extend beyond the region's feature footprint still get complete land data.
+    Returns None if tiles is empty.
+    """
+    b = {"minLon": float("inf"), "maxLon": float("-inf"),
+         "minLat": float("inf"), "maxLat": float("-inf")}
+    for ts, x, y in tiles:
+        size = TILESET_TILE_SIZES.get(ts, 50000)
+        mn_lon, mn_lat, mx_lon, mx_lat = compute_tile_bounds(x, y, size)
+        b["minLon"] = min(b["minLon"], mn_lon)
+        b["maxLon"] = max(b["maxLon"], mx_lon)
+        b["minLat"] = min(b["minLat"], mn_lat)
+        b["maxLat"] = max(b["maxLat"], mx_lat)
+    return b if b["minLon"] != float("inf") else None
+
+
 # ============================================================================
 # LAND POLYGON DATA (pre-computed authoritative land polygons)
 # ============================================================================
@@ -1889,16 +1909,13 @@ def split_geojson_into_tiles(
         return {"bounds": actual_bounds, "tile_files_written": tile_files_written}
 
     # Pass 2: Finalize each .jsonl into .json (deduplicate, sort, add _meta)
-    # Initialize land polygon index filtered to this region's bounds.
-    # Expand bounds by 1.5° so edge tiles that extend beyond PBF data extent
-    # still get land polygons (largest tile ~50km ≈ 0.8° at lat 54°).
-    _LAND_POLYGON_BUFFER_DEG = 1.5
-    expanded_land_bounds = {
-        "minLon": actual_bounds["minLon"] - _LAND_POLYGON_BUFFER_DEG,
-        "maxLon": actual_bounds["maxLon"] + _LAND_POLYGON_BUFFER_DEG,
-        "minLat": actual_bounds["minLat"] - _LAND_POLYGON_BUFFER_DEG,
-        "maxLat": actual_bounds["maxLat"] + _LAND_POLYGON_BUFFER_DEG,
-    }
+    # Initialize land polygon index filtered to the actual tile bounds, not the
+    # region's feature bounds.  Using tile bounds prevents incomplete base_land
+    # when a tile extends beyond the region's feature footprint (e.g. a maritime
+    # boundary from region A lands in tiles whose full extent needs land polygons
+    # from a neighbouring degree-cell that lies outside A's feature bbox).
+    all_tiles = [(ts, x, y) for ts, coords in tile_files_written.items() for x, y in coords]
+    expanded_land_bounds = tile_set_bounds(all_tiles)
     init_land_polygons(_DATA_DIR, expanded_land_bounds)
 
     total_tiles = sum(len(tiles) for tiles in tile_files_written.values())
@@ -2327,21 +2344,10 @@ def _run_add_mode(args, geojson_files, regions_data):
                 )
             )
 
-        # Compute merged land bounds for land polygon loading
-        merged_land_bounds = {
-            "minLon": float("inf"), "maxLon": float("-inf"),
-            "minLat": float("inf"), "maxLat": float("-inf"),
-        }
         # Build tile file map: (ts, x, y) -> (jsonl in temp, json in LIVE dir)
         all_tile_files_written = {}
         for r in write_results:
             if r["status"] == "success":
-                b = r.get("bounds")
-                if b and "land-polygon" not in r["name"]:
-                    merged_land_bounds["minLon"] = min(merged_land_bounds["minLon"], b["minLon"])
-                    merged_land_bounds["maxLon"] = max(merged_land_bounds["maxLon"], b["maxLon"])
-                    merged_land_bounds["minLat"] = min(merged_land_bounds["minLat"], b["minLat"])
-                    merged_land_bounds["maxLat"] = max(merged_land_bounds["maxLat"], b["maxLat"])
                 for ts, coords in r.get("tile_files_written", {}).items():
                     for x, y in coords:
                         key = (ts, x, y)
@@ -2350,16 +2356,8 @@ def _run_add_mode(args, geojson_files, regions_data):
                             live_json = str(args.output_dir / ts / str(x) / f"{y}.json.gz")
                             all_tile_files_written[key] = (jsonl, live_json)
 
-        _LAND_POLYGON_BUFFER_DEG = 1.5
-        if merged_land_bounds["minLon"] != float("inf"):
-            expanded_merged_bounds = {
-                "minLon": merged_land_bounds["minLon"] - _LAND_POLYGON_BUFFER_DEG,
-                "maxLon": merged_land_bounds["maxLon"] + _LAND_POLYGON_BUFFER_DEG,
-                "minLat": merged_land_bounds["minLat"] - _LAND_POLYGON_BUFFER_DEG,
-                "maxLat": merged_land_bounds["maxLat"] + _LAND_POLYGON_BUFFER_DEG,
-            }
-        else:
-            expanded_merged_bounds = None
+        # Use actual tile bounds for land polygon loading (not region feature bounds)
+        expanded_merged_bounds = tile_set_bounds(all_tile_files_written.keys())
 
         # Phase 2: finalize tiles into the live output dir, merging with existing tiles
         print(f"\nPhase 2: Finalizing {len(all_tile_files_written):,} tiles...")
@@ -2688,32 +2686,14 @@ def main():
                 )
 
             # Expand affected_tiles with any new tiles from this build
-            merged_land_bounds = {
-                "minLon": float("inf"), "maxLon": float("-inf"),
-                "minLat": float("inf"), "maxLat": float("-inf"),
-            }
             for r in write_results:
                 if r["status"] == "success":
-                    b = r.get("bounds")
-                    if b and "land-polygon" not in r["name"]:
-                        merged_land_bounds["minLon"] = min(merged_land_bounds["minLon"], b["minLon"])
-                        merged_land_bounds["maxLon"] = max(merged_land_bounds["maxLon"], b["maxLon"])
-                        merged_land_bounds["minLat"] = min(merged_land_bounds["minLat"], b["minLat"])
-                        merged_land_bounds["maxLat"] = max(merged_land_bounds["maxLat"], b["maxLat"])
                     for ts, coords in r.get("tile_files_written", {}).items():
                         for x, y in coords:
                             affected_tiles.add((ts, x, y))
 
-            _LAND_POLYGON_BUFFER_DEG = 1.5
-            if merged_land_bounds["minLon"] != float("inf"):
-                expanded_merged_bounds = {
-                    "minLon": merged_land_bounds["minLon"] - _LAND_POLYGON_BUFFER_DEG,
-                    "maxLon": merged_land_bounds["maxLon"] + _LAND_POLYGON_BUFFER_DEG,
-                    "minLat": merged_land_bounds["minLat"] - _LAND_POLYGON_BUFFER_DEG,
-                    "maxLat": merged_land_bounds["maxLat"] + _LAND_POLYGON_BUFFER_DEG,
-                }
-            else:
-                expanded_merged_bounds = None
+            # Use actual tile bounds for land polygon loading (not region feature bounds)
+            expanded_merged_bounds = tile_set_bounds(affected_tiles)
 
             # Ensure every affected tile has a .jsonl (even empty) so finalize runs
             for ts, x, y in affected_tiles:
@@ -2892,20 +2872,9 @@ def main():
                 )
             )
 
-        # Compute merged bounds across all regions for land polygon loading
-        merged_land_bounds = {
-            "minLon": float("inf"), "maxLon": float("-inf"),
-            "minLat": float("inf"), "maxLat": float("-inf"),
-        }
         all_tile_files_written = {}  # (ts, x, y) -> (jsonl_path, json_path)
         for r in write_results:
             if r["status"] == "success":
-                b = r.get("bounds")
-                if b and "land-polygon" not in r["name"]:
-                    merged_land_bounds["minLon"] = min(merged_land_bounds["minLon"], b["minLon"])
-                    merged_land_bounds["maxLon"] = max(merged_land_bounds["maxLon"], b["maxLon"])
-                    merged_land_bounds["minLat"] = min(merged_land_bounds["minLat"], b["minLat"])
-                    merged_land_bounds["maxLat"] = max(merged_land_bounds["maxLat"], b["maxLat"])
                 for ts, coords in r.get("tile_files_written", {}).items():
                     for x, y in coords:
                         key = (ts, x, y)
@@ -2915,17 +2884,8 @@ def main():
                                 str(temp_tile_dir / ts / str(x) / f"{y}.json.gz"),
                             )
 
-        # Expand merged bounds so border tiles get complete land polygons
-        _LAND_POLYGON_BUFFER_DEG = 1.5
-        if merged_land_bounds["minLon"] != float("inf"):
-            expanded_merged_bounds = {
-                "minLon": merged_land_bounds["minLon"] - _LAND_POLYGON_BUFFER_DEG,
-                "maxLon": merged_land_bounds["maxLon"] + _LAND_POLYGON_BUFFER_DEG,
-                "minLat": merged_land_bounds["minLat"] - _LAND_POLYGON_BUFFER_DEG,
-                "maxLat": merged_land_bounds["maxLat"] + _LAND_POLYGON_BUFFER_DEG,
-            }
-        else:
-            expanded_merged_bounds = None
+        # Use actual tile bounds for land polygon loading (not region feature bounds)
+        expanded_merged_bounds = tile_set_bounds(all_tile_files_written.keys())
 
         # Phase 2: finalize all tiles once, using the merged land polygon bounds
         print(f"\nPhase 2: Finalizing {len(all_tile_files_written):,} tiles...")

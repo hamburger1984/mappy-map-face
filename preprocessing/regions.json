@@ -16,6 +16,10 @@
     "url": "https://download.geofabrik.de/europe/estonia-latest.osm.pbf"
   },
   {
+    "name": "finland",
+    "url": "https://download.geofabrik.de/europe/finland-latest.osm.pbf"
+  },
+  {
     "name": "hamburg",
     "url": "https://download.geofabrik.de/europe/germany/hamburg-latest.osm.pbf"
   },
@@ -32,8 +36,16 @@
     "url": "https://download.geofabrik.de/europe/latvia-latest.osm.pbf"
   },
   {
+    "name": "liechtenstein",
+    "url": "https://download.geofabrik.de/europe/liechtenstein-latest.osm.pbf"
+  },
+  {
     "name": "lithuania",
     "url": "https://download.geofabrik.de/europe/lithuania-latest.osm.pbf"
+  },
+  {
+    "name": "luxembourg",
+    "url": "https://download.geofabrik.de/europe/luxembourg-latest.osm.pbf"
   },
   {
     "name": "mecklenburg-vorpommern",
