@@ -66,7 +66,7 @@ let
     nativeBuildInputs = [ pythonEnv ];
   } ''
     mkdir "$out"
-    for f in index.html map_renderer.js map_theme.js favicon.ico glyph_editor.html; do
+    for f in index.html map_renderer.js map_theme.js tile_worker.js favicon.ico glyph_editor.html; do
       [ -f "${flakeSrc}/public/$f" ] && cp "${flakeSrc}/public/$f" "$out/"
     done
 
