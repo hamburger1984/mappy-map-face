@@ -241,6 +241,9 @@ in {
     };
     users.groups.osm-renderer = {};
 
+    # nginx needs to traverse dataDir to serve tiles
+    users.users.nginx.extraGroups = [ "osm-renderer" ];
+
     # Persistent directories
     systemd.tmpfiles.rules = [
       "d '${cfg.dataDir}'  0750 osm-renderer osm-renderer - -"
