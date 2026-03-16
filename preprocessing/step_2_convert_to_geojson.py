@@ -7,6 +7,7 @@ Conversion can be parallelized across multiple files.
 """
 
 import argparse
+import shutil
 import subprocess
 import sys
 from multiprocessing import Pool
@@ -54,7 +55,7 @@ def convert_pbf_to_geojson(args):
             }
 
     # Check if osmium is available
-    if not subprocess.run(["which", "osmium"], capture_output=True).returncode == 0:
+    if not shutil.which("osmium"):
         return {"name": pbf_path.name, "status": "failed", "error": "osmium not found"}
 
     try:
