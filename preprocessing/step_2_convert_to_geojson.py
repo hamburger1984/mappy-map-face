@@ -20,6 +20,15 @@ except ImportError:
     print("Install with: pip install tqdm")
     sys.exit(1)
 
+from progress import is_interactive
+
+
+def _log(msg: str) -> None:
+    if is_interactive():
+        print(msg)
+    else:
+        print(f"[step_2] {msg}", flush=True)
+
 
 def get_work_dir(pbf_path):
     """Get the working directory for a PBF file's intermediate artifacts.
@@ -129,15 +138,13 @@ def main():
         print("Error: No PBF files found")
         sys.exit(1)
 
-    print("=" * 70)
-    print("Step 2: Convert PBF to GeoJSON")
-    print("=" * 70)
-    print()
-    print(f"Files to convert: {len(pbf_files)}")
-    for pbf in pbf_files:
-        size_mb = pbf.stat().st_size / (1024 * 1024)
-        print(f"  - {pbf.name} ({size_mb:.1f} MB)")
-    print()
+    _log("Step 2: Convert PBF to GeoJSON")
+    _log(f"Files to convert: {len(pbf_files)}")
+    if is_interactive():
+        for pbf in pbf_files:
+            size_mb = pbf.stat().st_size / (1024 * 1024)
+            print(f"  - {pbf.name} ({size_mb:.1f} MB)")
+        print()
 
     # Convert files in parallel
     conversion_args = [
@@ -151,28 +158,23 @@ def main():
                 total=len(conversion_args),
                 desc="Converting",
                 unit="file",
+                disable=not is_interactive(),
             )
         )
 
     # Print results
-    print("\nConversion Results:")
     success_count = 0
     for result in sorted(results, key=lambda x: x["name"]):
         if result["status"] == "success":
-            print(f"  ✓ {result['name']} → {result['size_mb']:.1f} MB GeoJSON")
+            _log(f"  {result['name']} -> {result['size_mb']:.1f} MB GeoJSON")
             success_count += 1
         elif result["status"] == "cached":
-            print(
-                f"  ✓ {result['name']} → {result['size_mb']:.1f} MB GeoJSON (cached, up-to-date)"
-            )
+            _log(f"  {result['name']} -> {result['size_mb']:.1f} MB GeoJSON (cached)")
             success_count += 1
         else:
-            print(f"  ✗ {result['name']}: {result.get('error', 'failed')}")
+            _log(f"  FAILED {result['name']}: {result.get('error', 'failed')}")
 
-    print()
-    print("=" * 70)
-    print(f"✓ Converted {success_count}/{len(results)} files")
-    print("=" * 70)
+    _log(f"Converted {success_count}/{len(results)} files")
 
     if success_count < len(results):
         sys.exit(1)

@@ -29,6 +29,16 @@ except ImportError:
     print("Install with: pip install tqdm")
     sys.exit(1)
 
+from progress import is_interactive
+
+
+def _log(msg: str) -> None:
+    if is_interactive():
+        print(msg)
+    else:
+        print(f"[step_3] {msg}", flush=True)
+
+
 try:
     import ijson
 except ImportError:
@@ -1796,6 +1806,8 @@ def split_geojson_into_tiles(
 
     rate_history = []
     max_history = 5
+    _last_logged_feature_pct = -10.0
+    _last_log_time = start_time
 
     db_prefix = (
         Path(source_pbf_file).stem if source_pbf_file else Path(geojson_file).stem
@@ -1829,11 +1841,19 @@ def split_geojson_into_tiles(
                     if features_per_sec >= 1000
                     else f"{features_per_sec:.0f}"
                 )
-                print(
-                    f"\r  Processed: {i:,} features | {rate_str} features/sec | {progress_pct:.1f}% through file",
-                    end="",
-                    flush=True,
-                )
+                if is_interactive():
+                    print(
+                        f"\r  Processed: {i:,} features | {rate_str} features/sec | {progress_pct:.1f}% through file",
+                        end="",
+                        flush=True,
+                    )
+                elif (
+                    progress_pct >= _last_logged_feature_pct + 10.0
+                    or current_time - _last_log_time >= 60.0
+                ):
+                    _log(f"{db_prefix}: {i:,} features ({progress_pct:.0f}%) @ {rate_str}/s")
+                    _last_logged_feature_pct = progress_pct
+                    _last_log_time = current_time
                 last_update = current_time
                 last_count = i
 
@@ -1898,10 +1918,13 @@ def split_geojson_into_tiles(
                         tile_files_written[ts].add((x, y))
                         stats[ts] += 1
 
-    print(
-        f"\r  Processed {i:,} features in {time.time() - start_time:.0f}s ({db_prefix})"
-        + " " * 40
-    )
+    if is_interactive():
+        print(
+            f"\r  Processed {i:,} features in {time.time() - start_time:.0f}s ({db_prefix})"
+            + " " * 40
+        )
+    else:
+        _log(f"{db_prefix}: done — {i:,} features in {time.time() - start_time:.0f}s")
 
     # When defer_finalization=True, Phase 2 runs globally after all regions finish.
     # Return the written tile coordinates so the caller can finalize with merged bounds.
@@ -1927,6 +1950,8 @@ def split_geojson_into_tiles(
     last_tile_count = 0
     next_tile_check_at = 12
     tile_rate_history = []
+    _last_logged_tile_pct = -10.0
+    _last_tile_log_time = write_start
 
     for tileset_id in processing_keys:
         for x, y in tile_files_written.get(tileset_id, set()):
@@ -1954,11 +1979,19 @@ def split_geojson_into_tiles(
                 progress_pct = (
                     (tile_count / total_tiles * 100) if total_tiles > 0 else 0
                 )
-                print(
-                    f"\r  Finalizing: {tile_count:,}/{total_tiles:,} tiles | {tiles_per_sec:.0f} tiles/sec | {progress_pct:.1f}%",
-                    end="",
-                    flush=True,
-                )
+                if is_interactive():
+                    print(
+                        f"\r  Finalizing: {tile_count:,}/{total_tiles:,} tiles | {tiles_per_sec:.0f} tiles/sec | {progress_pct:.1f}%",
+                        end="",
+                        flush=True,
+                    )
+                elif (
+                    progress_pct >= _last_logged_tile_pct + 10.0
+                    or current_time - _last_tile_log_time >= 60.0
+                ):
+                    _log(f"finalizing: {tile_count:,}/{total_tiles:,} tiles ({progress_pct:.0f}%) @ {tiles_per_sec:.0f}/s")
+                    _last_logged_tile_pct = progress_pct
+                    _last_tile_log_time = current_time
                 last_update = current_time
                 last_tile_count = tile_count
 
@@ -1971,10 +2004,13 @@ def split_geojson_into_tiles(
 
     write_elapsed = time.time() - write_start
     size_mb = total_bytes / (1024 * 1024)
-    print(
-        f"\r  Created {tile_count:,} tiles ({size_mb:.1f} MB) in {write_elapsed:.0f}s"
-        + " " * 40
-    )
+    if is_interactive():
+        print(
+            f"\r  Created {tile_count:,} tiles ({size_mb:.1f} MB) in {write_elapsed:.0f}s"
+            + " " * 40
+        )
+    else:
+        _log(f"finalized {tile_count:,} tiles ({size_mb:.1f} MB) in {write_elapsed:.0f}s")
 
     return {"bounds": actual_bounds, "total_bytes": total_bytes}
 
@@ -2333,7 +2369,7 @@ def _run_add_mode(args, geojson_files, regions_data):
                 TILESET_IDS,
             ))
 
-        print("Phase 1: Writing features...")
+        _log("Phase 1: Writing features...")
         with Pool(min(args.jobs, len(tile_args))) as pool:
             write_results = list(
                 tqdm(
@@ -2341,6 +2377,7 @@ def _run_add_mode(args, geojson_files, regions_data):
                     total=len(tile_args),
                     desc="Writing regions",
                     unit="region",
+                    disable=not is_interactive(),
                 )
             )
 
@@ -2360,7 +2397,7 @@ def _run_add_mode(args, geojson_files, regions_data):
         expanded_merged_bounds = tile_set_bounds(all_tile_files_written.keys())
 
         # Phase 2: finalize tiles into the live output dir, merging with existing tiles
-        print(f"\nPhase 2: Finalizing {len(all_tile_files_written):,} tiles...")
+        _log(f"Phase 2: Finalizing {len(all_tile_files_written):,} tiles...")
         finalize_args = [
             (jsonl, live_json, live_json, None)
             for (ts, x, y), (jsonl, live_json) in all_tile_files_written.items()
@@ -2373,6 +2410,7 @@ def _run_add_mode(args, geojson_files, regions_data):
                     total=len(finalize_args),
                     desc="Finalizing tiles",
                     unit="tile",
+                    disable=not is_interactive(),
                 )
             )
         total_bytes = sum(b for b in byte_counts if b)
@@ -2814,15 +2852,8 @@ def main():
 
         geojson_files = files_to_process
 
-    print("=" * 70)
-    print("Step 3: Generate Map Tiles")
-    print("=" * 70)
-    print()
-    print("Configuration:")
-    print(f"  Tilesets: {', '.join(TILESET_IDS)}")
-    print(f"  Parallel jobs: {args.jobs}")
-    print(f"  Output: {args.output_dir}")
-    print()
+    _log("Step 3: Generate Map Tiles")
+    _log(f"  Tilesets: {', '.join(TILESET_IDS)}  jobs: {args.jobs}  output: {args.output_dir}")
 
     # Create temporary directory for building tiles
     # This ensures we start with a clean slate and don't merge with old data
@@ -2861,7 +2892,7 @@ def main():
             )
 
         # Phase 1: stream all region features to .jsonl files (no finalization yet)
-        print("Phase 1: Writing features...")
+        _log("Phase 1: Writing features...")
         with Pool(min(args.jobs, len(tile_args))) as pool:
             write_results = list(
                 tqdm(
@@ -2869,6 +2900,7 @@ def main():
                     total=len(tile_args),
                     desc="Writing regions",
                     unit="region",
+                    disable=not is_interactive(),
                 )
             )
 
@@ -2888,7 +2920,7 @@ def main():
         expanded_merged_bounds = tile_set_bounds(all_tile_files_written.keys())
 
         # Phase 2: finalize all tiles once, using the merged land polygon bounds
-        print(f"\nPhase 2: Finalizing {len(all_tile_files_written):,} tiles...")
+        _log(f"Phase 2: Finalizing {len(all_tile_files_written):,} tiles...")
         finalize_args = [
             (jsonl, json_, None, None)
             for jsonl, json_ in all_tile_files_written.values()
@@ -2902,6 +2934,7 @@ def main():
                     total=len(finalize_args),
                     desc="Finalizing tiles",
                     unit="tile",
+                    disable=not is_interactive(),
                 )
             )
         total_finalize_bytes = sum(b for b in byte_counts if b)
@@ -2919,8 +2952,7 @@ def main():
         "maxLat": float("-inf"),
     }
 
-    print()
-    print("Processing Summary:")
+    _log("Processing Summary:")
 
     success_count = 0
     failed_sources = []
@@ -2945,10 +2977,7 @@ def main():
                 size_str = f"{tile_bytes / 1024:.0f} KB"
             else:
                 size_str = f"{tile_bytes} B"
-            if "land-polygon" in name:
-                print(f"  ✓ {name} ({size_str} tiles)")
-            else:
-                print(f"  ✓ {name.replace('-', ' ').title()} ({size_str} tiles)")
+            _log(f"  {name.replace('-', ' ').title()} ({size_str} tiles)")
             success_count += 1
         else:
             name = result["name"].replace(".geojson", "").replace("-latest.osm", "")
@@ -2956,7 +2985,7 @@ def main():
 
     if failed_sources:
         for failure in failed_sources:
-            print(f"  ✗ {failure}")
+            _log(f"  FAILED {failure}")
 
     # Write tile index
     if success_count > 0:

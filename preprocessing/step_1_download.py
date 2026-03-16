@@ -27,6 +27,16 @@ except ImportError:
     print("Install with: pip install tqdm")
     sys.exit(1)
 
+from progress import is_interactive
+
+
+def _log(msg: str) -> None:
+    """Print a line. In non-interactive mode, prefix with [step_1] and flush."""
+    if is_interactive():
+        print(msg)
+    else:
+        print(f"[step_1] {msg}", flush=True)
+
 
 # Land polygon sources (pre-computed land polygons for accurate coastline backgrounds)
 LAND_POLYGON_SOURCES = {
@@ -105,7 +115,8 @@ def download_with_progress(url, output_path, desc):
             pass  # If metadata is corrupted, we'll start fresh
     elif temp_file.exists():
         # Partial file exists but no metadata - can't safely resume
-        print("  → Found partial download without metadata, starting fresh")
+        if is_interactive():
+            print("  → Found partial download without metadata, starting fresh")
         temp_file.unlink()
 
     try:
@@ -121,7 +132,8 @@ def download_with_progress(url, output_path, desc):
                 # Validate if file hasn't changed
                 if resume_pos > 0:
                     if current_etag and saved_etag and current_etag != saved_etag:
-                        print("  → Remote file changed (ETag mismatch), starting fresh")
+                        if is_interactive():
+                            print("  → Remote file changed (ETag mismatch), starting fresh")
                         resume_pos = 0
                         temp_file.unlink()
                         meta_file.unlink()
@@ -130,13 +142,14 @@ def download_with_progress(url, output_path, desc):
                         and saved_last_modified
                         and current_last_modified != saved_last_modified
                     ):
-                        print(
-                            "  → Remote file changed (Last-Modified mismatch), starting fresh"
-                        )
+                        if is_interactive():
+                            print(
+                                "  → Remote file changed (Last-Modified mismatch), starting fresh"
+                            )
                         resume_pos = 0
                         temp_file.unlink()
                         meta_file.unlink()
-                    else:
+                    elif is_interactive():
                         print(f"  → Resuming from {resume_pos / (1024 * 1024):.1f} MB")
         except urllib.error.HTTPError:
             # Server doesn't support HEAD, proceed with GET
@@ -156,7 +169,8 @@ def download_with_progress(url, output_path, desc):
 
             # Check if server supports ranges
             if resume_pos > 0 and response.status != 206:
-                print("  → Server doesn't support resume, starting from scratch")
+                if is_interactive():
+                    print("  → Server doesn't support resume, starting from scratch")
                 resume_pos = 0
                 if temp_file.exists():
                     temp_file.unlink()
@@ -439,7 +453,7 @@ def main():
         active_sources = OSM_SOURCES
 
     # Download OSM files
-    print(f"Downloading OSM files ({len(active_sources)} sources)...")
+    _log(f"Downloading OSM files ({len(active_sources)} sources)...")
     osm_args = [(name, url, args.data_dir) for name, url in active_sources.items()]
 
     with Pool(args.jobs) as pool:
@@ -449,41 +463,40 @@ def main():
                 total=len(osm_args),
                 desc="OSM files",
                 unit="file",
+                disable=not is_interactive(),
             )
         )
 
     # Print OSM results
-    print("\nOSM Files:")
+    _log("OSM Files:")
     for result in sorted(osm_results, key=lambda x: x["name"]):
         if result["status"] == "cached":
-            print(f"  ✓ {result['name']}: {result['size_mb']:.1f} MB ({result['age']})")
+            _log(f"  {result['name']}: {result['size_mb']:.1f} MB ({result['age']})")
         elif result["status"] == "downloaded":
-            print(
-                f"  ✓ {result['name']}: {result['size_mb']:.1f} MB (newly downloaded)"
-            )
+            _log(f"  {result['name']}: {result['size_mb']:.1f} MB (newly downloaded)")
         else:
-            print(f"  ✗ {result['name']}: {result.get('error', 'failed')}")
+            _log(f"  FAILED {result['name']}: {result.get('error', 'failed')}")
 
     # Download land polygon data
     land_sources = dict(LAND_POLYGON_SOURCES)
     if args.land_polygon_url:
         land_sources = {"global": args.land_polygon_url}
-    print(f"\nDownloading land polygons ({len(land_sources)} sources)...")
+    _log(f"Downloading land polygons ({len(land_sources)} sources)...")
     land_args = [(name, url, args.data_dir) for name, url in land_sources.items()]
     land_results = []
     for land_arg in land_args:
         land_results.append(download_and_convert_land_polygons(land_arg))
 
-    print("\nLand Polygons:")
+    _log("Land Polygons:")
     for result in land_results:
         if result["status"] == "cached":
-            print(f"  ✓ {result['name']}: {result['size_mb']:.1f} MB ({result['age']})")
+            _log(f"  {result['name']}: {result['size_mb']:.1f} MB ({result['age']})")
         elif result["status"] == "downloaded":
-            print(f"  ✓ {result['name']}: {result['size_mb']:.1f} MB (newly downloaded)")
+            _log(f"  {result['name']}: {result['size_mb']:.1f} MB (newly downloaded)")
         elif result["status"] == "skipped":
-            print(f"  ⚠ {result['name']}: skipped ({result.get('reason', 'unknown')})")
+            _log(f"  {result['name']}: skipped ({result.get('reason', 'unknown')})")
         else:
-            print(f"  ✗ {result['name']}: {result.get('error', 'failed')}")
+            _log(f"  FAILED {result['name']}: {result.get('error', 'failed')}")
 
 
 if __name__ == "__main__":

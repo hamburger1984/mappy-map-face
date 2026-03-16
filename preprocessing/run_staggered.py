@@ -22,8 +22,17 @@ import sys
 import time
 from pathlib import Path
 
+from progress import is_interactive
+
 
 SCRIPTS_DIR = Path(__file__).parent
+
+
+def _log(msg: str) -> None:
+    if is_interactive():
+        print(msg)
+    else:
+        print(f"[run_staggered] {msg}", flush=True)
 
 
 def is_tile_fresh(tile_index: Path, pbf_path: Path, max_age_days: int) -> bool:
@@ -198,9 +207,7 @@ def main() -> None:
         step3_env["TILESET_CONFIG_PATH"] = str(args.tileset_config)
 
     # ── Step 0: land polygons (once) ─────────────────────────────────────────
-    print("=" * 70)
-    print("Staggered build: downloading shared land polygons")
-    print("=" * 70)
+    _log("Staggered build: downloading shared land polygons")
     land_args = [
         "--land-polygons-only",
         "--data-dir", str(args.data_dir),
@@ -218,10 +225,7 @@ def main() -> None:
         raw_name = name[: -len("-latest")] if name.endswith("-latest") else name
         pbf_name = f"{raw_name}-latest"
 
-        print()
-        print("=" * 70)
-        print(f"Region {i + 1}/{len(regions)}: {pbf_name}")
-        print("=" * 70)
+        _log(f"Region {i + 1}/{len(regions)}: {pbf_name}")
 
         pbf_path     = args.data_dir / f"{pbf_name}.osm.pbf"
         geojson_path = args.data_dir / pbf_name / f"{pbf_name}.osm.geojson"
@@ -230,7 +234,7 @@ def main() -> None:
         # ── freshness check ───────────────────────────────────────────────────
         if is_tile_fresh(tile_index, pbf_path, args.max_tile_age):
             age_days = (time.time() - tile_index.stat().st_mtime) / 86400
-            print(f"  Tiles are {age_days:.1f}d old and newer than PBF — skipping.")
+            _log(f"  {pbf_name}: tiles are {age_days:.1f}d old and newer than PBF — skipping.")
             continue
 
         # ── a) Download PBF ───────────────────────────────────────────────────
@@ -275,13 +279,10 @@ def main() -> None:
         # ── d) Gap before next region ─────────────────────────────────────────
         if args.gap_seconds > 0 and i < len(regions) - 1:
             next_name = regions[i + 1]["name"]
-            print(f"\nSleeping {args.gap_seconds}s before {next_name}…")
+            _log(f"Sleeping {args.gap_seconds}s before {next_name}...")
             time.sleep(args.gap_seconds)
 
-    print()
-    print("=" * 70)
-    print(f"Staggered build complete — {len(regions)} region(s) processed.")
-    print("=" * 70)
+    _log(f"Staggered build complete — {len(regions)} region(s) processed.")
 
 
 if __name__ == "__main__":
