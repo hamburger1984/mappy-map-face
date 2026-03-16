@@ -32,7 +32,25 @@ def list_local(data_dir: Path, tiles_dir: Path) -> None:
         print("regions.json is empty.")
         return
 
-    regions = sorted(regions, key=lambda r: r["name"].lower())
+    def country_group(region: dict) -> str:
+        """Extract country/group name from the Geofabrik URL.
+
+        europe/germany/hamburg → 'germany'
+        europe/denmark         → 'denmark'
+        """
+        from urllib.parse import urlparse
+        parts = urlparse(region.get("url", "")).path.strip("/").split("/")
+        # parts: ['europe', 'germany', 'hamburg-latest.osm.pbf']
+        # or:    ['europe', 'denmark-latest.osm.pbf']
+        # Remove filename (last element) and continent (first element)
+        middle = parts[1:-1]
+        if middle:
+            return middle[-1]
+        # No sub-country: the region is its own country; strip '-latest.osm.pbf'
+        filename = parts[-1].replace("-latest.osm.pbf", "").replace("-latest.osm", "")
+        return region.get("name", filename)
+
+    regions = sorted(regions, key=lambda r: (country_group(r), r["name"].lower()))
 
     # Load tiled-region manifest from the live tile output
     tiled: set[str] = set()
@@ -94,26 +112,48 @@ def list_local(data_dir: Path, tiles_dir: Path) -> None:
         right = pad - left
         return " " * left + mark + " " * right
 
-    header = f"{'Region':<35} {'PBF':^5} {'GeoJSON':^7} {'Tiled':^8}"
-    print(header)
-    print("-" * len(header))
+    # Pre-group regions so we know which countries have multiple entries
+    from itertools import groupby
+    grouped = {
+        g: list(members)
+        for g, members in groupby(regions, key=country_group)
+    }
 
-    for region in regions:
+    def row(region: dict, indent: int) -> None:
         name = region["name"]
         raw  = name[: -len("-latest")] if name.endswith("-latest") else name
         pbf  = f"{raw}-latest"
-
         pbf_mark     = check(data_dir / f"{pbf}.osm.pbf")
         geojson_mark = check(data_dir / pbf / f"{pbf}.osm.geojson")
         tile_index   = tiles_dir / "regions" / f"{raw}.tiles.json.gz"
         tiled_mark   = tiled_check(tile_index) if raw in tiled else "·"
-
+        pad = " " * indent
         print(
-            f"{name:<35} "
+            f"{pad}{name:<{COL_WIDTH - indent}} "
             f"{center(pbf_mark, 5)} "
             f"{center(geojson_mark, 7)} "
             f"{center(tiled_mark, 8)}"
         )
+
+    COL_WIDTH = 55
+    header = f"{'Region':<{COL_WIDTH}} {'PBF':^5} {'GeoJSON':^7} {'Tiled':^8}"
+    print(header)
+    print("-" * len(header))
+
+    first = True
+    for group, members in grouped.items():
+        # Single region whose name == country: flat line, no group header
+        if len(members) == 1 and members[0]["name"] == group:
+            if not first:
+                print()
+            row(members[0], indent=2)
+        else:
+            if not first:
+                print()
+            print(f"  [{group}]")
+            for region in members:
+                row(region, indent=4)
+        first = False
 
     print(f"\n{len(regions)} region(s) in preprocessing/regions.json")
 
