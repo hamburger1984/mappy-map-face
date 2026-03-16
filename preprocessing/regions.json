@@ -92,7 +92,15 @@
     "url": "https://download.geofabrik.de/europe/sweden-latest.osm.pbf"
   },
   {
-    "name": "thüringen",
+    "name": "th\u00fcringen",
     "url": "https://download.geofabrik.de/europe/germany/thueringen-latest.osm.pbf"
+  },
+  {
+    "name": "saarland",
+    "url": "https://download.geofabrik.de/europe/germany/saarland-latest.osm.pbf"
+  },
+  {
+    "name": "bayern",
+    "url": "https://download.geofabrik.de/europe/germany/bayern-latest.osm.pbf"
   }
 ]
