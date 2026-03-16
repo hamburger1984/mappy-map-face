@@ -43,6 +43,7 @@ let
     tqdm
     shapely
     pyyaml
+    orjson
   ]);
 
   # ── Tileset config ───────────────────────────────────────────────────────

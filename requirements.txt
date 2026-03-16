@@ -12,3 +12,6 @@ shapely>=2.0.0
 
 # PyYAML - YAML configuration file parsing
 PyYAML>=6.0
+
+# orjson - Fast JSON serialization (required by step_3_generate_tiles.py)
+orjson>=3.9.0
