@@ -263,7 +263,6 @@ in {
         Group            = "osm-renderer";
         ExecStart        = "${buildScript}/bin/osm-renderer-build";
         TimeoutStartSec  = "24h";
-        RemainAfterExit  = true;
       };
     };
 
@@ -286,7 +285,6 @@ in {
       wantedBy    = [ "timers.target" ];
       timerConfig = {
         OnCalendar = cfg.updateCalendar;
-        Persistent = true;         # run missed jobs after downtime
       };
     };
 
