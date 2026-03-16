@@ -396,6 +396,18 @@ class MapRenderer {
     this.tileCache = new Map(); // Cache for loaded tiles
     this.tileIndex = null; // Tile index metadata
     this.loadingTiles = new Set(); // Track in-flight tile requests
+    this._tileWorkers = Array.from({ length: 4 }, () => new Worker("tile_worker.js"));
+    this._tileWorkerCallbacks = new Map(); // key → { resolve, reject }
+    this._nextWorker = 0;
+    this._tileWorkers.forEach((w) => {
+      w.onmessage = ({ data }) => {
+        const cb = this._tileWorkerCallbacks.get(data.key);
+        if (cb) {
+          this._tileWorkerCallbacks.delete(data.key);
+          cb(data);
+        }
+      };
+    });
     this.tileBounds = {
       minLon: 8.48,
       maxLon: 11.5,
@@ -2408,8 +2420,8 @@ class MapRenderer {
     const tileHeightDeg = tileSizeM / metersPerDegLat;
 
     // Y range from viewport bounds (same for all rows)
-    const minY = Math.floor(bounds.minLat / tileHeightDeg) - 1;
-    const maxY = Math.floor(bounds.maxLat / tileHeightDeg) + 1;
+    const minY = Math.floor(bounds.minLat / tileHeightDeg);
+    const maxY = Math.floor(bounds.maxLat / tileHeightDeg);
 
     const seen = new Set();
     const tiles = [];
@@ -2419,8 +2431,8 @@ class MapRenderer {
       const metersPerDegLon = 111320 * Math.cos((rowCenterLat * Math.PI) / 180);
       const tileWidthDeg = tileSizeM / metersPerDegLon;
 
-      const minX = Math.floor(bounds.minLon / tileWidthDeg) - 1;
-      const maxX = Math.floor(bounds.maxLon / tileWidthDeg) + 1;
+      const minX = Math.floor(bounds.minLon / tileWidthDeg);
+      const maxX = Math.floor(bounds.maxLon / tileWidthDeg);
 
       for (let x = minX; x <= maxX; x++) {
         const key = `${x},${y}`;
@@ -2458,41 +2470,36 @@ class MapRenderer {
     this.loadingTiles.add(key);
 
     try {
-      // Add cache-busting parameter based on tile index generation time
       const cacheBuster = this.tileIndex?.generated || Date.now();
-      const fetchStart = performance.now();
-      const response = await fetch(
-        `tiles/${tileset}/${x}/${y}.json.gz?v=${cacheBuster}`,
-      );
-      const fetchTime = performance.now() - fetchStart;
+      const url = `tiles/${tileset}/${x}/${y}.json.gz?v=${cacheBuster}`;
 
-      if (!response.ok) {
+      const result = await new Promise((resolve) => {
+        this._tileWorkerCallbacks.set(key, resolve);
+        const worker = this._tileWorkers[this._nextWorker % this._tileWorkers.length];
+        this._nextWorker++;
+        worker.postMessage({ url, key });
+      });
+
+      if (result.error) {
         // Tile doesn't exist (no data in this area)
         this.loadingTiles.delete(key);
         this.tileCache.set(key, { type: "FeatureCollection", features: [] });
         return this.tileCache.get(key);
       }
 
-      // Decompress gzip then parse JSON
-      const parseStart = performance.now();
-      const ds = new DecompressionStream("gzip");
-      const text = await new Response(response.body.pipeThrough(ds)).text();
-      const tileData = JSON.parse(text);
-      const parseTime = performance.now() - parseStart;
-
       // Track per-tile timing for instrumentation
       if (!this._tileFetchStats) this._tileFetchStats = [];
       this._tileFetchStats.push({
         key,
-        fetchTime,
-        parseTime,
-        features: tileData.features?.length || 0,
+        fetchTime: result.fetchTime,
+        parseTime: result.parseTime,
+        features: result.features,
       });
 
-      this.tileCache.set(key, tileData);
+      this.tileCache.set(key, result.data);
       this.loadingTiles.delete(key);
 
-      return tileData;
+      return result.data;
     } catch (error) {
       console.warn(`Failed to load tile ${key}:`, error);
       this.loadingTiles.delete(key);
