@@ -432,9 +432,8 @@ class MapRenderer {
   }
 
   resizeCanvas() {
-    const container = this.canvas.parentElement;
-    const w = container.clientWidth;
-    const h = Math.min(Math.round(window.innerHeight * 0.65), 800);
+    const w = window.innerWidth;
+    const h = window.innerHeight;
     this.canvasWidth = w;
     this.canvasHeight = h;
     this.canvas.width = w;
@@ -8584,11 +8583,11 @@ class MapRenderer {
   }
 
   updateStats() {
-    const viewStr =
+    const [viewNum, viewUnit] =
       this.viewWidthMeters >= 1000
-        ? `${(this.viewWidthMeters / 1000).toFixed(1)}km`
-        : `${this.viewWidthMeters.toFixed(0)}m`;
-    document.getElementById("zoomLevel").textContent = viewStr + " wide";
+        ? [`${(this.viewWidthMeters / 1000).toFixed(1)}`, "km"]
+        : [`${this.viewWidthMeters.toFixed(0)}`, "m"];
+    document.getElementById("zoomLevel").innerHTML = `${viewNum}<br>${viewUnit}`;
   }
 
   exportAsPNG() {
@@ -8622,23 +8621,18 @@ async function initApp() {
 
   // Hide loading, show map
   document.getElementById("loading").style.display = "none";
-  document.getElementById("mapContainer").style.display = "block";
+  document.getElementById("mapCanvas").style.display = "block";
+  document.getElementById("zoomControls").style.display = "flex";
+  document.getElementById("panel").style.display = "flex";
   renderer.resizeCanvas();
 
+  // Panel toggle
+  document.getElementById("panelToggle").addEventListener("click", () => {
+    document.getElementById("panel").classList.toggle("collapsed");
+  });
+
   // Set up event listeners
-  document.getElementById("renderBtn").addEventListener("click", () => {
-    renderer.renderMap();
-  });
-
-  document.getElementById("clearBtn").addEventListener("click", () => {
-    renderer.clearCanvas();
-  });
-
-  document.getElementById("resetBtn").addEventListener("click", () => {
-    renderer.resetView();
-  });
-
-  document.getElementById("exportBtn").addEventListener("click", () => {
+document.getElementById("exportBtn").addEventListener("click", () => {
     renderer.exportAsPNG();
   });
 
