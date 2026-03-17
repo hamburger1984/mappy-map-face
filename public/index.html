@@ -53,6 +53,7 @@
         border-radius: 4px;
         overflow: hidden;
         flex-shrink: 0;
+        width: 100%;
       }
 
       .zoom-controls {
@@ -144,6 +145,7 @@
       canvas {
         display: block;
         cursor: crosshair;
+        touch-action: none;
       }
 
       .info-panel {
@@ -310,6 +312,19 @@
         }
       }
 
+      @media (max-width: 768px) {
+        body { padding: 0; }
+        .container { border-radius: 0; padding: 8px; }
+        h1 { font-size: 18px; margin-bottom: 6px; }
+        .map-layout { flex-direction: column; }
+        .info-panel { max-width: 100%; min-width: unset; max-height: 180px; }
+        .zoom-btn { width: 44px; height: 44px; font-size: 22px; }
+        .zoom-slider-wrap { height: 150px; }
+        button { padding: 8px 14px; font-size: 13px; }
+        .controls { gap: 6px; margin-top: 10px; }
+        .stats { font-size: 11px; }
+      }
+
       .instructions {
         margin-top: 15px;
         padding: 10px;
@@ -353,12 +368,12 @@
                 −
               </button>
             </div>
-            <canvas id="mapCanvas" width="1200" height="800"></canvas>
+            <canvas id="mapCanvas"></canvas>
           </div>
 
           <div class="info-panel" id="infoPanel">
             <h3>Feature Information</h3>
-            <p>Hover over map features to see details</p>
+            <p>Tap or hover over map features to see details</p>
           </div>
         </div>
 

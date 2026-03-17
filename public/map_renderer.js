@@ -431,11 +431,22 @@ class MapRenderer {
     }
   }
 
+  resizeCanvas() {
+    const container = this.canvas.parentElement;
+    const w = container.clientWidth;
+    const h = Math.min(Math.round(window.innerHeight * 0.65), 800);
+    this.canvasWidth = w;
+    this.canvasHeight = h;
+    this.canvas.width = w;
+    this.canvas.height = h;
+  }
+
   async init() {
     try {
       // Set up HTML canvas
       this.canvas = document.getElementById("mapCanvas");
       this.ctx = this.canvas.getContext("2d");
+      this.resizeCanvas();
 
       // Load tileset configuration
       const response = await fetch("tileset_config.json");
@@ -1730,20 +1741,58 @@ class MapRenderer {
       }
     });
 
+    window.addEventListener('resize', () => {
+      this.resizeCanvas();
+      this.renderMap();
+    });
+
     // Touch support for mobile
     let touchStartDist = 0;
     let lastTouchX = 0;
     let lastTouchY = 0;
+    let touchStartTime = 0;
+    let touchStartClientX = 0;
+    let touchStartClientY = 0;
 
     this.canvas.addEventListener("touchstart", (e) => {
       e.preventDefault();
       if (e.touches.length === 1) {
         lastTouchX = e.touches[0].clientX;
         lastTouchY = e.touches[0].clientY;
+        touchStartTime = Date.now();
+        touchStartClientX = e.touches[0].clientX;
+        touchStartClientY = e.touches[0].clientY;
       } else if (e.touches.length === 2) {
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         touchStartDist = Math.sqrt(dx * dx + dy * dy);
+      }
+    });
+
+    this.canvas.addEventListener("touchend", (e) => {
+      e.preventDefault();
+      const duration = Date.now() - touchStartTime;
+      const t = e.changedTouches[0];
+      const dist = Math.sqrt(
+        (t.clientX - touchStartClientX) ** 2 +
+        (t.clientY - touchStartClientY) ** 2
+      );
+      if (duration < 300 && dist < 10) {
+        const fakeEvent = { clientX: touchStartClientX, clientY: touchStartClientY };
+        this.checkFeatureHover(fakeEvent);
+        if (this.hoveredFeature) {
+          this.selectedFeature = this.hoveredFeature;
+          this.updateInfoPanel(this.selectedFeature);
+          this.renderMap();
+          document.getElementById('infoPanel')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } else if (this.selectedFeature) {
+          this.selectedFeature = null;
+          this.clearInfoPanel();
+          this.renderMap();
+        }
+        if (!this.hoverInfoEnabled) {
+          this.checkPOIHover(fakeEvent);
+        }
       }
     });
 
@@ -3566,6 +3615,7 @@ class MapRenderer {
 
   // Save current canvas to offscreen buffer for panning optimization
   saveOffscreenCanvas() {
+    if (this.canvas.width === 0 || this.canvas.height === 0) return;
     if (!this._offscreenCanvas) {
       this._offscreenCanvas = document.createElement("canvas");
     }
@@ -8573,6 +8623,7 @@ async function initApp() {
   // Hide loading, show map
   document.getElementById("loading").style.display = "none";
   document.getElementById("mapContainer").style.display = "block";
+  renderer.resizeCanvas();
 
   // Set up event listeners
   document.getElementById("renderBtn").addEventListener("click", () => {
