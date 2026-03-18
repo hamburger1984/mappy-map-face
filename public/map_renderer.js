@@ -371,6 +371,9 @@ class MapRenderer {
     this.renderedFeatures = [];
     this.hoveredFeature = null;
     this.selectedFeature = null;
+    this._pinnedFeature = null; // raw GeoJSON feature pinned via search
+    this._searchMatches = [];
+    this._searchCursor = -1;
     this.hoverInfoEnabled = false; // Toggle for hover info mode
     this.showTileEdges = false; // Toggle for tile edge visualization
     this._currentTheme = "default"; // Active theme name
@@ -489,18 +492,72 @@ class MapRenderer {
 
     input.addEventListener('input', () => {
       const q = input.value.trim().toLowerCase();
-      if (q.length < 2) { results.style.display = 'none'; return; }
-      const matches = this.searchFeatures(q);
-      this.renderSearchResults(matches, results);
+      this._searchCursor = -1;
+      if (q.length < 2) { results.style.display = 'none'; this._searchMatches = []; return; }
+      this._searchMatches = this.searchFeatures(q);
+      this.renderSearchResults(this._searchMatches, results);
     });
 
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') { input.value = ''; results.style.display = 'none'; input.blur(); }
+      if (e.key === 'Escape') {
+        input.value = '';
+        results.style.display = 'none';
+        this._searchMatches = [];
+        this._searchCursor = -1;
+        input.blur();
+        return;
+      }
+      const open = results.style.display !== 'none' && this._searchMatches.length > 0;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (!open) return;
+        this._setSearchCursor(Math.min(this._searchCursor + 1, this._searchMatches.length - 1), results);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (!open) return;
+        this._setSearchCursor(Math.max(this._searchCursor - 1, 0), results);
+      } else if (e.key === 'Enter') {
+        if (open && this._searchCursor >= 0) {
+          e.preventDefault();
+          const m = this._searchMatches[this._searchCursor];
+          this.navigateToFeature(m.feature, m.name);
+          input.value = '';
+          results.style.display = 'none';
+          this._searchCursor = -1;
+        }
+      }
     });
 
     document.addEventListener('click', (e) => {
       if (!e.target.closest('#searchBox')) results.style.display = 'none';
     });
+
+    document.getElementById('searchPillX')?.addEventListener('click', () => {
+      this._clearSearchPin();
+    });
+  }
+
+  _setSearchCursor(idx, results) {
+    this._searchCursor = idx;
+    results.querySelectorAll('.search-result').forEach((row, i) => {
+      row.classList.toggle('active', i === idx);
+      if (i === idx) row.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
+  _showSearchPill(name) {
+    const pill = document.getElementById('searchPill');
+    const pillName = document.getElementById('searchPillName');
+    if (!pill || !pillName) return;
+    pillName.textContent = name;
+    pill.style.display = 'inline-flex';
+  }
+
+  _clearSearchPin() {
+    this._pinnedFeature = null;
+    const pill = document.getElementById('searchPill');
+    if (pill) pill.style.display = 'none';
+    this.renderMap();
   }
 
   searchFeatures(query) {
@@ -564,9 +621,10 @@ class MapRenderer {
     el.querySelectorAll('.search-result').forEach(row => {
       row.addEventListener('click', () => {
         const m = matches[+row.dataset.idx];
-        this.navigateToFeature(m.feature);
-        document.getElementById('searchInput').value = m.name;
+        this.navigateToFeature(m.feature, m.name);
+        document.getElementById('searchInput').value = '';
         el.style.display = 'none';
+        this._searchCursor = -1;
       });
     });
   }
@@ -575,13 +633,15 @@ class MapRenderer {
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  navigateToFeature(feature) {
+  navigateToFeature(feature, name) {
     const [lon, lat] = this.getFeatureCentroid(feature);
     this.centerLon = lon;
     this.centerLat = lat;
     this.offsetX = 0;
     this.offsetY = 0;
-    this.selectedFeature = feature;
+    this._pinnedFeature = feature;
+    this.selectedFeature = null;
+    this._showSearchPill(name || feature.properties?.name || '');
     this.renderMap();
   }
 
@@ -1862,10 +1922,10 @@ class MapRenderer {
 
     // ESC key to deselect
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && this.selectedFeature) {
+      if (e.key === "Escape" && (this.selectedFeature || this._pinnedFeature)) {
         this.selectedFeature = null;
-        this.hideTooltip();
-        this.renderMap(); // Re-render to remove selection highlight
+        if (this._pinnedFeature) this._clearSearchPin();
+        else { this.hideTooltip(); this.renderMap(); }
       }
     });
 
@@ -3680,7 +3740,13 @@ class MapRenderer {
 
     // 11. Highlight hovered or selected feature on top of everything
     layerStart = performance.now();
-    if (this.selectedFeature) {
+    if (this._pinnedFeature) {
+      const rf = this.renderedFeatures.find(f => f.feature === this._pinnedFeature);
+      if (rf) this.highlightFeature(rf, adjustedBounds, "selected");
+      if (this.hoveredFeature && this.hoveredFeature.feature !== this._pinnedFeature) {
+        this.highlightFeature(this.hoveredFeature, adjustedBounds, "hovered");
+      }
+    } else if (this.selectedFeature) {
       this.highlightFeature(this.selectedFeature, adjustedBounds, "selected");
     } else if (this.hoveredFeature) {
       this.highlightFeature(this.hoveredFeature, adjustedBounds, "hovered");
