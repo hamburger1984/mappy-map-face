@@ -19,6 +19,7 @@ import sys
 import tempfile
 import time
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import Pool
 from pathlib import Path
 
@@ -1738,6 +1739,84 @@ def finalize_tile(tile_jsonl_path, tile_json_path, existing_json_path=None, stri
     return tile_json_path.stat().st_size
 
 
+# ── Phase 1 parallel processing ─────────────────────────────────────────────
+
+_PHASE1_BATCH_SIZE = 200    # features per worker batch
+_PHASE1_MAX_IN_FLIGHT = 4   # max queued batches per worker before back-pressure drain
+
+# LRU file handle cache — avoids open/close syscall on every tile append
+_tile_handles: dict = {}
+try:
+    import resource as _resource
+    _soft, _ = _resource.getrlimit(_resource.RLIMIT_NOFILE)
+    # Reserve ~50 fds for Python internals, pools, etc.
+    _MAX_OPEN_HANDLES = max(32, _soft - 50)
+except Exception:
+    _MAX_OPEN_HANDLES = 200
+
+
+def _get_tile_handle(path: str):
+    """Return a cached open file handle, evicting the oldest entry when full."""
+    if path not in _tile_handles:
+        if len(_tile_handles) >= _MAX_OPEN_HANDLES:
+            oldest = next(iter(_tile_handles))
+            _tile_handles.pop(oldest).close()
+        _tile_handles[path] = open(path, "a", encoding="utf-8")
+    return _tile_handles[path]
+
+
+def _close_all_tile_handles():
+    """Flush and close all cached tile file handles."""
+    for h in _tile_handles.values():
+        h.close()
+    _tile_handles.clear()
+
+
+def _process_feature_batch(args):
+    """Worker: process a batch of features and return write tuples.
+
+    Returns list of (ts, x, y, importance, json_str).
+    Runs in a worker process — uses only module-level globals and pure functions.
+    """
+    batch, clip_to_tiles, clip_buffer_pct, region_short_name = args
+    results = []
+    for feature in batch:
+        props = feature.get("properties", {})
+        geom_type = feature["geometry"]["type"]
+        for tileset_config in TILESETS:
+            tileset_id = tileset_config["id"]
+            tile_size_m = tileset_config["tile_size_meters"]
+            feature_config = feature_matches_tileset(feature, tileset_config, props, geom_type)
+            if not feature_config:
+                continue
+            tileset_feature = copy.deepcopy(feature)
+            tileset_feature = simplify_feature_for_tileset(tileset_feature, tileset_id, feature_config)
+            tileset_feature["_render"] = dict(feature_config["render"])
+            augment_render_from_props(tileset_feature["_render"], props, geom_type)
+            tileset_feature["_render"]["_src"] = region_short_name
+            feature_tiles = get_tiles_for_feature_in_tileset(tileset_feature, tileset_id, tile_size_m)
+            _, importance = classify_feature_importance(props, geom_type)
+            if clip_to_tiles and len(feature_tiles) > 1:
+                for tile_coords in feature_tiles:
+                    ts, x, y = tile_coords
+                    clipped = clip_feature_to_tile(
+                        copy.deepcopy(tileset_feature), x, y, tile_size_m, clip_buffer_pct
+                    )
+                    if clipped is None:
+                        continue
+                    clipped_json = orjson.dumps(clipped, default=decimal_default).decode()
+                    results.append((ts, x, y, importance, clipped_json))
+            else:
+                feature_json = orjson.dumps(tileset_feature, default=decimal_default).decode()
+                for tile_coords in feature_tiles:
+                    ts, x, y = tile_coords
+                    results.append((ts, x, y, importance, feature_json))
+    return results
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 def split_geojson_into_tiles(
     geojson_file,
     output_dir,
@@ -1745,6 +1824,7 @@ def split_geojson_into_tiles(
     clip_to_tiles=False,
     clip_buffer_pct=0.02,
     defer_finalization=False,
+    n_workers=1,
 ):
     """Split GeoJSON into tiles by streaming features directly to .jsonl files.
 
@@ -1753,6 +1833,11 @@ def split_geojson_into_tiles(
         output_dir: Directory to write tiles to
         source_pbf_file: Path to source OSM PBF file (used for bounds extraction)
     """
+
+    import multiprocessing as _mp
+    if _mp.current_process().daemon:
+        # We're inside a daemonic pool worker — nested process pools are forbidden.
+        n_workers = 1
 
     processing_keys = TILESET_IDS
     region_name = Path(geojson_file).stem.replace(".osm", "")
@@ -1769,9 +1854,8 @@ def split_geojson_into_tiles(
                 "Ensure osmium-tool is installed and the PBF file is valid."
             )
     else:
-        raise ValueError(
-            f"Must provide source_pbf_file. source_pbf_file={source_pbf_file}"
-        )
+        # No PBF available (e.g. deleted after conversion); bounds will be omitted.
+        actual_bounds = None
 
     output_path = Path(output_dir)
 
@@ -1784,14 +1868,20 @@ def split_geojson_into_tiles(
     created_dirs = set()
 
     def append_to_tile(ts, x, y, line):
-        """Append a line to a tile's .jsonl file."""
+        """Append a line to a tile's .jsonl file (uses cached file handle)."""
         tile_dir = output_path / str(ts) / str(x)
         dir_key = (ts, x)
         if dir_key not in created_dirs:
             tile_dir.mkdir(parents=True, exist_ok=True)
             created_dirs.add(dir_key)
-        with open(tile_dir / f"{y}.jsonl", "a", encoding="utf-8") as fh:
-            fh.write(line)
+        _get_tile_handle(str(tile_dir / f"{y}.jsonl")).write(line)
+
+    def write_batch_results(results):
+        """Write (ts, x, y, importance, json_str) tuples from a worker batch."""
+        for ts, x, y, importance, json_str in results:
+            append_to_tile(ts, x, y, f"{importance}\t{json_str}\n")
+            tile_files_written[ts].add((x, y))
+            stats[ts] += 1
 
     # Pass 1: Stream features directly to .jsonl tile files
     stats = defaultdict(int)
@@ -1813,110 +1903,136 @@ def split_geojson_into_tiles(
         Path(source_pbf_file).stem if source_pbf_file else Path(geojson_file).stem
     )
 
+    _batch: list = []
+    _futures: list = []
+
     with open(geojson_file, "rb") as f:
-        for feature in ijson.items(f, "features.item"):
-            i += 1
+        _executor = ProcessPoolExecutor(max_workers=n_workers) if n_workers > 1 else None
+        try:
+            for feature in ijson.items(f, "features.item"):
+                i += 1
 
-            # Progress reporting
-            if i >= next_check_at:
-                current_time = time.time()
-                elapsed_since_last = current_time - last_update
-                features_since_last = i - last_count
+                # Progress reporting
+                if i >= next_check_at:
+                    current_time = time.time()
+                    elapsed_since_last = current_time - last_update
+                    features_since_last = i - last_count
 
-                rate_history.append((elapsed_since_last, features_since_last))
-                if len(rate_history) > max_history:
-                    rate_history.pop(0)
+                    rate_history.append((elapsed_since_last, features_since_last))
+                    if len(rate_history) > max_history:
+                        rate_history.pop(0)
 
-                total_elapsed = sum(s[0] for s in rate_history)
-                total_features = sum(s[1] for s in rate_history)
-                features_per_sec = (
-                    total_features / total_elapsed if total_elapsed > 0 else 0
-                )
-
-                file_pos = f.tell()
-                progress_pct = (file_pos / file_size * 100) if file_size > 0 else 0
-
-                rate_str = (
-                    f"{features_per_sec / 1000:.1f}k"
-                    if features_per_sec >= 1000
-                    else f"{features_per_sec:.0f}"
-                )
-                if is_interactive():
-                    print(
-                        f"\r  Processed: {i:,} features | {rate_str} features/sec | {progress_pct:.1f}% through file",
-                        end="",
-                        flush=True,
+                    total_elapsed = sum(s[0] for s in rate_history)
+                    total_features = sum(s[1] for s in rate_history)
+                    features_per_sec = (
+                        total_features / total_elapsed if total_elapsed > 0 else 0
                     )
-                elif (
-                    progress_pct >= _last_logged_feature_pct + 10.0
-                    or current_time - _last_log_time >= 60.0
-                ):
-                    _log(f"{db_prefix}: {i:,} features ({progress_pct:.0f}%) @ {rate_str}/s")
-                    _last_logged_feature_pct = progress_pct
-                    _last_log_time = current_time
-                last_update = current_time
-                last_count = i
 
-                if features_per_sec > 0:
-                    estimated_features = int(features_per_sec * update_interval)
-                    estimated_features = max(1000, min(500000, estimated_features))
-                else:
-                    estimated_features = 10000
-                next_check_at = i + estimated_features
+                    file_pos = f.tell()
+                    progress_pct = (file_pos / file_size * 100) if file_size > 0 else 0
 
-            props = feature.get("properties", {})
-            geom_type = feature["geometry"]["type"]
-
-            # For each tileset, check if feature should be included
-            for tileset_config in TILESETS:
-                tileset_id = tileset_config["id"]
-                tile_size_m = tileset_config["tile_size_meters"]
-
-                feature_config = feature_matches_tileset(
-                    feature, tileset_config, props, geom_type
-                )
-                if not feature_config:
-                    continue
-
-                tileset_feature = copy.deepcopy(feature)
-                tileset_feature = simplify_feature_for_tileset(
-                    tileset_feature, tileset_id, feature_config
-                )
-                tileset_feature["_render"] = dict(feature_config["render"])  # copy, don't mutate YAML
-                augment_render_from_props(tileset_feature["_render"], props, geom_type)
-                tileset_feature["_render"]["_src"] = region_short_name
-
-                feature_tiles = get_tiles_for_feature_in_tileset(
-                    tileset_feature, tileset_id, tile_size_m
-                )
-
-                _, importance = classify_feature_importance(props, geom_type)
-
-                if clip_to_tiles and len(feature_tiles) > 1:
-                    # Clip geometry to each tile's bounds individually
-                    for tile_coords in feature_tiles:
-                        ts, x, y = tile_coords
-                        clipped = clip_feature_to_tile(
-                            copy.deepcopy(tileset_feature),
-                            x,
-                            y,
-                            tile_size_m,
-                            clip_buffer_pct,
+                    rate_str = (
+                        f"{features_per_sec / 1000:.1f}k"
+                        if features_per_sec >= 1000
+                        else f"{features_per_sec:.0f}"
+                    )
+                    if is_interactive():
+                        print(
+                            f"\r  Processed: {i:,} features | {rate_str} features/sec | {progress_pct:.1f}% through file",
+                            end="",
+                            flush=True,
                         )
-                        if clipped is None:
-                            continue
-                        clipped_json = orjson.dumps(clipped, default=decimal_default).decode()
-                        append_to_tile(ts, x, y, f"{importance}\t{clipped_json}\n")
-                        tile_files_written[ts].add((x, y))
-                        stats[ts] += 1
+                    elif (
+                        progress_pct >= _last_logged_feature_pct + 10.0
+                        or current_time - _last_log_time >= 60.0
+                    ):
+                        _log(f"{db_prefix}: {i:,} features ({progress_pct:.0f}%) @ {rate_str}/s")
+                        _last_logged_feature_pct = progress_pct
+                        _last_log_time = current_time
+                    last_update = current_time
+                    last_count = i
+
+                    if features_per_sec > 0:
+                        estimated_features = int(features_per_sec * update_interval)
+                        estimated_features = max(1000, min(500000, estimated_features))
+                    else:
+                        estimated_features = 10000
+                    next_check_at = i + estimated_features
+
+                if _executor is not None:
+                    # Parallel path: accumulate into batch, dispatch to worker pool
+                    _batch.append(feature)
+                    if len(_batch) >= _PHASE1_BATCH_SIZE:
+                        _futures.append(_executor.submit(
+                            _process_feature_batch,
+                            (_batch, clip_to_tiles, clip_buffer_pct, region_short_name),
+                        ))
+                        _batch = []
+                        # Back-pressure: drain oldest futures to bound memory
+                        while len(_futures) > n_workers * _PHASE1_MAX_IN_FLIGHT:
+                            write_batch_results(_futures.pop(0).result())
                 else:
-                    # No clipping — serialize once, write to all tiles
-                    feature_json = orjson.dumps(tileset_feature, default=decimal_default).decode()
-                    for tile_coords in feature_tiles:
-                        ts, x, y = tile_coords
-                        append_to_tile(ts, x, y, f"{importance}\t{feature_json}\n")
-                        tile_files_written[ts].add((x, y))
-                        stats[ts] += 1
+                    # Sequential path: process feature immediately (original logic)
+                    props = feature.get("properties", {})
+                    geom_type = feature["geometry"]["type"]
+
+                    for tileset_config in TILESETS:
+                        tileset_id = tileset_config["id"]
+                        tile_size_m = tileset_config["tile_size_meters"]
+
+                        feature_config = feature_matches_tileset(
+                            feature, tileset_config, props, geom_type
+                        )
+                        if not feature_config:
+                            continue
+
+                        tileset_feature = copy.deepcopy(feature)
+                        tileset_feature = simplify_feature_for_tileset(
+                            tileset_feature, tileset_id, feature_config
+                        )
+                        tileset_feature["_render"] = dict(feature_config["render"])
+                        augment_render_from_props(tileset_feature["_render"], props, geom_type)
+                        tileset_feature["_render"]["_src"] = region_short_name
+
+                        feature_tiles = get_tiles_for_feature_in_tileset(
+                            tileset_feature, tileset_id, tile_size_m
+                        )
+
+                        _, importance = classify_feature_importance(props, geom_type)
+
+                        if clip_to_tiles and len(feature_tiles) > 1:
+                            for tile_coords in feature_tiles:
+                                ts, x, y = tile_coords
+                                clipped = clip_feature_to_tile(
+                                    copy.deepcopy(tileset_feature),
+                                    x, y, tile_size_m, clip_buffer_pct,
+                                )
+                                if clipped is None:
+                                    continue
+                                clipped_json = orjson.dumps(clipped, default=decimal_default).decode()
+                                append_to_tile(ts, x, y, f"{importance}\t{clipped_json}\n")
+                                tile_files_written[ts].add((x, y))
+                                stats[ts] += 1
+                        else:
+                            feature_json = orjson.dumps(tileset_feature, default=decimal_default).decode()
+                            for tile_coords in feature_tiles:
+                                ts, x, y = tile_coords
+                                append_to_tile(ts, x, y, f"{importance}\t{feature_json}\n")
+                                tile_files_written[ts].add((x, y))
+                                stats[ts] += 1
+
+        finally:
+            if _executor is not None:
+                # Flush remaining partial batch, drain all in-flight futures
+                if _batch:
+                    _futures.append(_executor.submit(
+                        _process_feature_batch,
+                        (_batch, clip_to_tiles, clip_buffer_pct, region_short_name),
+                    ))
+                for fut in _futures:
+                    write_batch_results(fut.result())
+                _executor.shutdown(wait=True)
+            _close_all_tile_handles()
 
     if is_interactive():
         print(
@@ -2017,20 +2133,20 @@ def split_geojson_into_tiles(
 
 def process_geojson_to_tiles(args):
     """Process a single GeoJSON file into tiles."""
-    geojson_file, output_dir, source_file, clip_to_tiles, clip_buffer_pct, defer_finalization, active_tileset_ids = args
+    geojson_file, output_dir, source_file, clip_to_tiles, clip_buffer_pct, defer_finalization, active_tileset_ids, n_workers = args
     _apply_tileset_filter(active_tileset_ids)
 
     geojson_path = Path(geojson_file)
-    source_path = Path(source_file) if source_file else geojson_path
 
     try:
         result = split_geojson_into_tiles(
             str(geojson_file),
             output_dir,
-            source_pbf_file=str(source_path),
+            source_pbf_file=source_file,
             clip_to_tiles=clip_to_tiles,
             clip_buffer_pct=clip_buffer_pct,
             defer_finalization=defer_finalization,
+            n_workers=n_workers,
         )
 
         return {
@@ -2357,8 +2473,10 @@ def _run_add_mode(args, geojson_files, regions_data):
     try:
         tile_args = []
         for gj in geojson_files:
-            pbf_file = gj.parent.parent / f"{gj.parent.name}.osm.pbf"
-            source_file = str(pbf_file) if pbf_file.exists() else str(gj)
+            _pbf_parent = gj.parent.parent / f"{gj.parent.name}.osm.pbf"
+            _pbf_same = gj.parent / f"{gj.parent.name}.osm.pbf"
+            pbf_file = _pbf_parent if _pbf_parent.exists() else (_pbf_same if _pbf_same.exists() else None)
+            source_file = str(pbf_file) if pbf_file else None
             tile_args.append((
                 str(gj),
                 str(temp_tile_dir),
@@ -2367,19 +2485,26 @@ def _run_add_mode(args, geojson_files, regions_data):
                 args.clip_buffer,
                 True,  # defer_finalization
                 TILESET_IDS,
+                None,  # n_workers placeholder, filled below
             ))
+        n_outer = min(args.jobs, len(tile_args))
+        n_inner = max(1, args.jobs // n_outer)
+        tile_args = [t[:-1] + (n_inner,) for t in tile_args]
 
         _log("Phase 1: Writing features...")
-        with Pool(min(args.jobs, len(tile_args))) as pool:
-            write_results = list(
-                tqdm(
-                    pool.imap_unordered(process_geojson_to_tiles, tile_args),
-                    total=len(tile_args),
-                    desc="Writing regions",
-                    unit="region",
-                    disable=not is_interactive(),
+        if n_outer == 1:
+            write_results = [process_geojson_to_tiles(tile_args[0])]
+        else:
+            with Pool(n_outer) as pool:
+                write_results = list(
+                    tqdm(
+                        pool.imap_unordered(process_geojson_to_tiles, tile_args),
+                        total=len(tile_args),
+                        desc="Writing regions",
+                        unit="region",
+                        disable=not is_interactive(),
+                    )
                 )
-            )
 
         # Build tile file map: (ts, x, y) -> (jsonl in temp, json in LIVE dir)
         all_tile_files_written = {}
@@ -2639,7 +2764,13 @@ def main():
                 print(f"Error: Region '{name}' not found in regions.json")
                 sys.exit(1)
             entry = regions[name]
-            target_geojsons.append(Path(entry["geojson"]))
+            geojson_path = Path(entry["geojson"])
+            if not geojson_path.exists():
+                # Stored path may be stale (project moved). Try resolving under _DATA_DIR.
+                candidate = _DATA_DIR / geojson_path.parent.name / geojson_path.name
+                if candidate.exists():
+                    geojson_path = candidate
+            target_geojsons.append(geojson_path)
             b = entry["bounds"]
             union_bounds["minLon"] = min(union_bounds["minLon"], b["minLon"])
             union_bounds["maxLon"] = max(union_bounds["maxLon"], b["maxLon"])
@@ -2700,8 +2831,10 @@ def main():
             # Phase 1: Stream features to temp dir (deferred finalization)
             tile_args = []
             for gj in target_geojsons:
-                pbf_file = gj.parent.parent / f"{gj.parent.name}.osm.pbf"
-                source_file = str(pbf_file) if pbf_file.exists() else str(gj)
+                _pbf_parent = gj.parent.parent / f"{gj.parent.name}.osm.pbf"
+                _pbf_same = gj.parent / f"{gj.parent.name}.osm.pbf"
+                pbf_file = _pbf_parent if _pbf_parent.exists() else (_pbf_same if _pbf_same.exists() else None)
+                source_file = str(pbf_file) if pbf_file else None
                 tile_args.append((
                     str(gj),
                     str(temp_tile_dir),
@@ -2710,18 +2843,25 @@ def main():
                     args.clip_buffer,
                     True,  # defer_finalization
                     TILESET_IDS,
+                    None,  # n_workers placeholder, filled below
                 ))
+            n_outer = min(args.jobs, len(tile_args))
+            n_inner = max(1, args.jobs // n_outer)
+            tile_args = [t[:-1] + (n_inner,) for t in tile_args]
 
             print("\nPhase 1: Writing features...")
-            with Pool(min(args.jobs, len(tile_args))) as pool:
-                write_results = list(
-                    tqdm(
-                        pool.imap_unordered(process_geojson_to_tiles, tile_args),
-                        total=len(tile_args),
-                        desc="Writing regions",
-                        unit="region",
+            if n_outer == 1:
+                write_results = [process_geojson_to_tiles(tile_args[0])]
+            else:
+                with Pool(n_outer) as pool:
+                    write_results = list(
+                        tqdm(
+                            pool.imap_unordered(process_geojson_to_tiles, tile_args),
+                            total=len(tile_args),
+                            desc="Writing regions",
+                            unit="region",
+                        )
                     )
-                )
 
             # Expand affected_tiles with any new tiles from this build
             for r in write_results:
@@ -2875,10 +3015,11 @@ def main():
         # Find corresponding PBF files for fingerprinting
         tile_args = []
         for gj in geojson_files:
-            # GeoJSON is at data/hamburg-latest/hamburg-latest.osm.geojson
-            # PBF is at data/hamburg-latest.osm.pbf (one level up)
-            pbf_file = gj.parent.parent / f"{gj.parent.name}.osm.pbf"
-            source_file = str(pbf_file) if pbf_file.exists() else str(gj)
+            # PBF may be one level up (data/region.osm.pbf) or alongside the GeoJSON
+            _pbf_parent = gj.parent.parent / f"{gj.parent.name}.osm.pbf"
+            _pbf_same = gj.parent / f"{gj.parent.name}.osm.pbf"
+            pbf_file = _pbf_parent if _pbf_parent.exists() else (_pbf_same if _pbf_same.exists() else None)
+            source_file = str(pbf_file) if pbf_file else None
             tile_args.append(
                 (
                     str(gj),
@@ -2888,21 +3029,28 @@ def main():
                     args.clip_buffer,
                     True,  # defer_finalization — Phase 2 runs globally below
                     TILESET_IDS,
+                    None,  # n_workers placeholder, filled below
                 )
             )
+        n_outer = min(args.jobs, len(tile_args))
+        n_inner = max(1, args.jobs // n_outer)
+        tile_args = [t[:-1] + (n_inner,) for t in tile_args]
 
         # Phase 1: stream all region features to .jsonl files (no finalization yet)
         _log("Phase 1: Writing features...")
-        with Pool(min(args.jobs, len(tile_args))) as pool:
-            write_results = list(
-                tqdm(
-                    pool.imap_unordered(process_geojson_to_tiles, tile_args),
-                    total=len(tile_args),
-                    desc="Writing regions",
-                    unit="region",
-                    disable=not is_interactive(),
+        if n_outer == 1:
+            write_results = [process_geojson_to_tiles(tile_args[0])]
+        else:
+            with Pool(n_outer) as pool:
+                write_results = list(
+                    tqdm(
+                        pool.imap_unordered(process_geojson_to_tiles, tile_args),
+                        total=len(tile_args),
+                        desc="Writing regions",
+                        unit="region",
+                        disable=not is_interactive(),
+                    )
                 )
-            )
 
         all_tile_files_written = {}  # (ts, x, y) -> (jsonl_path, json_path)
         for r in write_results:

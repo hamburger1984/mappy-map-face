@@ -122,8 +122,10 @@ convert: setup
     @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/step_2_convert_to_geojson.py'\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/step_2_convert_to_geojson.py'" } }}
 
 # Run only step 3: Generate tiles from GeoJSON
-tiles: setup
-    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py'\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py'" } }}
+# Usage: just tiles
+# Usage: just tiles 10       (use 10 parallel workers)
+tiles jobs="": setup
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py'" + (if jobs != "" { " -j " + jobs } else { "" }) + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py'" + (if jobs != "" { " -j " + jobs } else { "" }) } }}
 
 # Download, convert, and add a single new region; appends it to preprocessing/regions.json
 # URL is looked up from the Geofabrik index automatically when omitted.
@@ -151,22 +153,38 @@ build-regions +regions: setup config-export
 # Use when tileset config changed for specific regions. For data changes, use `just build`.
 # Usage: just update-region hamburg
 # Usage: just update-region hamburg schleswig-holstein
-update-region +regions: setup config-export
-    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py' --update " + regions + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py' --update " + regions } }}
+# Usage: just update-region 10 denmark-latest             (jobs first when it's a number)
+# Usage: just update-region 10 denmark-latest hamburg
+update-region jobs="" *regions: setup config-export
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" +
+    "if ('" + jobs + "' -match '^\\d+$') { $J = '-j " + jobs + "'; $R = '" + regions + "' } else { $J = ''; $R = '" + jobs + " " + regions + "' }; " +
+    "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py' --update $R $J\""
+    } else {
+    "case '" + jobs + "' in [0-9]*) J='-j " + jobs + "'; R='" + regions + "';; *) J=''; R='" + jobs + " " + regions + "';; esac; " +
+    "venv/bin/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py' --update $R $J"
+    } }}
 
 # Update one or more regions for specific tilesets only (no re-download or re-convert)
 # Use when tileset config changed but underlying data is unchanged
 # Usage: just update-region-tileset hamburg-latest t2b
 # Usage: just update-region-tileset "hamburg-latest schleswig-holstein-latest" "t2b t3"
-update-region-tileset regions tilesets: setup config-export
-    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py' --update " + regions + " --tilesets " + tilesets + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py' --update " + regions + " --tilesets " + tilesets } }}
+# Usage: just update-region-tileset hamburg-latest t2b 10    (use 10 parallel workers)
+update-region-tileset regions tilesets jobs="": setup config-export
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py' --update " + regions + " --tilesets " + tilesets + (if jobs != "" { " -j " + jobs } else { "" }) + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py' --update " + regions + " --tilesets " + tilesets + (if jobs != "" { " -j " + jobs } else { "" }) } }}
 
 # Regenerate specific tileset(s) for ALL existing regions (clears stale tiles first)
 # Use when tileset config changes globally (e.g. added/removed features from a tileset)
 # Usage: just regen-tileset t2b
 # Usage: just regen-tileset t2b t3
-regen-tileset +tilesets: setup config-export
-    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py' --regen-tilesets " + tilesets + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py' --regen-tilesets " + tilesets } }}
+# Usage: just regen-tileset 10 t2b t3    (jobs first when it's a number)
+regen-tileset jobs="" *tilesets: setup config-export
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" +
+    "if ('" + jobs + "' -match '^\\d+$') { $J = '-j " + jobs + "'; $T = '" + tilesets + "' } else { $J = ''; $T = '" + jobs + " " + tilesets + "' }; " +
+    "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py' --regen-tilesets $T $J\""
+    } else {
+    "case '" + jobs + "' in [0-9]*) J='-j " + jobs + "'; T='" + tilesets + "';; *) J=''; T='" + jobs + " " + tilesets + "';; esac; " +
+    "venv/bin/python '" + justfile_directory() + "/preprocessing/step_3_generate_tiles.py' --regen-tilesets $T $J"
+    } }}
 
 # Clean generated tiles only
 clean:

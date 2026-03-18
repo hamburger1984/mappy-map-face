@@ -123,7 +123,6 @@
         position: fixed;
         bottom: 0; left: 0; right: 0;
         background: white;
-        border-radius: 12px 12px 0 0;
         box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.2);
         transition: transform 0.3s ease;
         z-index: 100;
@@ -133,34 +132,31 @@
       }
 
       .panel.collapsed {
-        transform: translateY(calc(100% - 36px));
+        transform: translateY(100%);
       }
 
       .panel-handle {
-        height: 36px;
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: white;
+        border-radius: 8px 8px 0 0;
+        box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.12);
+        padding: 6px 14px;
         cursor: pointer;
         user-select: none;
-        border-bottom: 1px solid #eee;
-      }
-
-      .panel-handle-bar {
-        width: 36px; height: 4px;
-        background: #ccc;
-        border-radius: 2px;
+        display: flex;
+        align-items: center;
       }
 
       .panel-arrow {
         font-size: 13px;
-        color: #666;
+        color: #555;
         transition: transform 0.3s;
       }
 
-      .panel.collapsed .panel-arrow {
+      .panel:not(.collapsed) .panel-arrow {
         transform: rotate(180deg);
       }
 
@@ -346,7 +342,6 @@
     <!-- Bottom panel (collapsed by default) -->
     <div class="panel collapsed" id="panel" style="display:none">
       <div class="panel-handle" id="panelToggle">
-        <div class="panel-handle-bar"></div>
         <span class="panel-arrow">▲</span>
       </div>
       <div class="panel-content">
