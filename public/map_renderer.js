@@ -471,12 +471,139 @@ class MapRenderer {
       this.initGlyphCache();
       this.initPatternCache();
       this.initPOIToggles();
+      this.setupSearch();
 
       return true;
     } catch (error) {
       console.error("Failed to initialize canvas:", error);
       return false;
     }
+  }
+
+  setupSearch() {
+    const input = document.getElementById('searchInput');
+    const results = document.getElementById('searchResults');
+    if (!input) return;
+
+    input.addEventListener('input', () => {
+      const q = input.value.trim().toLowerCase();
+      if (q.length < 2) { results.style.display = 'none'; return; }
+      const matches = this.searchFeatures(q);
+      this.renderSearchResults(matches, results);
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { input.value = ''; results.style.display = 'none'; input.blur(); }
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#searchBox')) results.style.display = 'none';
+    });
+  }
+
+  searchFeatures(query) {
+    if (!this.mapData) return [];
+    const seen = new Set();
+    const results = [];
+    for (const feature of this.mapData.features) {
+      const name = feature.properties?.name;
+      if (!name) continue;
+      if (!name.toLowerCase().includes(query)) continue;
+      const { label, priority } = this.getFeatureSearchMeta(feature);
+      const key = `${name}|${label}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      results.push({ name, label, priority, feature });
+      if (results.length >= 20) break;
+    }
+    results.sort((a, b) => {
+      const aStart = a.name.toLowerCase().startsWith(query) ? 0 : 1;
+      const bStart = b.name.toLowerCase().startsWith(query) ? 0 : 1;
+      return aStart - bStart || a.priority - b.priority;
+    });
+    return results.slice(0, 10);
+  }
+
+  getFeatureSearchMeta(feature) {
+    const r = feature._render || {};
+    if (r.placeType) {
+      const labels = { city:'City', town:'Town', village:'Village', suburb:'Suburb',
+                       hamlet:'Hamlet', locality:'Locality', neighbourhood:'Neighbourhood' };
+      return { label: labels[r.placeType] || 'Place', priority: r.placePriority || 5 };
+    }
+    if (r.poiCategory) {
+      return { label: r.poiCategory.charAt(0).toUpperCase() + r.poiCategory.slice(1), priority: 4 };
+    }
+    if (r.waterLabel) {
+      const wt = r.waterLabel.waterType;
+      const labels = { river:'River', stream:'Stream', lake:'Lake', pond:'Pond',
+                       canal:'Canal', bay:'Bay', sea:'Sea', ocean:'Ocean' };
+      return { label: labels[wt] || 'Water', priority: 3 };
+    }
+    if (r.layer === 'surface_roads' || r.layer === 'bridge_roads' || r.layer === 'tunnels') {
+      return { label: 'Road', priority: 6 };
+    }
+    return { label: 'Feature', priority: 7 };
+  }
+
+  renderSearchResults(matches, el) {
+    if (!matches.length) {
+      el.innerHTML = '<div class="search-no-results">No results</div>';
+      el.style.display = 'block';
+      return;
+    }
+    el.innerHTML = matches.map((m, i) =>
+      `<div class="search-result" data-idx="${i}">
+         <span class="sr-name">${this._escHtml(m.name)}</span>
+         <span class="sr-type">${this._escHtml(m.label)}</span>
+       </div>`
+    ).join('');
+    el.style.display = 'block';
+    el.querySelectorAll('.search-result').forEach(row => {
+      row.addEventListener('click', () => {
+        const m = matches[+row.dataset.idx];
+        this.navigateToFeature(m.feature);
+        document.getElementById('searchInput').value = m.name;
+        el.style.display = 'none';
+      });
+    });
+  }
+
+  _escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  navigateToFeature(feature) {
+    const [lon, lat] = this.getFeatureCentroid(feature);
+    this.centerLon = lon;
+    this.centerLat = lat;
+    this.offsetX = 0;
+    this.offsetY = 0;
+    this.selectedFeature = feature;
+    this.renderMap();
+  }
+
+  getFeatureCentroid(feature) {
+    const geom = feature.geometry;
+    if (!geom) return [this.centerLon, this.centerLat];
+    if (geom.type === 'Point') return geom.coordinates;
+    if (geom.type === 'LineString') {
+      const mid = Math.floor(geom.coordinates.length / 2);
+      return geom.coordinates[mid];
+    }
+    if (geom.type === 'Polygon' && geom.coordinates[0]?.length) {
+      const ring = geom.coordinates[0];
+      const lon = ring.reduce((s, c) => s + c[0], 0) / ring.length;
+      const lat = ring.reduce((s, c) => s + c[1], 0) / ring.length;
+      return [lon, lat];
+    }
+    if (geom.type === 'MultiPolygon' && geom.coordinates[0]?.[0]?.length) {
+      const ring = geom.coordinates[0][0];
+      const lon = ring.reduce((s, c) => s + c[0], 0) / ring.length;
+      const lat = ring.reduce((s, c) => s + c[1], 0) / ring.length;
+      return [lon, lat];
+    }
+    return [this.centerLon, this.centerLat];
   }
 
   initGlyphCache() {
@@ -8624,6 +8751,7 @@ async function initApp() {
   document.getElementById("mapCanvas").style.display = "block";
   document.getElementById("zoomControls").style.display = "flex";
   document.getElementById("panel").style.display = "flex";
+  document.getElementById("searchBox").style.display = "block";
   renderer.resizeCanvas();
 
   // Panel toggle
