@@ -296,7 +296,7 @@ def download_and_convert_land_polygons(args):
         shp_path = shp_files[0]
 
         # Convert with reprojection to WGS84
-        subprocess.run(
+        proc = subprocess.run(
             [
                 ogr2ogr_path,
                 "-f",
@@ -306,9 +306,11 @@ def download_and_convert_land_polygons(args):
                 str(output_file),
                 str(shp_path),
             ],
-            check=True,
             capture_output=True,
         )
+        if proc.returncode != 0:
+            err = proc.stderr.decode(errors="replace").strip()
+            raise RuntimeError(f"ogr2ogr failed (exit {proc.returncode}):\n{err}")
 
         # Cleanup
         shutil.rmtree(temp_dir)
@@ -417,7 +419,9 @@ def main():
             elif result["status"] == "downloaded":
                 print(f"  ✓ {result['name']}: {result['size_mb']:.1f} MB (newly downloaded)")
             elif result["status"] == "skipped":
-                print(f"  ! {result['name']}: {result['reason']}")
+                print(f"  ✗ {result['name']}: {result['reason']}")
+                print("    Install gdal (provides ogr2ogr) and re-run.")
+                sys.exit(1)
             else:
                 print(f"  ✗ {result['name']}: {result.get('error', 'failed')}")
                 sys.exit(1)
@@ -494,7 +498,9 @@ def main():
         elif result["status"] == "downloaded":
             _log(f"  {result['name']}: {result['size_mb']:.1f} MB (newly downloaded)")
         elif result["status"] == "skipped":
-            _log(f"  {result['name']}: skipped ({result.get('reason', 'unknown')})")
+            _log(f"  FAILED {result['name']}: {result.get('reason', 'ogr2ogr not found')}")
+            _log("    Install gdal (provides ogr2ogr) and re-run.")
+            sys.exit(1)
         else:
             _log(f"  FAILED {result['name']}: {result.get('error', 'failed')}")
 

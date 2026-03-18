@@ -231,7 +231,9 @@ def load_land_polygons(data_dir: Path, bbox=None):
 #ACTIVE_REGIONS = {"hamburg", "schleswig-holstein"}
 ACTIVE_REGIONS = None
 
-# Module-level land polygon index (lazy — initialized per worker via init_land_polygons)
+# Module-level land polygon index (lazy — initialized per worker via init_land_polygons).
+# Default points at the local dev data dir; overwritten from --data-dir in main() before
+# any worker pool is created (critical on Nix where __file__ is inside the read-only store).
 _DATA_DIR = Path(__file__).parent / "data"
 LAND_POLYGON_GEOMS = None
 LAND_POLYGON_TREE = None
