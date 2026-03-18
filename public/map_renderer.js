@@ -396,6 +396,8 @@ class MapRenderer {
     this.tileCache = new Map(); // Cache for loaded tiles
     this.tileIndex = null; // Tile index metadata
     this.loadingTiles = new Set(); // Track in-flight tile requests
+    this._prefetchTimer = null;
+    this._prefetchGeneration = 0;
     this._tileWorkers = Array.from({ length: 4 }, () => new Worker("tile_worker.js"));
     this._tileWorkerCallbacks = new Map(); // key → { resolve, reject }
     this._nextWorker = 0;
@@ -2583,6 +2585,54 @@ class MapRenderer {
     return "t5";
   }
 
+  schedulePrefetch(bounds) {
+    if (this._prefetchTimer) clearTimeout(this._prefetchTimer);
+    this._prefetchGeneration++;
+    const gen = this._prefetchGeneration;
+    this._prefetchTimer = setTimeout(() => {
+      this._prefetchTimer = null;
+      this._prefetchRingTiles(bounds, gen);
+    }, 400);
+  }
+
+  async _prefetchRingTiles(bounds, generation) {
+    const visibleTiles = this.getVisibleTiles(bounds);
+    if (!visibleTiles.length) return;
+
+    // Find min/max tile coords per tileset
+    const groups = new Map();
+    for (const t of visibleTiles) {
+      if (!groups.has(t.tileset)) {
+        groups.set(t.tileset, { minX: t.x, maxX: t.x, minY: t.y, maxY: t.y });
+      } else {
+        const g = groups.get(t.tileset);
+        if (t.x < g.minX) g.minX = t.x;
+        if (t.x > g.maxX) g.maxX = t.x;
+        if (t.y < g.minY) g.minY = t.y;
+        if (t.y > g.maxY) g.maxY = t.y;
+      }
+    }
+
+    const visibleSet = new Set(visibleTiles.map(t => this.getTileKey(t.tileset, t.x, t.y)));
+    const ringTiles = [];
+    for (const [tileset, g] of groups) {
+      for (let y = g.minY - 1; y <= g.maxY + 1; y++) {
+        for (let x = g.minX - 1; x <= g.maxX + 1; x++) {
+          const key = this.getTileKey(tileset, x, y);
+          if (!visibleSet.has(key) && !this.tileCache.has(key)) {
+            ringTiles.push({ tileset, x, y });
+          }
+        }
+      }
+    }
+
+    for (const tile of ringTiles) {
+      if (this._prefetchGeneration !== generation) return;
+      this.loadTile(tile.tileset, tile.x, tile.y);
+      await new Promise(resolve => setTimeout(resolve, 80));
+    }
+  }
+
   getVisibleTiles(bounds) {
     // Calculate which tiles are visible in the current viewport using custom tile sizes.
     // Tile width in degrees varies by latitude (tile generator uses each row's own center
@@ -3212,6 +3262,9 @@ class MapRenderer {
       this._lastTileSetSig = tileSetSig;
       perfTimings.tileLoad = performance.now() - tileLoadStart;
     }
+
+    // Schedule background prefetch of surrounding ring tiles
+    this.schedulePrefetch(adjustedBounds);
 
     // Update tile stats
     document.getElementById("tileCount").textContent = visibleTiles.length;
