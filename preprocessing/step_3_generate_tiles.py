@@ -2689,6 +2689,11 @@ def main():
 
     args = parser.parse_args()
 
+    # Let workers find land polygons in the user-specified data dir, not the
+    # script's own directory (important on Nix where the script lives in the store).
+    global _DATA_DIR
+    _DATA_DIR = args.data_dir
+
     # --- --regen-tilesets: rebuild specific tilesets for all regions, then swap ---
     if args.regen_tilesets:
         _apply_tileset_filter(args.regen_tilesets)
