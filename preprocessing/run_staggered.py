@@ -231,8 +231,8 @@ def main() -> None:
         geojson_path = args.data_dir / pbf_name / f"{pbf_name}.osm.geojson"
         tile_index   = args.tiles_dir / "regions" / f"{raw_name}.tiles.json.gz"
 
-        # ── freshness check ───────────────────────────────────────────────────
-        if is_tile_fresh(tile_index, pbf_path, args.max_tile_age):
+        # ── freshness check (skipped when explicitly adding a region) ─────────
+        if not args.add_region and is_tile_fresh(tile_index, pbf_path, args.max_tile_age):
             age_days = (time.time() - tile_index.stat().st_mtime) / 86400
             _log(f"  {pbf_name}: tiles are {age_days:.1f}d old and newer than PBF — skipping.")
             continue
