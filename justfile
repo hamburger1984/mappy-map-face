@@ -107,8 +107,9 @@ setup:
 # Usage: just build 60        (wait 60s between regions)
 # Usage: just build 0 7       (rebuild if tiles older than 7 days)
 # Usage: just build 0 0       (always rebuild all regions)
-build gap="0" max_tile_age="14": setup config-export
-    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --tiles-dir '" + justfile_directory() + "/public/tiles' --gap-seconds " + gap + " --max-tile-age " + max_tile_age + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --tiles-dir '" + justfile_directory() + "/public/tiles' --gap-seconds " + gap + " --max-tile-age " + max_tile_age } }}
+# Usage: just build 0 14 10   (use 10 parallel workers)
+build gap="0" max_tile_age="14" jobs="": setup config-export
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --tiles-dir '" + justfile_directory() + "/public/tiles' --gap-seconds " + gap + " --max-tile-age " + max_tile_age + (if jobs != "" { " -j " + jobs } else { "" }) + "\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --tiles-dir '" + justfile_directory() + "/public/tiles' --gap-seconds " + gap + " --max-tile-age " + max_tile_age + (if jobs != "" { " -j " + jobs } else { "" }) } }}
 
 config-export: setup
     @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/export_config.py'\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/export_config.py'" } }}
@@ -130,9 +131,11 @@ tiles jobs="": setup
 # Download, convert, and add a single new region; appends it to preprocessing/regions.json
 # URL is looked up from the Geofabrik index automatically when omitted.
 # Usage: just add-region hamburg
-# Usage: just add-region hamburg https://download.geofabrik.de/europe/germany/hamburg-latest.osm.pbf
-add-region name url="": setup config-export
-    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --add-region " + name + (if url != "" { " --url " + url } else { "" }) + " --tiles-dir '" + justfile_directory() + "/public/tiles'\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --add-region " + name + (if url != "" { " --url " + url } else { "" }) + " --tiles-dir '" + justfile_directory() + "/public/tiles'" } }}
+# Usage: just add-region hamburg ""           (auto URL, no jobs)
+# Usage: just add-region hamburg "" 10        (use 10 parallel workers)
+# Usage: just add-region hamburg https://... 10
+add-region name url="" jobs="": setup config-export
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --add-region " + name + (if url != "" { " --url " + url } else { "" }) + (if jobs != "" { " -j " + jobs } else { "" }) + " --tiles-dir '" + justfile_directory() + "/public/tiles'\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --add-region " + name + (if url != "" { " --url " + url } else { "" }) + (if jobs != "" { " -j " + jobs } else { "" }) + " --tiles-dir '" + justfile_directory() + "/public/tiles'" } }}
 
 # List local regions from preprocessing/regions.json with their build status
 list-regions:
@@ -146,8 +149,15 @@ list-regions-remote query="":
 
 # Build tiles for a subset of regions from regions.json (useful for validation)
 # Usage: just build-regions hamburg schleswig-holstein
-build-regions +regions: setup config-export
-    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"& venv/Scripts/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --only " + regions + " --tiles-dir '" + justfile_directory() + "/public/tiles'\"" } else { "venv/bin/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --only " + regions + " --tiles-dir '" + justfile_directory() + "/public/tiles'" } }}
+# Usage: just build-regions 10 hamburg schleswig-holstein   (jobs first when it's a number)
+build-regions jobs="" *regions: setup config-export
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" +
+    "if ('" + jobs + "' -match '^\\d+$') { $J = '-j " + jobs + "'; $R = '" + regions + "' } else { $J = ''; $R = '" + jobs + " " + regions + "' }; " +
+    "& venv/Scripts/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --only $R --tiles-dir '" + justfile_directory() + "/public/tiles' $J\""
+    } else {
+    "case '" + jobs + "' in [0-9]*) J='-j " + jobs + "'; R='" + regions + "';; *) J=''; R='" + jobs + " " + regions + "';; esac; " +
+    "venv/bin/python '" + justfile_directory() + "/preprocessing/run_staggered.py' --only $R --tiles-dir '" + justfile_directory() + "/public/tiles' $J"
+    } }}
 
 # Re-tile one or more existing regions from their cached GeoJSON (no re-download/re-convert)
 # Use when tileset config changed for specific regions. For data changes, use `just build`.
