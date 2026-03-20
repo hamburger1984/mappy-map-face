@@ -64,6 +64,11 @@ export const THEMES = {
       institutionalProminent: { r: 215, g: 205, b: 213, a: 255 }, // Softened purple-gray
     },
 
+    // Pedestrian areas (plazas, paved footway areas, former runways/aprons in use as pedestrian zones)
+    pedestrian: {
+      area: { r: 218, g: 215, b: 210, a: 255 }, // Warm concrete gray
+    },
+
     // Special purpose areas
     specialPurpose: {
       education: { r: 245, g: 235, b: 210, a: 255 }, // Yellow-tan
@@ -301,6 +306,10 @@ export const THEMES = {
       industrialProminent:    { r: 46, g: 45, b: 67, a: 255 },
       retailProminent:        { r: 69, g: 45, b: 47, a: 255 },
       institutionalProminent: { r: 59, g: 48, b: 62, a: 255 },
+    },
+
+    pedestrian: {
+      area: { r: 58, g: 56, b: 52, a: 255 }, // Dark concrete gray
     },
 
     specialPurpose: {

@@ -434,6 +434,19 @@ class MapRenderer {
     for (let i = 0; i < 10000; i++) {
       this._pointPool.push({ x: 0, y: 0 });
     }
+
+    // Layer classify cache (optimization A)
+    this._cachedLayers = null;
+    this._lastClassifySig = null;
+    this._frameStats = null; // rolling timing stats for current tile set
+
+    // Render generation counter — prevents stale async renders from overwriting newer ones
+    this._renderGeneration = 0;
+
+    // Offscreen base canvas for fast hover re-render (optimization B)
+    this._baseCanvas = null;
+    this._baseCtx = null;
+    this._baseImageValid = false;
   }
 
   resizeCanvas() {
@@ -3242,8 +3255,15 @@ class MapRenderer {
   }
 
   async renderMap() {
+    const myGeneration = ++this._renderGeneration;
     const startTime = performance.now();
     const perfTimings = {}; // Track performance of each step
+    this._baseImageValid = false; // Invalidated on full re-render (optimization B)
+
+    // Snapshot pan offset at render start — adjustedBounds is computed from these values,
+    // so _lastRenderOffset must match them, not the offset at render *end* (user may keep panning)
+    const renderStartOffsetX = this.offsetX;
+    const renderStartOffsetY = this.offsetY;
 
     // Reset object pools for this frame
     this._resetPointPool();
@@ -3317,10 +3337,13 @@ class MapRenderer {
     if (this._lastTileSetSig === tileSetSig && this.mapData) {
       // Reuse cached mapData — skip expensive merge+dedup
       perfTimings.tileLoad = performance.now() - tileLoadStart;
+      this._lastMergeStats = null; // clear so report shows "cached" not stale data
     } else {
       this.mapData = await this.loadVisibleTiles(adjustedBounds);
+      if (myGeneration !== this._renderGeneration) return; // superseded during tile fetch
       this._lastTileSetSig = tileSetSig;
       perfTimings.tileLoad = performance.now() - tileLoadStart;
+      this._frameStats = null; // reset rolling stats on tile set change
     }
 
     // Schedule background prefetch of surrounding ring tiles
@@ -3352,6 +3375,7 @@ class MapRenderer {
       this._layers = {
         base_land: [], // Land polygons from authoritative land polygon dataset
         natural_background: [],
+        pedestrian_areas: [], // Pedestrian plazas/footway areas (paved surfaces)
         forests: [],
         water_areas: [],
         wetlands: [],
@@ -3374,18 +3398,21 @@ class MapRenderer {
         building_labels: [], // House numbers
       };
     }
-    const layers = this._layers;
-    for (const key in layers) layers[key].length = 0;
+    // Classify cache: skip loop when tileset, LOD, theme, and POI toggles unchanged (optimization A)
+    const poiSig = Object.keys(this.poiCategoryState).filter(k => this.poiCategoryState[k]).sort().join(',');
+    const classifySig = tileSetSig + '|' + poiSig + '|' + this._currentTheme;
 
-    // Classify and filter features by LOD
-    for (const feature of this.mapData.features) {
+    let layers;
+    if (this._lastClassifySig === classifySig && this._cachedLayers) {
+      layers = this._cachedLayers; // Cache hit — saves ~259ms classify
+    } else {
+      const _layers = this._layers;
+      for (const key in _layers) _layers[key].length = 0;
+      layers = _layers;
+
+      // Classify and filter features by LOD
+      for (const feature of this.mapData.features) {
       if (!feature.geometry || !feature.geometry.coordinates) continue;
-
-      // Viewport culling - skip features not in view
-      if (!this.isFeatureInViewport(feature, adjustedBounds)) {
-        culledCount++;
-        continue;
-      }
 
       const props = feature.properties || {};
       const type = feature.geometry.type;
@@ -3482,6 +3509,15 @@ class MapRenderer {
         }
       }
 
+      // Skip railways and bridges at very large views — sub-pixel, invisible (optimization D)
+      if (this.viewWidthMeters > 400000 &&
+          (featureInfo.layer === 'surface_railways' ||
+           featureInfo.layer === 'bridge_roads' ||
+           featureInfo.layer === 'bridge_railways')) {
+        lodCulledCount++;
+        continue;
+      }
+
       // Add to appropriate layer
       if (featureInfo.layer) {
         layers[featureInfo.layer].push({
@@ -3491,6 +3527,7 @@ class MapRenderer {
           color: featureInfo.color,
           fill: featureInfo.fill,
           width: featureInfo.width,
+          realWidthMeters: featureInfo.realWidthMeters,
           borderWidth: featureInfo.borderWidth,
           borderColor: featureInfo.borderColor,
           isRailway: featureInfo.isRailway,
@@ -3574,7 +3611,16 @@ class MapRenderer {
       }
     }
 
+      // Save to classify cache (copy arrays so next call's clear won't affect cache)
+      const _cached = {};
+      for (const key in layers) _cached[key] = [...layers[key]];
+      this._cachedLayers = _cached;
+      this._lastClassifySig = classifySig;
+    } // end cache-miss classify
+
     perfTimings.classify = performance.now() - classifyStart;
+
+    if (myGeneration !== this._renderGeneration) return; // superseded before render
 
     // Start rendering timing
     const renderStart = performance.now();
@@ -3582,8 +3628,7 @@ class MapRenderer {
     // Smart tile background rendering based on content
     // Analyze each tile and render appropriate background
     this.renderTileBackgrounds(visibleTiles, adjustedBounds);
-
-    perfTimings.clearCanvas = performance.now() - renderStart;
+    perfTimings.tileBackgrounds = performance.now() - renderStart;
 
     // Clear label occupancy for this frame — used for cross-category
     // collision detection so more important labels suppress less important ones.
@@ -3591,7 +3636,9 @@ class MapRenderer {
 
     // Pre-register place labels so that road/water labels yield to them.
     // This computes positions and reserves space without rendering yet.
+    let _t = performance.now();
     this.preregisterPlaceLabels(layers.place_labels, adjustedBounds);
+    perfTimings.preregisterLabels = performance.now() - _t;
 
     // Render all layers in correct z-order using Canvas2D
     // Background to foreground (bottom to top)
@@ -3602,20 +3649,26 @@ class MapRenderer {
     this.renderLayer(layers.base_land, adjustedBounds, true);
     layerTimings.baseLand = performance.now() - layerStart;
 
-    // 1. Natural background (parks, farmland, meadows)
+    // 1. Landuse areas (residential, commercial, industrial — coarse background zones)
+    // Must render BEFORE natural_background so parks/grass drawn inside them show correctly on top.
+    layerStart = performance.now();
+    const drawnLanduse = this.renderLayer(layers.landuse_areas, adjustedBounds, true);
+    layerTimings.landuse = performance.now() - layerStart;
+
+    // 2. Natural background (parks, farmland, meadows — overrides landuse within those areas)
     layerStart = performance.now();
     this.renderLayer(layers.natural_background, adjustedBounds, true);
     layerTimings.natural = performance.now() - layerStart;
 
-    // 1b. Forests (on top of parks so they're visible inside parks)
+    // 2b. Pedestrian areas (paved plazas/footway areas — on top of parks)
     layerStart = performance.now();
-    this.renderLayer(layers.forests, adjustedBounds, true);
-    layerTimings.forests = performance.now() - layerStart;
+    this.renderLayer(layers.pedestrian_areas, adjustedBounds, true);
+    layerTimings.pedestrianAreas = performance.now() - layerStart;
 
-    // 2. Landuse areas (commercial, industrial, residential)
+    // 2c. Forests (on top of parks so they're visible inside parks)
     layerStart = performance.now();
-    this.renderLayer(layers.landuse_areas, adjustedBounds, true);
-    layerTimings.landuse = performance.now() - layerStart;
+    const drawnForests = this.renderLayer(layers.forests, adjustedBounds, true);
+    layerTimings.forests = performance.now() - layerStart;
 
     // 3. Surface waterways (rivers, streams — drawn before water polygons so lakes cover them)
     layerStart = performance.now();
@@ -3624,7 +3677,7 @@ class MapRenderer {
 
     // 3b. Water areas (lakes, rivers as polygons — on top of waterway lines)
     layerStart = performance.now();
-    this.renderLayer(layers.water_areas, adjustedBounds, true);
+    const drawnWater = this.renderLayer(layers.water_areas, adjustedBounds, true);
     layerTimings.water = performance.now() - layerStart;
 
     // 3c. Islands
@@ -3697,12 +3750,15 @@ class MapRenderer {
     // Water labels render first, street names second.
     layerStart = performance.now();
     const _allRoads = [...layers.surface_roads, ...layers.bridge_roads];
-    // Cache conflict resolution: rerun only when road/water counts or LOD change
-    const _wsKey = `${layers.surface_roads.length},${layers.bridge_roads.length},${layers.water_labels.length},${this.getLOD()}`;
-    if (!this._wsCache || this._wsCache.key !== _wsKey) {
-      this._wsCache = { key: _wsKey, allowed: this._preResolveWaterStreetLabels(layers.water_labels, _allRoads, adjustedBounds) };
+    let _wsAllowed = null;
+    if (this.getLOD() > 0) {
+      // Cache conflict resolution: rerun only when road/water counts or LOD change
+      const _wsKey = `${layers.surface_roads.length},${layers.bridge_roads.length},${layers.water_labels.length},${this.getLOD()}`;
+      if (!this._wsCache || this._wsCache.key !== _wsKey) {
+        this._wsCache = { key: _wsKey, allowed: this._preResolveWaterStreetLabels(layers.water_labels, _allRoads, adjustedBounds) };
+      }
+      _wsAllowed = this._wsCache.allowed;
     }
-    const _wsAllowed = this._wsCache.allowed;
     this.renderWaterLabels(layers.water_labels, adjustedBounds, _wsAllowed);
     layerTimings.waterLabels = performance.now() - layerStart;
 
@@ -3737,6 +3793,7 @@ class MapRenderer {
     layerStart = performance.now();
     this.renderPlaceLabels(layers.place_labels, adjustedBounds);
     layerTimings.placeLabels = performance.now() - layerStart;
+
 
     // 11. Highlight hovered or selected feature on top of everything
     layerStart = performance.now();
@@ -3778,15 +3835,45 @@ class MapRenderer {
     const TIMING_KEY_MAP = {
       roads: 'surface_roads', railways: 'surface_railways',
       bridges: 'bridge_roads', tunnels: 'tunnels',
+      landuse: 'landuse_areas', pedestrianAreas: 'pedestrian_areas', forests: 'forests', baseLand: 'base_land',
+      water: 'water_areas', waterways: 'waterways', wetlands: 'wetlands',
+      tunnelWaterways: 'tunnel_waterways',
+      buildings: 'buildings', aeroways: 'aeroways', boundaries: 'boundaries',
       streetNames: 'surface_roads', highwayShields: 'surface_roads',
+      waterLabels: 'water_labels', points: 'points', placeLabels: 'place_labels',
     };
+    const drawnCounts = { forests: drawnForests, landuse: drawnLanduse, water: drawnWater };
     const layerRows = Object.entries(layerTimings)
       .map(([name, time]) => ({
         name,
         time,
         count: (layers[TIMING_KEY_MAP[name] || name])?.length || 0,
+        drawn: drawnCounts[name] ?? null,
       }))
       .filter((r) => r.count > 0 || r.time > 1);
+
+    // Accumulate rolling stats for the current tile set
+    if (!this._frameStats) {
+      this._frameStats = { n: 0, total: null, layers: {} };
+    }
+    const _fs = this._frameStats;
+    _fs.n++;
+    const _accumStat = (bucket, key, val) => {
+      if (!bucket[key]) bucket[key] = { sum: 0, sumSq: 0, min: Infinity, max: -Infinity };
+      const s = bucket[key];
+      s.sum += val; s.sumSq += val * val;
+      if (val < s.min) s.min = val;
+      if (val > s.max) s.max = val;
+    };
+    _accumStat(_fs, 'total', perfTimings.totalRender);
+    for (const { name, time } of layerRows) _accumStat(_fs.layers, name, time);
+    const _statStr = (s, n) => {
+      if (!s || n < 2) return '';
+      const mean = s.sum / n;
+      const variance = Math.max(0, s.sumSq / n - mean * mean);
+      const sigma = Math.sqrt(variance);
+      return ` (n=${n} μ=${mean.toFixed(0)} σ=${sigma.toFixed(0)} [${s.min.toFixed(0)}–${s.max.toFixed(0)}])`;
+    };
 
     // Output structured performance report
     console.group(
@@ -3811,15 +3898,19 @@ class MapRenderer {
     console.groupEnd();
 
     // Phase 2: Merge & dedup
-    const mergeTotal = ms.mergeTime || 0;
-    console.group(`2. Merge & dedup — ${mergeTotal.toFixed(1)}ms`);
-    console.log(
-      `${ms.totalLoaded || 0} raw → ${ms.features || 0} unique (${ms.duplicatesRemoved || 0} dupes, ${ms.lodFiltered || 0} LOD filtered)`,
-    );
-    console.log(
-      `Dedup + merge: ${(mergeTotal - (ms.bboxTime || 0)).toFixed(1)}ms | Bbox compute: ${(ms.bboxTime || 0).toFixed(1)}ms`,
-    );
-    console.groupEnd();
+    if (ms) {
+      const mergeTotal = ms.mergeTime || 0;
+      console.group(`2. Merge & dedup — ${mergeTotal.toFixed(1)}ms`);
+      console.log(
+        `${ms.totalLoaded || 0} raw → ${ms.features || 0} unique (${ms.duplicatesRemoved || 0} dupes, ${ms.lodFiltered || 0} LOD filtered)`,
+      );
+      console.log(
+        `Dedup + merge: ${(mergeTotal - (ms.bboxTime || 0)).toFixed(1)}ms | Bbox compute: ${(ms.bboxTime || 0).toFixed(1)}ms`,
+      );
+      console.groupEnd();
+    } else {
+      console.log(`2. Merge & dedup — cached (tile set unchanged)`);
+    }
 
     // Phase 3: Classification
     console.group(`3. Classify — ${perfTimings.classify.toFixed(1)}ms`);
@@ -3829,12 +3920,26 @@ class MapRenderer {
     console.groupEnd();
 
     // Phase 4: Rendering layers
-    console.group(`4. Render layers — ${perfTimings.totalRender.toFixed(1)}ms`);
+    const totalStat = _statStr(_fs.total, _fs.n);
+    console.group(`4. Render layers — ${perfTimings.totalRender.toFixed(1)}ms${totalStat}`);
+    // Show overhead phases first
+    for (const [label, key] of [['tileBackgrounds', 'tileBackgrounds'], ['preregisterLabels', 'preregisterLabels']]) {
+      const t = perfTimings[key] || 0;
+      if (t >= 1) {
+        _accumStat(_fs.layers, label, t);
+        const stat = _statStr(_fs.layers[label], _fs.n);
+        console.log(`${label.padEnd(18)}        overhead  ${t.toFixed(1).padStart(7)}ms${stat}`);
+      }
+    }
     const sortedLayers = layerRows.sort((a, b) => b.time - a.time);
-    for (const { name, time, count } of sortedLayers) {
+    for (const { name, time, count, drawn } of sortedLayers) {
       const bar = "█".repeat(Math.max(1, Math.round(time / 2)));
+      const stat = _statStr(_fs.layers[name], _fs.n);
+      const countStr = drawn !== null
+        ? `${String(drawn).padStart(5)}/${count} drawn`
+        : `${String(count).padStart(5)} features`;
       console.log(
-        `${name.padEnd(18)} ${String(count).padStart(5)} features  ${time.toFixed(1).padStart(7)}ms  ${bar}`,
+        `${name.padEnd(18)} ${countStr}  ${time.toFixed(1).padStart(7)}ms  ${bar}${stat}`,
       );
     }
     console.groupEnd();
@@ -3846,9 +3951,14 @@ class MapRenderer {
     document.getElementById("stats").querySelector("div").textContent =
       "Status: Rendered";
 
+    // Discard results if a newer renderMap() has already started
+    if (myGeneration !== this._renderGeneration) return;
+
     // Save rendered frame for canvas translation optimization
+    _t = performance.now();
     this.saveOffscreenCanvas();
-    this._lastRenderOffset = { x: this.offsetX, y: this.offsetY };
+    layerTimings.saveOffscreen = performance.now() - _t;
+    this._lastRenderOffset = { x: renderStartOffsetX, y: renderStartOffsetY };
 
     // Draw tile edges if enabled (after save so they're always on top)
     if (this.showTileEdges) {
@@ -4121,6 +4231,7 @@ class MapRenderer {
       tunnelGradient: false,
       gradientStartAlpha: null,
       gradientEndAlpha: null,
+      realWidthMeters: r.realWidthMeters || null,
     };
   }
 
@@ -5797,6 +5908,8 @@ class MapRenderer {
     const canvasHeight = this.canvasHeight;
     const toScreenX = (lon) => (lon - minLon) * scaleX;
     const toScreenY = (lat) => canvasHeight - (lat - minLat) * scaleY;
+    // Compute current metersPerPixel for fresh pixel-width calculation
+    const metersPerPixel = this.viewWidthMeters / this.canvasWidth;
 
     // Collect all road geometry first, organized by priority
     // Then do two-pass rendering: all casings, then all fills
@@ -5807,7 +5920,13 @@ class MapRenderer {
       // Collect flat screen coords for each feature in this priority group
       const featureCoords = [];
       for (const item of items) {
-        const { feature, props, type, color, width } = item;
+        const { feature, props, type, color } = item;
+        // Compute pixel width fresh from real-world meters to avoid stale classify-cache widths.
+        // Cap realWidthMeters at 14m (4-lane equivalent) to prevent inflated intersection
+        // segments (e.g. lanes=6 for a turn-lane expansion) from dominating at wide zoom levels.
+        const width = item.realWidthMeters
+          ? Math.max(1, Math.min(10, Math.min(item.realWidthMeters, 14) / metersPerPixel))
+          : (item.width || 1);
         const geom = feature.geometry;
         if (!geom || !geom.coordinates) continue;
 
@@ -6513,6 +6632,7 @@ class MapRenderer {
     // LOD 0-1: Only major roads (motorway, primary)
     // LOD 2+: All roads
     const lod = this.getLOD();
+    if (lod === 0) return; // optimization C: skip at 750km+ (saves ~20ms)
 
     // Pre-compute bounds scaling
     const lonRange = bounds.maxLon - bounds.minLon;
@@ -7057,7 +7177,15 @@ class MapRenderer {
     };
 
     for (const item of allRoads) {
-      const refs = parseRefs(item.props?.ref, item.props?.network);
+      // Skip roads with no ref before any expensive work
+      if (!item.props?.ref) continue;
+
+      // Viewport cull
+      const _b = item.feature._bbox;
+      if (_b && (_b.maxLon < bounds.minLon || _b.minLon > bounds.maxLon ||
+                 _b.maxLat < bounds.minLat || _b.minLat > bounds.maxLat)) continue;
+
+      const refs = parseRefs(item.props.ref, item.props?.network);
       if (refs.length === 0) continue;
 
       const geom = item.feature.geometry;
@@ -7195,6 +7323,7 @@ class MapRenderer {
   renderWaterLabels(layerFeatures, bounds, allowed = null) {
     // Render water body names (lakes, ponds, rivers, canals)
     if (!layerFeatures || layerFeatures.length === 0) return;
+    if (this.getLOD() === 0) return; // optimization C: skip at 750km+ (saves ~34ms)
 
     // Water labels can be shown at any zoom level (no LOD restriction)
     // Instead, we check if the label fits within the polygon bounds
@@ -7821,7 +7950,7 @@ class MapRenderer {
   }
 
   renderLayer(layerFeatures, bounds, useFill) {
-    if (!layerFeatures.length) return;
+    if (!layerFeatures.length) return 0;
     // Batch features by style to minimize Canvas2D state changes.
     // Key = "r,g,b,a|width", value = array of coordinate arrays to draw.
     const lineBatches = new Map(); // key -> { coords: [...], features: [...] }
@@ -7843,8 +7972,25 @@ class MapRenderer {
     const toScreenX = (lon) => (lon - minLon) * scaleX;
     const toScreenY = (lat) => canvasHeight - (lat - minLat) * scaleY;
 
+    let drawnCount = 0;
     for (const item of layerFeatures) {
       const { feature, props, type, color, fill, width, isRailway } = item;
+
+      // Viewport cull using precomputed bbox (classify cache is viewport-independent,
+      // so we cull at render time instead)
+      if (feature._bbox) {
+        const b = feature._bbox;
+        if (b.maxLon < bounds.minLon || b.minLon > bounds.maxLon ||
+            b.maxLat < bounds.minLat || b.minLat > bounds.maxLat) continue;
+        // Skip filled polygons that are too small to matter at the current zoom
+        if (fill) {
+          const bwPx = (b.maxLon - b.minLon) * scaleX;
+          const bhPx = (b.maxLat - b.minLat) * scaleY;
+          if (bwPx < 2 && bhPx < 2) continue;
+        }
+      }
+      drawnCount++;
+
       const geom = feature.geometry;
       if (!geom || !geom.coordinates) continue;
 
@@ -8020,6 +8166,7 @@ class MapRenderer {
                 fillBatches.get(colorStr).polygons.push({
                   outer: outerFlat,
                   holes: innerFlats,
+                  baseLand: !!props.base_land,
                 });
               }
 
@@ -8107,6 +8254,22 @@ class MapRenderer {
           this.ctx.closePath();
         }
         this.ctx.fill("evenodd");
+
+        // For base_land: stroke outer ring with same color to fill subpixel seams
+        // at tile boundaries (anti-aliasing of adjacent clipped polygons leaves gaps).
+        // Only outer ring — not holes — to avoid painting land color along water edges.
+        if (poly.baseLand && poly.outer) {
+          const outer = poly.outer;
+          this.ctx.beginPath();
+          this.ctx.moveTo(outer[0], outer[1]);
+          for (let i = 2; i < outer.length; i += 2) {
+            this.ctx.lineTo(outer[i], outer[i + 1]);
+          }
+          this.ctx.closePath();
+          this.ctx.strokeStyle = colorStr;
+          this.ctx.lineWidth = 1.5;
+          this.ctx.stroke();
+        }
       }
 
       // Points (can still be batched — circles don't overlap problematically)
@@ -8417,6 +8580,7 @@ class MapRenderer {
     } else {
       this._renderedPOIs = [];
     }
+    return drawnCount;
   }
 
   renderLineString(coordinates, color, bounds, width = 1, isRailway = false) {

@@ -496,6 +496,14 @@ def augment_render_from_props(render, props, geom_type):
             render["roadPriority"] = 1 if grade >= 4 else 2
 
         elif effective_highway in ("path", "footway", "pedestrian", "steps", "corridor"):
+            # Polygon footway/pedestrian areas (e.g. plaza, former runway) → filled paved area
+            if is_poly and effective_highway in ("footway", "pedestrian"):
+                render["themeKey"] = "pedestrian.area"
+                render["layer"] = "pedestrian_areas"
+                render["fill"] = True
+                render["minLOD"] = 1
+                return
+
             bicycle = props.get("bicycle", "")
             bicycle_designated = bicycle in ("designated", "yes")
             foot_implied = effective_highway in ("path", "footway", "pedestrian")
