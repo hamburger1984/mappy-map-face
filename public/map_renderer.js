@@ -399,6 +399,8 @@ class MapRenderer {
     this.tileCache = new Map(); // Cache for loaded tiles
     this.tileIndex = null; // Tile index metadata
     this.loadingTiles = new Set(); // Track in-flight tile requests
+    this._404cache = null;    // Lazily initialised — see _get404Cache()
+    this._404storageKey = null;
     this._prefetchTimer = null;
     this._prefetchGeneration = 0;
     this._tileWorkers = Array.from({ length: 4 }, () => new Worker("tile_worker.js"));
@@ -2757,12 +2759,41 @@ class MapRenderer {
     return `${tileset}/${x}/${y}`;
   }
 
+  // Lazily load (and version-check) the sessionStorage set of known-missing tiles.
+  // Keyed by tile build timestamp so a regeneration automatically clears old misses.
+  _get404Cache() {
+    if (this._404cache) return this._404cache;
+    const version = String(this.tileIndex?.generated || 'unknown');
+    const storageKey = `tile404_${version}`;
+    try {
+      const stored = sessionStorage.getItem(storageKey);
+      this._404cache = stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      this._404cache = new Set();
+    }
+    this._404storageKey = storageKey;
+    return this._404cache;
+  }
+
+  _mark404(key) {
+    const cache = this._get404Cache();
+    cache.add(key);
+    try { sessionStorage.setItem(this._404storageKey, JSON.stringify([...cache])); } catch {}
+  }
+
   async loadTile(tileset, x, y) {
     const key = this.getTileKey(tileset, x, y);
 
-    // Check cache first
+    // Check in-memory cache first
     if (this.tileCache.has(key)) {
       return this.tileCache.get(key);
+    }
+
+    // Skip tiles known to be missing (persisted across reloads until tiles are regenerated)
+    if (this._get404Cache().has(key)) {
+      const empty = { type: "FeatureCollection", features: [] };
+      this.tileCache.set(key, empty);
+      return empty;
     }
 
     // Check if already loading
@@ -2789,10 +2820,12 @@ class MapRenderer {
       });
 
       if (result.error) {
-        // Tile doesn't exist (no data in this area)
+        // Tile doesn't exist — remember it so we don't re-fetch on next page load
         this.loadingTiles.delete(key);
-        this.tileCache.set(key, { type: "FeatureCollection", features: [] });
-        return this.tileCache.get(key);
+        this._mark404(key);
+        const empty = { type: "FeatureCollection", features: [] };
+        this.tileCache.set(key, empty);
+        return empty;
       }
 
       // Track per-tile timing for instrumentation
