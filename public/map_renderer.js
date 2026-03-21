@@ -2806,12 +2806,15 @@ class MapRenderer {
 
       this.tileCache.set(key, result.data);
       this.loadingTiles.delete(key);
+      // Invalidate merge cache so next render picks up the new tile
+      this._lastTileSetSig = null;
 
       return result.data;
     } catch (error) {
       console.warn(`Failed to load tile ${key}:`, error);
       this.loadingTiles.delete(key);
       this.tileCache.set(key, { type: "FeatureCollection", features: [] });
+      this._lastTileSetSig = null;
       return this.tileCache.get(key);
     }
   }
@@ -3343,9 +3346,14 @@ class MapRenderer {
     ).length;
 
     const currentLOD = this.getLOD();
-    const tileSetSig = visibleTiles.map(t => `${t.tileset}/${t.x}/${t.y}`).join(',') + `|${currentLOD}`;
+    // Sig based on LOADED tiles only (sorted) — minor viewport drift that shifts one
+    // boundary tile in/out doesn't invalidate the merge when data hasn't changed.
+    // Invalidation on new tile arrivals is handled in loadTile() via _lastTileSetSig = null.
+    const loadedTiles = visibleTiles.filter(({ tileset, x, y }) =>
+      this.tileCache.has(this.getTileKey(tileset, x, y)));
+    const tileSetSig = loadedTiles.map(t => `${t.tileset}/${t.x}/${t.y}`).sort().join(',') + `|${currentLOD}`;
     if (this._lastTileSetSig === tileSetSig && this.mapData) {
-      // Reuse cached mapData — skip expensive merge+dedup
+      // Reuse cached mapData — skip expensive merge+dedup (~298ms)
       perfTimings.tileLoad = performance.now() - tileLoadStart;
       this._lastMergeStats = null; // clear so report shows "cached" not stale data
     } else {
