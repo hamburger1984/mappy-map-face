@@ -1949,6 +1949,7 @@ class MapRenderer {
 
     // Touch support for mobile
     let touchStartDist = 0;
+    let touchStartViewWidth = 0;
     let lastTouchX = 0;
     let lastTouchY = 0;
     let touchStartTime = 0;
@@ -1967,11 +1968,17 @@ class MapRenderer {
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         touchStartDist = Math.sqrt(dx * dx + dy * dy);
+        touchStartViewWidth = this.viewWidthMeters;
       }
-    });
+    }, { passive: false });
 
     this.canvas.addEventListener("touchend", (e) => {
       e.preventDefault();
+      // Dropping from 2 fingers to 1 — reset pan origin to avoid jump
+      if (e.touches.length === 1) {
+        lastTouchX = e.touches[0].clientX;
+        lastTouchY = e.touches[0].clientY;
+      }
       const duration = Date.now() - touchStartTime;
       const t = e.changedTouches[0];
       const dist = Math.sqrt(
@@ -1995,7 +2002,7 @@ class MapRenderer {
           this.checkPOIHover(fakeEvent);
         }
       }
-    });
+    }, { passive: false });
 
     this.canvas.addEventListener("touchmove", (e) => {
       e.preventDefault();
@@ -2006,16 +2013,19 @@ class MapRenderer {
         this.offsetY += dy;
         lastTouchX = e.touches[0].clientX;
         lastTouchY = e.touches[0].clientY;
-        this.renderMap();
+        // Instant visual feedback via canvas translation, full redraw deferred
+        this.translateCanvas(dx, dy);
+        this.debouncedRender();
       } else if (e.touches.length === 2) {
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         const dist = Math.sqrt(dx * dx + dy * dy);
+        // Compute zoom relative to pinch start (not cumulative per-frame)
+        // so the view tracks consistently with finger distance
         const zoomFactor = dist / touchStartDist;
-        this.setViewWidth(this.viewWidthMeters / zoomFactor); // inverted: larger distance = zoom in
-        touchStartDist = dist;
+        this.setViewWidth(touchStartViewWidth / zoomFactor);
       }
-    });
+    }, { passive: false });
 
     // Scroll wheel zoom with instant preview and debounced render
     this.canvas.addEventListener(
