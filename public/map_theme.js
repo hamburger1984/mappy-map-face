@@ -133,6 +133,11 @@ export const THEMES = {
       sleeperDark:  { r: 120, g: 120, b: 120, a: 255 }, // Mid gray for sleeper dashes
     },
 
+    // Route overlays
+    routes: {
+      ferry: { r: 80, g: 150, b: 210, a: 255 }, // Distinct blue for ferry lines
+    },
+
     // Boundaries and special lines
     boundaries: {
       country: { r: 128, g: 0, b: 128, a: 255 }, // Purple for country borders
@@ -215,6 +220,7 @@ export const THEMES = {
       districtBorder: [4, 4],
       maritime:       [6, 6],
       eez:            [8, 8],
+      ferry:          [8, 5],
     },
 
     // Pattern colors (for textures)
@@ -371,6 +377,10 @@ export const THEMES = {
       sleeperDark:  { r: 55, g: 55, b: 55, a: 255 },
     },
 
+    routes: {
+      ferry: { r: 100, g: 170, b: 230, a: 255 },
+    },
+
     boundaries: {
       country: { r: 180, g: 80, b: 180, a: 255 },
       state: { r: 160, g: 100, b: 160, a: 255 },
@@ -446,6 +456,7 @@ export const THEMES = {
       districtBorder: [4, 4],
       maritime:       [6, 6],
       eez:            [8, 8],
+      ferry:          [8, 5],
     },
 
     patterns: {

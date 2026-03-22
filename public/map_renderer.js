@@ -343,7 +343,8 @@ class MapRenderer {
       150000, // 19
       200000, // 20
       400000, // 21
-      750000, // 22: Full extent
+      750000, // 22
+      1000000, // 23: Continent
     ];
 
     // Viewport state (in real-world meters)
@@ -2667,7 +2668,8 @@ class MapRenderer {
     if (this.viewWidthMeters < 20000) return "t2b";
     if (this.viewWidthMeters < 150000) return "t3";
     if (this.viewWidthMeters < 400000) return "t4";
-    return "t5";
+    if (this.viewWidthMeters < 750000) return "t5";
+    return "t6";
   }
 
   schedulePrefetch(bounds) {
@@ -3437,6 +3439,7 @@ class MapRenderer {
         tunnels: [],
         waterways: [],
         tunnel_waterways: [],
+        ferry_routes: [], // Ferry lines — dashed blue
         steps: [],
         surface_roads: [],
         bridge_roads: [],
@@ -3761,6 +3764,11 @@ class MapRenderer {
     this.renderLayer(layers.tunnel_waterways, adjustedBounds, false);
     layerTimings.tunnelWaterways = performance.now() - layerStart;
 
+    // 6b. Ferry routes (dashed blue lines — after water, before roads)
+    layerStart = performance.now();
+    this.renderLayer(layers.ferry_routes, adjustedBounds, false);
+    layerTimings.ferryRoutes = performance.now() - layerStart;
+
     // 7. Surface railways (platforms + rail lines — before roads so roads draw on top)
     layerStart = performance.now();
     this.renderLayer(layers.surface_railways, adjustedBounds, true);
@@ -3888,7 +3896,7 @@ class MapRenderer {
       bridges: 'bridge_roads', tunnels: 'tunnels',
       landuse: 'landuse_areas', pedestrianAreas: 'pedestrian_areas', forests: 'forests', baseLand: 'base_land',
       water: 'water_areas', waterways: 'waterways', wetlands: 'wetlands',
-      tunnelWaterways: 'tunnel_waterways',
+      tunnelWaterways: 'tunnel_waterways', ferryRoutes: 'ferry_routes',
       buildings: 'buildings', aeroways: 'aeroways', boundaries: 'boundaries',
       streetNames: 'surface_roads', highwayShields: 'surface_roads',
       waterLabels: 'water_labels', points: 'points', placeLabels: 'place_labels',
@@ -8275,6 +8283,9 @@ class MapRenderer {
     for (const [colorStr, batch] of fillBatches) {
       this.ctx.fillStyle = colorStr;
 
+      // Collect baseLand outer rings for a single batched stroke at the end
+      const baseLandStrokePaths = [];
+
       // Filled polygons (each as independent path so overlaps don't cancel)
       for (const poly of batch.polygons) {
         this.ctx.beginPath();
@@ -8306,21 +8317,26 @@ class MapRenderer {
         }
         this.ctx.fill("evenodd");
 
-        // For base_land: stroke outer ring with same color to fill subpixel seams
-        // at tile boundaries (anti-aliasing of adjacent clipped polygons leaves gaps).
-        // Only outer ring — not holes — to avoid painting land color along water edges.
         if (poly.baseLand && poly.outer) {
-          const outer = poly.outer;
-          this.ctx.beginPath();
+          baseLandStrokePaths.push(poly.outer);
+        }
+      }
+
+      // For base_land: stroke all outer rings in one call to fill subpixel seams
+      // at tile boundaries (anti-aliasing of adjacent clipped polygons leaves gaps).
+      // Only outer rings — not holes — to avoid painting land color along water edges.
+      if (baseLandStrokePaths.length > 0) {
+        this.ctx.beginPath();
+        for (const outer of baseLandStrokePaths) {
           this.ctx.moveTo(outer[0], outer[1]);
           for (let i = 2; i < outer.length; i += 2) {
             this.ctx.lineTo(outer[i], outer[i + 1]);
           }
           this.ctx.closePath();
-          this.ctx.strokeStyle = colorStr;
-          this.ctx.lineWidth = 1.5;
-          this.ctx.stroke();
         }
+        this.ctx.strokeStyle = colorStr;
+        this.ctx.lineWidth = 1.5;
+        this.ctx.stroke();
       }
 
       // Points (can still be batched — circles don't overlap problematically)

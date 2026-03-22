@@ -11,6 +11,7 @@ All downloads are parallelized with progress bars.
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -451,8 +452,10 @@ def main():
     # Resolve region sources: --regions-file overrides hardcoded OSM_SOURCES
     if args.regions_file:
         with open(args.regions_file) as f:
-            regions_list = json.load(f)
-        active_sources = {r["name"]: r["url"] for r in regions_list}
+            raw = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.DOTALL)
+        raw = re.sub(r",\s*([}\]])", r"\1", raw)  # strip trailing commas
+        regions_list = json.loads(raw)
+        active_sources = {r["name"]: r["url"] for r in regions_list if r.get("enabled", True)}
     else:
         active_sources = OSM_SOURCES
 

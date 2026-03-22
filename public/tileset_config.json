@@ -50,9 +50,18 @@
       "name": "Continental",
       "view_range_meters": [
         400000,
-        1000000
+        750000
       ],
       "tile_size_meters": 100000
+    },
+    {
+      "id": "t6",
+      "name": "Continent",
+      "view_range_meters": [
+        750000,
+        1000000
+      ],
+      "tile_size_meters": 500000
     }
   ]
 }

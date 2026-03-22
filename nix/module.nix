@@ -115,6 +115,11 @@ in {
             type        = types.str;
             description = "URL to the .osm.pbf file, e.g. from Geofabrik.";
           };
+          enabled = mkOption {
+            type        = types.bool;
+            default     = true;
+            description = "Whether to include this region in builds. Set to false to temporarily skip it.";
+          };
         };
       });
       default     = [];

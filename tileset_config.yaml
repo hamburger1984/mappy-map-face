@@ -1589,7 +1589,7 @@ tilesets:
         osm_match:
           geometry: ["LineString", "MultiLineString"]
           tags:
-            railway: ["rail", "narrow_gauge"]
+            railway: ["rail"]
         render:
           layer: "surface_railways"
           themeKey: "railways.rail"

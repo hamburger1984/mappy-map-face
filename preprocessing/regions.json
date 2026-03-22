@@ -1,106 +1,46 @@
 [
-  {
-    "name": "belgium",
-    "url": "https://download.geofabrik.de/europe/belgium-latest.osm.pbf"
-  },
-  {
-    "name": "brandenburg",
-    "url": "https://download.geofabrik.de/europe/germany/brandenburg-latest.osm.pbf"
-  },
-  {
-    "name": "denmark",
-    "url": "https://download.geofabrik.de/europe/denmark-latest.osm.pbf"
-  },
-  {
-    "name": "estonia",
-    "url": "https://download.geofabrik.de/europe/estonia-latest.osm.pbf"
-  },
-  {
-    "name": "finland",
-    "url": "https://download.geofabrik.de/europe/finland-latest.osm.pbf"
-  },
-  {
-    "name": "hamburg",
-    "url": "https://download.geofabrik.de/europe/germany/hamburg-latest.osm.pbf"
-  },
-  {
-    "name": "hessen",
-    "url": "https://download.geofabrik.de/europe/germany/hessen-latest.osm.pbf"
-  },
-  {
-    "name": "kaliningrad",
-    "url": "https://download.geofabrik.de/europe/kaliningrad-latest.osm.pbf"
-  },
-  {
-    "name": "latvia",
-    "url": "https://download.geofabrik.de/europe/latvia-latest.osm.pbf"
-  },
-  {
-    "name": "liechtenstein",
-    "url": "https://download.geofabrik.de/europe/liechtenstein-latest.osm.pbf"
-  },
-  {
-    "name": "lithuania",
-    "url": "https://download.geofabrik.de/europe/lithuania-latest.osm.pbf"
-  },
-  {
-    "name": "luxembourg",
-    "url": "https://download.geofabrik.de/europe/luxembourg-latest.osm.pbf"
-  },
-  {
-    "name": "mecklenburg-vorpommern",
-    "url": "https://download.geofabrik.de/europe/germany/mecklenburg-vorpommern-latest.osm.pbf"
-  },
-  {
-    "name": "netherlands",
-    "url": "https://download.geofabrik.de/europe/netherlands-latest.osm.pbf"
-  },
-  {
-    "name": "niedersachsen",
-    "url": "https://download.geofabrik.de/europe/germany/niedersachsen-latest.osm.pbf"
-  },
-  {
-    "name": "nordrhein-westfalen",
-    "url": "https://download.geofabrik.de/europe/germany/nordrhein-westfalen-latest.osm.pbf"
-  },
-  {
-    "name": "norway",
-    "url": "https://download.geofabrik.de/europe/norway-latest.osm.pbf"
-  },
-  {
-    "name": "poland",
-    "url": "https://download.geofabrik.de/europe/poland-latest.osm.pbf"
-  },
-  {
-    "name": "rheinland-pfalz",
-    "url": "https://download.geofabrik.de/europe/germany/rheinland-pfalz-latest.osm.pbf"
-  },
-  {
-    "name": "sachsen-anhalt",
-    "url": "https://download.geofabrik.de/europe/germany/sachsen-anhalt-latest.osm.pbf"
-  },
-  {
-    "name": "sachsen",
-    "url": "https://download.geofabrik.de/europe/germany/sachsen-latest.osm.pbf"
-  },
-  {
-    "name": "schleswig-holstein",
-    "url": "https://download.geofabrik.de/europe/germany/schleswig-holstein-latest.osm.pbf"
-  },
-  {
-    "name": "sweden",
-    "url": "https://download.geofabrik.de/europe/sweden-latest.osm.pbf"
-  },
-  {
-    "name": "th\u00fcringen",
-    "url": "https://download.geofabrik.de/europe/germany/thueringen-latest.osm.pbf"
-  },
-  {
-    "name": "saarland",
-    "url": "https://download.geofabrik.de/europe/germany/saarland-latest.osm.pbf"
-  },
-  {
-    "name": "bayern",
-    "url": "https://download.geofabrik.de/europe/germany/bayern-latest.osm.pbf"
-  }
+  { "name": "schleswig-holstein",    "url": "https://download.geofabrik.de/europe/germany/schleswig-holstein-latest.osm.pbf",    "enabled": true  },
+  { "name": "hamburg",               "url": "https://download.geofabrik.de/europe/germany/hamburg-latest.osm.pbf",               "enabled": true  },
+  { "name": "bremen",                "url": "https://download.geofabrik.de/europe/germany/bremen-latest.osm.pbf",                "enabled": true  },
+  { "name": "mecklenburg-vorpommern","url": "https://download.geofabrik.de/europe/germany/mecklenburg-vorpommern-latest.osm.pbf","enabled": true  },
+  { "name": "niedersachsen",         "url": "https://download.geofabrik.de/europe/germany/niedersachsen-latest.osm.pbf",         "enabled": true  },
+  { "name": "berlin",                "url": "https://download.geofabrik.de/europe/germany/berlin-latest.osm.pbf",                "enabled": true  },
+  { "name": "nordrhein-westfalen",   "url": "https://download.geofabrik.de/europe/germany/nordrhein-westfalen-latest.osm.pbf",   "enabled": true  },
+  { "name": "brandenburg",           "url": "https://download.geofabrik.de/europe/germany/brandenburg-latest.osm.pbf",           "enabled": true  },
+  { "name": "sachsen-anhalt",        "url": "https://download.geofabrik.de/europe/germany/sachsen-anhalt-latest.osm.pbf",        "enabled": true  },
+  { "name": "hessen",                "url": "https://download.geofabrik.de/europe/germany/hessen-latest.osm.pbf",                "enabled": true  },
+  { "name": "thueringen",            "url": "https://download.geofabrik.de/europe/germany/thueringen-latest.osm.pbf",            "enabled": true  },
+  { "name": "sachsen",               "url": "https://download.geofabrik.de/europe/germany/sachsen-latest.osm.pbf",               "enabled": true  },
+  { "name": "rheinland-pfalz",       "url": "https://download.geofabrik.de/europe/germany/rheinland-pfalz-latest.osm.pbf",       "enabled": true  },
+  { "name": "saarland",              "url": "https://download.geofabrik.de/europe/germany/saarland-latest.osm.pbf",              "enabled": true  },
+  { "name": "baden-wuerttemberg",    "url": "https://download.geofabrik.de/europe/germany/baden-wuerttemberg-latest.osm.pbf",    "enabled": true  },
+  { "name": "bayern",                "url": "https://download.geofabrik.de/europe/germany/bayern-latest.osm.pbf",                "enabled": true  },
+
+  { "name": "denmark",               "url": "https://download.geofabrik.de/europe/denmark-latest.osm.pbf",                      "enabled": true  },
+  { "name": "sweden",                "url": "https://download.geofabrik.de/europe/sweden-latest.osm.pbf",                       "enabled": false },
+  { "name": "norway",                "url": "https://download.geofabrik.de/europe/norway-latest.osm.pbf",                       "enabled": false },
+  { "name": "finland",               "url": "https://download.geofabrik.de/europe/finland-latest.osm.pbf",                      "enabled": false },
+
+  { "name": "poland",                "url": "https://download.geofabrik.de/europe/poland-latest.osm.pbf",                       "enabled": false },
+  { "name": "kaliningrad",           "url": "https://download.geofabrik.de/russia/kaliningrad-latest.osm.pbf",                  "enabled": false },
+  { "name": "czech-republic",        "url": "https://download.geofabrik.de/europe/czech-republic-latest.osm.pbf",               "enabled": false },
+  { "name": "slovakia",              "url": "https://download.geofabrik.de/europe/slovakia-latest.osm.pbf",                     "enabled": false },
+  { "name": "hungary",               "url": "https://download.geofabrik.de/europe/hungary-latest.osm.pbf",                      "enabled": false },
+  { "name": "lithuania",             "url": "https://download.geofabrik.de/europe/lithuania-latest.osm.pbf",                    "enabled": false },
+  { "name": "latvia",                "url": "https://download.geofabrik.de/europe/latvia-latest.osm.pbf",                       "enabled": false },
+  { "name": "estonia",               "url": "https://download.geofabrik.de/europe/estonia-latest.osm.pbf",                      "enabled": false },
+  { "name": "belarus",               "url": "https://download.geofabrik.de/europe/belarus-latest.osm.pbf",                      "enabled": false },
+
+  { "name": "austria",               "url": "https://download.geofabrik.de/europe/austria-latest.osm.pbf",                      "enabled": false },
+  { "name": "switzerland",           "url": "https://download.geofabrik.de/europe/switzerland-latest.osm.pbf",                  "enabled": false },
+  { "name": "liechtenstein",         "url": "https://download.geofabrik.de/europe/liechtenstein-latest.osm.pbf",                "enabled": false },
+  { "name": "slovenia",              "url": "https://download.geofabrik.de/europe/slovenia-latest.osm.pbf",                     "enabled": false },
+  { "name": "italy",                 "url": "https://download.geofabrik.de/europe/italy-latest.osm.pbf",                        "enabled": false },
+  { "name": "croatia",               "url": "https://download.geofabrik.de/europe/croatia-latest.osm.pbf",                      "enabled": false },
+
+  { "name": "netherlands",           "url": "https://download.geofabrik.de/europe/netherlands-latest.osm.pbf",                  "enabled": true  },
+  { "name": "belgium",               "url": "https://download.geofabrik.de/europe/belgium-latest.osm.pbf",                      "enabled": true  },
+  { "name": "luxembourg",            "url": "https://download.geofabrik.de/europe/luxembourg-latest.osm.pbf",                   "enabled": false },
+  { "name": "france",                "url": "https://download.geofabrik.de/europe/france-latest.osm.pbf",                       "enabled": false },
+  { "name": "great-britain",         "url": "https://download.geofabrik.de/europe/great-britain-latest.osm.pbf",                "enabled": false }
 ]

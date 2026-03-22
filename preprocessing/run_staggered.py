@@ -16,6 +16,7 @@ incrementally up to date as each region finishes.
 
 import argparse
 import json
+import re
 import os
 import subprocess
 import sys
@@ -181,7 +182,9 @@ def main() -> None:
             sys.exit(1)
 
         with open(args.regions_file) as f:
-            regions = json.load(f)
+            raw = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.DOTALL)
+        raw = re.sub(r",\s*([}\]])", r"\1", raw)  # strip trailing commas
+        regions = [r for r in json.loads(raw) if r.get("enabled", True)]
 
         if not regions:
             print("Error: regions file is empty.")

@@ -557,6 +557,16 @@ def augment_render_from_props(render, props, geom_type):
             render["layer"] = "steps" if is_step else "surface_roads"
         return
 
+    # ── Ferry routes ──────────────────────────────────────────────────────────
+    if props.get("route") == "ferry" and is_line:
+        render["layer"] = "ferry_routes"
+        render["themeKey"] = "routes.ferry"
+        render["width"] = 2
+        render["fill"] = False
+        render["minLOD"] = 0
+        render["dashPatternKey"] = "ferry"
+        return
+
     # ── Waterway features ─────────────────────────────────────────────────────
     waterway = props.get("waterway")
     if waterway and waterway != "riverbank":
