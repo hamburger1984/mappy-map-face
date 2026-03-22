@@ -52,6 +52,20 @@ feature_templates:
       themeKey: "water.line"
       minLOD: 1
 
+  ferry_routes: &ferry_routes
+    name: "ferry_routes"
+    osm_match:
+      geometry: ["LineString", "MultiLineString"]
+      tags:
+        route: ["ferry"]
+    render:
+      layer: "ferry_routes"
+      themeKey: "routes.ferry"
+      minLOD: 0
+      fill: false
+      width: 2
+      dashPatternKey: "ferry"
+
   # --- Natural areas ---
   scrub_heath: &scrub_heath
     name: "scrub_heath"
@@ -1122,6 +1136,8 @@ tilesets:
       - <<: *localities
       - <<: *toilets
       - <<: *pois
+      - <<: *ferry_routes
+        simplification: { epsilon_m: 0.05 }
 
   # ===========================================================================
   # T2: CITY (3km - 7.5km) — detailed city view
@@ -1243,6 +1259,8 @@ tilesets:
         simplification: { epsilon_m: 3 }
       - <<: *maritime_eez
         simplification: { epsilon_m: 3 }
+      - <<: *ferry_routes
+        simplification: { epsilon_m: 3 }
       - <<: *cities
       - <<: *large_towns
       - <<: *towns
@@ -1346,6 +1364,8 @@ tilesets:
         simplification: { epsilon_m: 10 }
       - <<: *maritime_eez
         simplification: { epsilon_m: 10 }
+      - <<: *ferry_routes
+        simplification: { epsilon_m: 10 }
       - <<: *cities
       - <<: *large_towns
       - <<: *towns
@@ -1419,12 +1439,14 @@ tilesets:
         simplification: { epsilon_m: 50 }
       - <<: *maritime_eez
         simplification: { epsilon_m: 50 }
+      - <<: *ferry_routes
+        simplification: { epsilon_m: 50 }
       - <<: *cities
       - <<: *large_towns
       # NO towns/large_villages (minLOD:1, never visible at t3 range)
 
   # ===========================================================================
-  # T4: OVERVIEW (200km - 1000km) — old t7
+  # T4: OVERVIEW (150km - 400km)
   # ===========================================================================
   - id: "t4"
     name: "Overview"
@@ -1477,15 +1499,17 @@ tilesets:
         simplification: { epsilon_m: 200 }
       - <<: *maritime_eez
         simplification: { epsilon_m: 200 }
+      - <<: *ferry_routes
+        simplification: { epsilon_m: 200 }
       - <<: *cities
       - <<: *large_towns
 
   # ===========================================================================
-  # T5: CONTINENTAL (400km - 1000km)
+  # T5: CONTINENTAL (400km - 750km)
   # ===========================================================================
   - id: "t5"
     name: "Continental"
-    view_range_meters: [400000, 1000000]
+    view_range_meters: [400000, 750000]
     tile_size_meters: 100000
 
     features:
@@ -1531,8 +1555,69 @@ tilesets:
         simplification: { epsilon_m: 500 }
       - <<: *maritime_eez
         simplification: { epsilon_m: 500 }
+      - <<: *ferry_routes
+        simplification: { epsilon_m: 500 }
       - <<: *cities
       - <<: *large_towns
+
+  # ===========================================================================
+  # T6: CONTINENT (750km - 3500km) — ultra-wide skeleton view
+  # ===========================================================================
+  - id: "t6"
+    name: "Continent"
+    view_range_meters: [750000, 1000000]
+    tile_size_meters: 500000
+
+    features:
+      - name: "water_bodies_vast"
+        osm_match:
+          geometry: ["Polygon", "MultiPolygon"]
+          tags:
+            natural: ["water"]
+            waterway: ["riverbank"]
+            landuse: ["basin", "reservoir", "salt_pond"]
+          min_area_km2: 500.0
+        render:
+          layer: "water_areas"
+          themeKey: "water.area"
+          fill: true
+          minLOD: 0
+        simplification: { epsilon_m: 2000 }
+      - <<: *motorways
+        simplification: { epsilon_m: 2000 }
+      - name: "main_rail_only"
+        osm_match:
+          geometry: ["LineString", "MultiLineString"]
+          tags:
+            railway: ["rail", "narrow_gauge"]
+        render:
+          layer: "surface_railways"
+          themeKey: "railways.rail"
+          minLOD: 0
+          width: 2
+        simplification: { epsilon_m: 2000 }
+      - <<: *ferry_routes
+        simplification: { epsilon_m: 2000 }
+      - <<: *country_borders
+        simplification: { epsilon_m: 2000 }
+      - <<: *maritime_territorial
+        simplification: { epsilon_m: 2000 }
+      - <<: *maritime_eez
+        simplification: { epsilon_m: 2000 }
+      - name: "cities_major"
+        osm_match:
+          geometry: ["Point"]
+          tags:
+            place: ["city"]
+          requires_name: true
+          population_min: 200000
+        render:
+          layer: "place_labels"
+          themeKey: "text.places"
+          placeType: "city"
+          placePriority: 1
+          fontSize: 18
+          minLOD: 0
 
 # =============================================================================
 # LAYER RENDERING ORDER (bottom to top) — informational, not used by renderer
@@ -1549,6 +1634,7 @@ layer_order:
   - tunnels
   - waterways
   - tunnel_waterways
+  - ferry_routes
   - steps
   - surface_roads
   - bridge_roads
