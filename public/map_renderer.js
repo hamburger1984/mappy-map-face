@@ -399,6 +399,7 @@ class MapRenderer {
     // Tile system
     this.tileCache = new Map(); // Cache for loaded tiles
     this.tileIndex = null; // Tile index metadata
+    this.regionsData = null; // Region metadata for info overlay
     this.loadingTiles = new Set(); // Track in-flight tile requests
     this._404cache = null;    // Lazily initialised — see _get404Cache()
     this._404storageKey = null;
@@ -3188,6 +3189,14 @@ class MapRenderer {
           console.log(`[TILES] Generated: ${genDate.toLocaleString()}`);
         }
       }
+
+      // Load region metadata for info overlay
+      try {
+        const regionsResponse = await fetch('tiles/regions.json');
+        if (regionsResponse.ok) {
+          this.regionsData = await regionsResponse.json();
+        }
+      } catch (e) { /* optional, ignore */ }
 
       // Initialize with empty data - tiles will be loaded progressively
       this.mapData = {
@@ -9059,6 +9068,46 @@ class MapRenderer {
     }
   }
 
+  getViewBoundsLatLon() {
+    const centerLon = this.centerLon;
+    const centerLat = this.centerLat;
+    const latRad = (centerLat * Math.PI) / 180;
+    const aspectCorrection = 1 / Math.cos(latRad);
+    const canvasAspect = this.canvasWidth / this.canvasHeight;
+    const latRange = 1.8 / this.getZoomFactor();
+    const lonRange = latRange * canvasAspect * aspectCorrection;
+    const lonOffset = -(this.offsetX / this.canvasWidth) * lonRange;
+    const latOffset = (this.offsetY / this.canvasHeight) * latRange;
+    return {
+      minLon: centerLon - lonRange / 2 + lonOffset,
+      maxLon: centerLon + lonRange / 2 + lonOffset,
+      minLat: centerLat - latRange / 2 + latOffset,
+      maxLat: centerLat + latRange / 2 + latOffset,
+    };
+  }
+
+  getVisibleRegions() {
+    if (!this.regionsData) return [];
+    const b = this.getViewBoundsLatLon();
+    return Object.entries(this.regionsData.regions)
+      .filter(([, r]) => {
+        const rb = r.bounds;
+        return b.maxLon > rb.minLon && b.minLon < rb.maxLon &&
+               b.maxLat > rb.minLat && b.minLat < rb.maxLat;
+      })
+      .map(([name, r]) => ({ name, mtime: r.geojson_mtime }));
+  }
+
+  relativeTime(unixSeconds) {
+    const diff = Date.now() / 1000 - unixSeconds;
+    if (diff < 86400) return 'today';
+    const days = Math.round(diff / 86400);
+    if (days < 30) return `${days}d ago`;
+    const months = Math.round(days / 30);
+    if (months < 12) return `${months}mo ago`;
+    return `${Math.round(months / 12)}yr ago`;
+  }
+
   updateStats() {
     const [viewNum, viewUnit] =
       this.viewWidthMeters >= 1000
@@ -9129,6 +9178,36 @@ document.getElementById("exportBtn").addEventListener("click", () => {
     const sliderValue = parseFloat(e.target.value);
     const logViewWidth = logMax + logMin - sliderValue;
     renderer.setViewWidth(Math.pow(2, logViewWidth));
+  });
+
+  // Info overlay (ℹ button)
+  const infoBtn = document.getElementById('infoBtn');
+  const infoOverlay = document.getElementById('infoOverlay');
+  const showInfoOverlay = () => {
+    const regions = renderer.getVisibleRegions();
+    const genDate = renderer.tileIndex?.generated
+      ? renderer.relativeTime(renderer.tileIndex.generated / 1000) : '?';
+    let html = `<h4>Regions in View</h4>`;
+    if (regions.length === 0) {
+      html += `<div style="color:#888">No named regions</div>`;
+    } else {
+      regions.forEach(r => {
+        const age = r.mtime ? renderer.relativeTime(r.mtime) : '?';
+        const pretty = r.name.replace(/-/g, '\u2011'); // non-breaking hyphen for wrapping
+        html += `<div class="region-row"><span class="region-name">${pretty}</span><span class="region-age">${age}</span></div>`;
+      });
+    }
+    html += `<div class="info-project">Tiles generated: ${genDate}<br>mappy map face — OSM-based canvas renderer</div>`;
+    infoOverlay.innerHTML = html;
+    infoOverlay.style.display = 'block';
+  };
+  infoBtn.addEventListener('mouseenter', showInfoOverlay);
+  infoBtn.addEventListener('mouseleave', () => { infoOverlay.style.display = 'none'; });
+  infoBtn.addEventListener('touchstart', (e) => { e.preventDefault(); showInfoOverlay(); }, { passive: false });
+  document.addEventListener('touchstart', (e) => {
+    if (!infoBtn.contains(e.target) && !infoOverlay.contains(e.target)) {
+      infoOverlay.style.display = 'none';
+    }
   });
 
   document.getElementById("toggleHoverBtn").addEventListener("click", () => {
