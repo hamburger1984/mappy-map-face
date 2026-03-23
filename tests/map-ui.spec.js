@@ -68,6 +68,49 @@ test.describe('Tile edges toggle', () => {
   });
 });
 
+test.describe('Info overlay', () => {
+  test('info button is visible in zoom controls', async ({ page }) => {
+    await loadMap(page);
+    await expect(page.locator('#infoBtn')).toBeVisible();
+  });
+
+  test('overlay is hidden by default', async ({ page }) => {
+    await loadMap(page);
+    await expect(page.locator('#infoOverlay')).toBeHidden();
+  });
+
+  test('hovering info button shows overlay', async ({ page }) => {
+    await loadMap(page);
+    await page.locator('#infoBtn').hover();
+    await expect(page.locator('#infoOverlay')).toBeVisible();
+  });
+
+  test('overlay contains regions section', async ({ page }) => {
+    await loadMap(page);
+    await page.locator('#infoBtn').hover();
+    const overlay = page.locator('#infoOverlay');
+    await expect(overlay).toBeVisible();
+    await expect(overlay.locator('h4')).toHaveText('Regions in View');
+  });
+
+  test('overlay shows tile generation info', async ({ page }) => {
+    await loadMap(page);
+    await page.locator('#infoBtn').hover();
+    const overlay = page.locator('#infoOverlay');
+    await expect(overlay.locator('.info-project')).toContainText('Tiles generated:');
+  });
+
+  test('overlay hides when mouse leaves button', async ({ page }) => {
+    await loadMap(page);
+    await page.locator('#infoBtn').hover();
+    await expect(page.locator('#infoOverlay')).toBeVisible();
+    // Move mouse away to canvas center
+    const box = await page.locator('#mapCanvas').boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(page.locator('#infoOverlay')).toBeHidden();
+  });
+});
+
 test.describe('Panel', () => {
   test('panel toggle opens and closes the panel', async ({ page }) => {
     await loadMap(page);
