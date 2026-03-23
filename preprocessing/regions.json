@@ -31,16 +31,16 @@
   { "name": "estonia",               "url": "https://download.geofabrik.de/europe/estonia-latest.osm.pbf",                      "enabled": false },
   { "name": "belarus",               "url": "https://download.geofabrik.de/europe/belarus-latest.osm.pbf",                      "enabled": false },
 
-  { "name": "austria",               "url": "https://download.geofabrik.de/europe/austria-latest.osm.pbf",                      "enabled": false },
-  { "name": "switzerland",           "url": "https://download.geofabrik.de/europe/switzerland-latest.osm.pbf",                  "enabled": false },
-  { "name": "liechtenstein",         "url": "https://download.geofabrik.de/europe/liechtenstein-latest.osm.pbf",                "enabled": false },
-  { "name": "slovenia",              "url": "https://download.geofabrik.de/europe/slovenia-latest.osm.pbf",                     "enabled": false },
-  { "name": "italy",                 "url": "https://download.geofabrik.de/europe/italy-latest.osm.pbf",                        "enabled": false },
-  { "name": "croatia",               "url": "https://download.geofabrik.de/europe/croatia-latest.osm.pbf",                      "enabled": false },
+  { "name": "austria",               "url": "https://download.geofabrik.de/europe/austria-latest.osm.pbf",                      "enabled": true  },
+  { "name": "switzerland",           "url": "https://download.geofabrik.de/europe/switzerland-latest.osm.pbf",                  "enabled": true  },
+  { "name": "liechtenstein",         "url": "https://download.geofabrik.de/europe/liechtenstein-latest.osm.pbf",                "enabled": true  },
+  { "name": "slovenia",              "url": "https://download.geofabrik.de/europe/slovenia-latest.osm.pbf",                     "enabled": true  },
+  { "name": "italy",                 "url": "https://download.geofabrik.de/europe/italy-latest.osm.pbf",                        "enabled": true  },
+  { "name": "croatia",               "url": "https://download.geofabrik.de/europe/croatia-latest.osm.pbf",                      "enabled": true  },
 
   { "name": "netherlands",           "url": "https://download.geofabrik.de/europe/netherlands-latest.osm.pbf",                  "enabled": true  },
   { "name": "belgium",               "url": "https://download.geofabrik.de/europe/belgium-latest.osm.pbf",                      "enabled": true  },
-  { "name": "luxembourg",            "url": "https://download.geofabrik.de/europe/luxembourg-latest.osm.pbf",                   "enabled": false },
-  { "name": "france",                "url": "https://download.geofabrik.de/europe/france-latest.osm.pbf",                       "enabled": false },
+  { "name": "luxembourg",            "url": "https://download.geofabrik.de/europe/luxembourg-latest.osm.pbf",                   "enabled": true  },
+  { "name": "france",                "url": "https://download.geofabrik.de/europe/france-latest.osm.pbf",                       "enabled": true  },
   { "name": "great-britain",         "url": "https://download.geofabrik.de/europe/great-britain-latest.osm.pbf",                "enabled": false }
 ]
