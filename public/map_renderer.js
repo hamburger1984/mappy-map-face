@@ -400,6 +400,7 @@ class MapRenderer {
     this.tileCache = new Map(); // Cache for loaded tiles
     this.tileIndex = null; // Tile index metadata
     this.regionsData = null; // Region metadata for info overlay
+    this._initialLoadDone = false; // true after first meaningful render
     this.loadingTiles = new Set(); // Track in-flight tile requests
     this._404cache = null;    // Lazily initialised — see _get404Cache()
     this._404storageKey = null;
@@ -2792,6 +2793,9 @@ class MapRenderer {
       return this.tileCache.get(key);
     }
 
+    // Already cached — return immediately
+    if (this.tileCache.has(key)) return this.tileCache.get(key);
+
     // Skip tiles known to be missing (persisted across reloads until tiles are regenerated)
     if (this._get404Cache().has(key)) {
       const empty = { type: "FeatureCollection", features: [] };
@@ -2956,10 +2960,7 @@ class MapRenderer {
     for (const tile of visibleTiles) {
       const tileKey = this.getTileKey(tile.tileset, tile.x, tile.y);
       const analysis = tileAnalyses.get(tileKey);
-      if (!analysis) {
-        console.log("No analysis for tile", tileKey, bounds);
-        continue;
-      }
+      if (!analysis) continue; // tile loaded but empty (e.g. ocean tile with no metadata)
 
       const tileBounds = this.getTileBounds(tile.tileset, tile.x, tile.y);
 
@@ -3412,11 +3413,19 @@ class MapRenderer {
       perfTimings.tileLoad = performance.now() - tileLoadStart;
       this._lastMergeStats = null; // clear so report shows "cached" not stale data
     } else {
-      // Fire off fetches for any uncached visible tiles (non-blocking).
-      // As each tile arrives it calls debouncedRender(), triggering progressive renders.
+      // Fire off fetches for any uncached visible tiles.
       this._startVisibleTileLoads(adjustedBounds);
 
-      // Merge whatever is already cached — returns immediately even if tiles are loading.
+      // First ever render: wait for the initial tiles so the canvas doesn't
+      // flash blank before the map appears (loading overlay is already gone).
+      if (!this._initialLoadDone) {
+        const initTiles = this.getVisibleTiles(adjustedBounds);
+        await Promise.all(initTiles.map(t => this.loadTile(t.tileset, t.x, t.y)));
+        if (myGeneration !== this._renderGeneration) return;
+        this._initialLoadDone = true;
+      }
+
+      // Merge whatever is cached (returns immediately on subsequent renders).
       this.mapData = this.loadVisibleTiles(adjustedBounds);
 
       if (myGeneration !== this._renderGeneration) return; // superseded
