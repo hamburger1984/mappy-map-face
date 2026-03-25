@@ -2842,8 +2842,13 @@ class MapRenderer {
 
       this.tileCache.set(key, result.data);
       this.loadingTiles.delete(key);
-      // Invalidate merge cache so next render picks up the new tile
-      this._lastTileSetSig = null;
+      // Trigger a re-render for tiles belonging to the current visible tileset.
+      // Prefetch ring tiles (different tileset or outside current view) are silently
+      // cached without forcing an expensive re-merge.
+      if (key.startsWith(this.getTilesetForView() + '/')) {
+        this._lastTileSetSig = null;
+        this.debouncedRender();
+      }
 
       return result.data;
     } catch (error) {
@@ -3012,19 +3017,25 @@ class MapRenderer {
     return ((bounds.maxLat - lat) / latRange) * this.canvasHeight;
   }
 
-  async loadVisibleTiles(bounds) {
+  // Fire off fetches for any visible tiles not yet in cache or loading.
+  // Does NOT await — returns immediately. Tile arrivals trigger debouncedRender().
+  _startVisibleTileLoads(bounds) {
+    for (const tile of this.getVisibleTiles(bounds)) {
+      const key = this.getTileKey(tile.tileset, tile.x, tile.y);
+      if (!this.tileCache.has(key) && !this.loadingTiles.has(key)) {
+        this.loadTile(tile.tileset, tile.x, tile.y); // fire and forget
+      }
+    }
+  }
+
+  // Merge currently-cached tile data for the given bounds. Synchronous — no fetch.
+  loadVisibleTiles(bounds) {
     const tiles = this.getVisibleTiles(bounds);
-
-    // Tile loading stats reported in renderMap instrumentation
-
-    // Load all visible tiles in parallel
-    const loadStart = performance.now();
-    const tilePromises = tiles.map((tile) =>
-      this.loadTile(tile.tileset, tile.x, tile.y),
+    // Use cached data; uncached tiles show as empty until they arrive
+    const tileData = tiles.map(tile =>
+      this.tileCache.get(this.getTileKey(tile.tileset, tile.x, tile.y)) ||
+      { type: 'FeatureCollection', features: [] }
     );
-    const tileData = await Promise.all(tilePromises);
-    const loadTime = performance.now() - loadStart;
-    // loadTime reported in renderMap instrumentation
 
     // Merge all tile features into a single GeoJSON
     const mergeStart = performance.now();
@@ -3401,18 +3412,15 @@ class MapRenderer {
       perfTimings.tileLoad = performance.now() - tileLoadStart;
       this._lastMergeStats = null; // clear so report shows "cached" not stale data
     } else {
-      // Short hold before loading tiles: lets rapidly-queued renders supersede this
-      // one without wasting network/parse work on intermediate zoom levels.
-      await new Promise(r => setTimeout(r, 150));
-      if (myGeneration !== this._renderGeneration) {
-        this._tileFetchStats = []; // discard any stats accumulated during wait
-        return;
-      }
-      this.mapData = await this.loadVisibleTiles(adjustedBounds);
-      if (myGeneration !== this._renderGeneration) {
-        this._tileFetchStats = []; // discard stats from superseded load
-        return;
-      }
+      // Fire off fetches for any uncached visible tiles (non-blocking).
+      // As each tile arrives it calls debouncedRender(), triggering progressive renders.
+      this._startVisibleTileLoads(adjustedBounds);
+
+      // Merge whatever is already cached — returns immediately even if tiles are loading.
+      this.mapData = this.loadVisibleTiles(adjustedBounds);
+
+      if (myGeneration !== this._renderGeneration) return; // superseded
+
       this._lastTileSetSig = tileSetSig;
       perfTimings.tileLoad = performance.now() - tileLoadStart;
       this._frameStats = null; // reset rolling stats on tile set change
@@ -3900,7 +3908,10 @@ class MapRenderer {
 
     // Comprehensive performance instrumentation
     const ms = this._lastMergeStats || {};
-    const fetchStats = this._tileFetchStats || [];
+    const currentTileset = visibleTiles[0]?.tileset;
+    const fetchStats = (this._tileFetchStats || []).filter(
+      s => !currentTileset || s.key.startsWith(currentTileset + '/')
+    );
     this._tileFetchStats = []; // reset for next frame
 
     // Count cache hits vs network fetches
