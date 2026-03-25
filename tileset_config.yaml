@@ -165,6 +165,23 @@ feature_templates:
       show_name: true
       name_priority: 1
 
+  # Like motorways but without _link variants — used at continental scale (t5/t6)
+  # where individual on/off ramps (~100-500m) are invisible but add thousands of features.
+  motorways_no_links: &motorways_no_links
+    name: "motorways"
+    osm_match:
+      geometry: ["LineString", "MultiLineString"]
+      tags:
+        highway: ["motorway", "trunk"]
+      preserve_tags: ["bicycle_road", "cyclestreet", "planned", "proposed"]
+    render:
+      layer: "surface_roads"
+      themeKey: "roads.motorway"
+      minLOD: 0
+      roadPriority: 7
+      show_name: true
+      name_priority: 1
+
   primary_roads: &primary_roads
     name: "primary_roads"
     osm_match:
@@ -1541,7 +1558,7 @@ tilesets:
           fill: true
           minLOD: 0
         simplification: { epsilon_m: 500 }
-      - <<: *motorways
+      - <<: *motorways_no_links
         simplification: { epsilon_m: 500 }
       - <<: *primary_roads
         simplification: { epsilon_m: 500 }
@@ -1583,7 +1600,7 @@ tilesets:
           fill: true
           minLOD: 0
         simplification: { epsilon_m: 2000 }
-      - <<: *motorways
+      - <<: *motorways_no_links
         simplification: { epsilon_m: 2000 }
       - name: "main_rail_only"
         osm_match:
