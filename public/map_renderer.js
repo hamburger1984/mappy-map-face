@@ -3401,8 +3401,18 @@ class MapRenderer {
       perfTimings.tileLoad = performance.now() - tileLoadStart;
       this._lastMergeStats = null; // clear so report shows "cached" not stale data
     } else {
+      // Short hold before loading tiles: lets rapidly-queued renders supersede this
+      // one without wasting network/parse work on intermediate zoom levels.
+      await new Promise(r => setTimeout(r, 150));
+      if (myGeneration !== this._renderGeneration) {
+        this._tileFetchStats = []; // discard any stats accumulated during wait
+        return;
+      }
       this.mapData = await this.loadVisibleTiles(adjustedBounds);
-      if (myGeneration !== this._renderGeneration) return; // superseded during tile fetch
+      if (myGeneration !== this._renderGeneration) {
+        this._tileFetchStats = []; // discard stats from superseded load
+        return;
+      }
       this._lastTileSetSig = tileSetSig;
       perfTimings.tileLoad = performance.now() - tileLoadStart;
       this._frameStats = null; // reset rolling stats on tile set change
@@ -3895,7 +3905,7 @@ class MapRenderer {
 
     // Count cache hits vs network fetches
     const networkFetches = fetchStats.length;
-    const cacheHits = visibleTiles.length - networkFetches;
+    const cacheHits = cachedCount; // tiles already in cache before this render's load
     const totalFetchTime = fetchStats.reduce((s, t) => s + t.fetchTime, 0);
     const totalParseTime = fetchStats.reduce((s, t) => s + t.parseTime, 0);
 
