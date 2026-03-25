@@ -173,7 +173,7 @@ feature_templates:
       geometry: ["LineString", "MultiLineString"]
       tags:
         highway: ["motorway", "trunk"]
-      preserve_tags: ["bicycle_road", "cyclestreet", "planned", "proposed"]
+      preserve_tags: ["planned", "proposed"]
     render:
       layer: "surface_roads"
       themeKey: "roads.motorway"
