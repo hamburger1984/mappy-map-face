@@ -2846,10 +2846,10 @@ class MapRenderer {
 
       this.tileCache.set(key, result.data);
       this.loadingTiles.delete(key);
-      // Trigger a re-render for tiles belonging to the current visible tileset.
-      // Prefetch ring tiles (different tileset or outside current view) are silently
-      // cached without forcing an expensive re-merge.
-      if (key.startsWith(this.getTilesetForView() + '/')) {
+      // Only trigger re-render if this tile is actually in the current viewport.
+      // Ring prefetch tiles and tiles from other zoom levels are silently cached
+      // without forcing an expensive re-merge.
+      if (this._visibleTileKeys?.has(key)) {
         this._lastTileSetSig = null;
         this.debouncedRender();
       }
@@ -3021,7 +3021,9 @@ class MapRenderer {
   // Fire off fetches for any visible tiles not yet in cache or loading.
   // Does NOT await — returns immediately. Tile arrivals trigger debouncedRender().
   _startVisibleTileLoads(bounds) {
-    for (const tile of this.getVisibleTiles(bounds)) {
+    const tiles = this.getVisibleTiles(bounds);
+    this._visibleTileKeys = new Set(tiles.map(t => this.getTileKey(t.tileset, t.x, t.y)));
+    for (const tile of tiles) {
       const key = this.getTileKey(tile.tileset, tile.x, tile.y);
       if (!this.tileCache.has(key) && !this.loadingTiles.has(key)) {
         this.loadTile(tile.tileset, tile.x, tile.y); // fire and forget
