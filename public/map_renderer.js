@@ -3098,11 +3098,13 @@ class MapRenderer {
   // Merge currently-cached tile data for the given bounds. Synchronous — no fetch.
   loadVisibleTiles(bounds) {
     const tiles = this.getVisibleTiles(bounds);
-    // Use cached data; uncached tiles show as empty until they arrive
-    const tileData = tiles.map(tile =>
-      this.tileCache.get(this.getTileKey(tile.tileset, tile.x, tile.y)) ||
-      { type: 'FeatureCollection', features: [] }
-    );
+    // Use cached data; uncached tiles show as empty until they arrive.
+    // Count LRU hits here — this is the hot path; loadTile() is skipped for cached tiles.
+    const tileData = tiles.map(tile => {
+      const cached = this.tileCache.get(this.getTileKey(tile.tileset, tile.x, tile.y));
+      if (cached) this._tileCacheHits++;
+      return cached || { type: 'FeatureCollection', features: [] };
+    });
 
     // Merge all tile features into a single GeoJSON
     const mergeStart = performance.now();
@@ -3511,9 +3513,9 @@ class MapRenderer {
     document.getElementById("tileLoadTime").textContent =
       perfTimings.tileLoad.toFixed(2);
       
-    // Update cache stats
+    // Update LRU cache stats
     const cacheTotalRequests = this._tileCacheHits + this._tileCacheMisses;
-    const hitRate = cacheTotalRequests > 0 
+    const hitRate = cacheTotalRequests > 0
       ? (this._tileCacheHits / cacheTotalRequests * 100).toFixed(1) + '%'
       : '0%';
     document.getElementById("cacheHits").textContent = this._tileCacheHits;
@@ -3521,6 +3523,11 @@ class MapRenderer {
     document.getElementById("cacheHitRate").textContent = hitRate;
     document.getElementById("cacheSize").textContent = this.tileCache.size;
     document.getElementById("cacheEvictions").textContent = this._tileCacheEvictions;
+    // SW cache status (navigator.serviceWorker.controller is non-null once SW is active)
+    const swEl = document.getElementById("swStatus");
+    if (swEl) {
+      swEl.textContent = navigator.serviceWorker?.controller ? "active" : "inactive";
+    }
 
     // Tile loading stats available in UI
 
