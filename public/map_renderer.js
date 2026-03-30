@@ -2181,6 +2181,9 @@ class MapRenderer {
       this.currentZoomIndex = this.targetZoomIndex;
       this.viewWidthMeters = newWidth;
 
+      // Reset rolling stats on zoom level change
+      this._frameStats = null;
+
       // Trigger proper render
       this.updateZoomSlider();
       this.updateStats();
@@ -3501,7 +3504,6 @@ class MapRenderer {
 
       this._lastTileSetSig = tileSetSig;
       perfTimings.tileLoad = performance.now() - tileLoadStart;
-      this._frameStats = null; // reset rolling stats on tile set change
     }
 
     // Schedule background prefetch of surrounding ring tiles
