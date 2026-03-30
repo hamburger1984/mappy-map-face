@@ -5,7 +5,8 @@
     "test": "playwright test",
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
-    "test:update-snapshots": "playwright test --update-snapshots"
+    "test:update-snapshots": "playwright test --update-snapshots",
+    "benchmark": "playwright test tests/benchmark.spec.js --project=desktop-chrome"
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0"

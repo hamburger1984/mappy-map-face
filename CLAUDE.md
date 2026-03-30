@@ -79,6 +79,7 @@ Features are classified in `step_3_generate_tiles.py` with metadata:
 3. Test changes in the browser before committing
 4. Keep solutions focused and avoid over-engineering
 5. Do NOT add "Co-Authored-By" lines to commit messages
+6. After any renderer performance work, ask the user to run `npm run benchmark` and check for regressions vs baseline
 
 ## Communication Style
 

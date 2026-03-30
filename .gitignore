@@ -60,6 +60,7 @@ tile_build*.db*
 node_modules/
 playwright-report/
 test-results/
+tests/benchmark-results.json
 
 # Geofabrik region index cache
 preprocessing/.geofabrik_cache.json

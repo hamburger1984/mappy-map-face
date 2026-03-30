@@ -965,6 +965,11 @@ def simplify_feature_for_tileset(feature, tileset_id, feature_config):
     epsilon_m = simplif.get("epsilon_m")
     if not epsilon_m:
         return feature
+    # Below ~0.5 m the simplification removes essentially no vertices (visual no-op).
+    # Skip the Shapely shape()→simplify()→mapping() round-trip — the clipping path
+    # will build the Shapely geometry from scratch anyway.
+    if epsilon_m < 0.5:
+        return feature
 
     geom = feature.get("geometry")
     if not geom or geom["type"] == "Point":
@@ -1792,6 +1797,78 @@ def _close_all_tile_handles():
     _tile_handles.clear()
 
 
+def _try_build_shapely(geom_dict):
+    """Convert a GeoJSON geometry dict to a Shapely geometry, or return None.
+
+    Returns None for Point geometries (they don't need per-tile clipping) and on
+    any error so callers can fall back to the original clip_feature_to_tile path.
+    """
+    if not geom_dict or geom_dict.get("type") == "Point":
+        return None
+    try:
+        from shapely.geometry import shape
+        return shape(geom_dict)
+    except Exception:
+        return None
+
+
+def _clip_geom_to_tile(shapely_geom, tile_x, tile_y, tile_size_m, buffer_pct=0.02):
+    """Clip a Shapely geometry to a tile's bounds, returning a Shapely geometry or None.
+
+    Mirrors clip_feature_to_tile but works entirely with Shapely objects to avoid
+    repeated GeoJSON↔Shapely round-trips when clipping across many tiles.
+    """
+    try:
+        from shapely.geometry import box
+
+        geom_type = shapely_geom.geom_type
+        lat_avg = tile_y * tile_size_m / 111320 + (tile_size_m / 111320 / 2)
+        meters_per_deg_lon = 111320 * math.cos(math.radians(lat_avg))
+        tile_width_deg = tile_size_m / meters_per_deg_lon
+        tile_height_deg = tile_size_m / 111320
+
+        exact_min_lon = tile_x * tile_width_deg
+        exact_min_lat = tile_y * tile_height_deg
+        exact_max_lon = exact_min_lon + tile_width_deg
+        exact_max_lat = exact_min_lat + tile_height_deg
+
+        if geom_type in ("LineString", "MultiLineString"):
+            tile_box = box(exact_min_lon, exact_min_lat, exact_max_lon, exact_max_lat)
+            clipped = shapely_geom.intersection(tile_box)
+            if clipped.is_empty:
+                return None
+            # Keep only line parts (discard Point artifacts from corner touches)
+            from shapely.geometry import LineString, MultiLineString, GeometryCollection
+            if clipped.geom_type in ("LineString", "MultiLineString"):
+                return clipped
+            if clipped.geom_type == "GeometryCollection":
+                lines = [g for g in clipped.geoms if g.geom_type in ("LineString", "MultiLineString")]
+                if not lines:
+                    return None
+                return MultiLineString([list(g.coords) for g in lines]) if len(lines) > 1 else lines[0]
+            return None
+
+        # Polygon / MultiPolygon
+        buf_lon = tile_width_deg * buffer_pct
+        buf_lat = tile_height_deg * buffer_pct
+        min_lon = exact_min_lon - buf_lon
+        min_lat = exact_min_lat - buf_lat
+        max_lon = exact_max_lon + buf_lon
+        max_lat = exact_max_lat + buf_lat
+
+        # Fast-path: feature fully within buffered tile
+        gmin_lon, gmin_lat, gmax_lon, gmax_lat = shapely_geom.bounds
+        if gmin_lon >= min_lon and gmax_lon <= max_lon and gmin_lat >= min_lat and gmax_lat <= max_lat:
+            return shapely_geom
+
+        tile_box = box(min_lon, min_lat, max_lon, max_lat)
+        clipped = shapely_geom.intersection(tile_box)
+        return None if clipped.is_empty else clipped
+
+    except Exception:
+        return None
+
+
 def _process_feature_batch(args):
     """Worker: process a batch of features and return write tuples.
 
@@ -1817,13 +1894,28 @@ def _process_feature_batch(args):
             feature_tiles = get_tiles_for_feature_in_tileset(tileset_feature, tileset_id, tile_size_m)
             _, importance = classify_feature_importance(props, geom_type)
             if clip_to_tiles and len(feature_tiles) > 1:
+                # Build Shapely geometry once from the simplified feature; reuse across all tiles
+                # to avoid repeated shape() conversions and deepcopy per tile.
+                _shapely_geom = _try_build_shapely(tileset_feature.get("geometry"))
+                # Check whether this feature type should be skipped by clip_feature_to_tile
+                _skip_clip = props.get("building") or props.get("railway") == "platform" or props.get("public_transport") == "platform"
+                if _shapely_geom is not None and not _skip_clip:
+                    from shapely.geometry import mapping as _shapely_mapping
                 for tile_coords in feature_tiles:
                     ts, x, y = tile_coords
-                    clipped = clip_feature_to_tile(
-                        copy.deepcopy(tileset_feature), x, y, tile_size_m, clip_buffer_pct
-                    )
-                    if clipped is None:
-                        continue
+                    if _shapely_geom is not None and not _skip_clip:
+                        clipped_geom = _clip_geom_to_tile(_shapely_geom, x, y, tile_size_m, clip_buffer_pct)
+                        if clipped_geom is None:
+                            continue
+                        clipped = {
+                            "type": "Feature",
+                            "geometry": _shapely_mapping(clipped_geom),
+                            "properties": tileset_feature["properties"],
+                            "_render": tileset_feature["_render"],
+                        }
+                    else:
+                        # Fallback for Points, buildings, and platforms (no clipping needed)
+                        clipped = tileset_feature
                     clipped_json = orjson.dumps(clipped, default=decimal_default).decode()
                     results.append((ts, x, y, importance, clipped_json))
             else:
@@ -2021,14 +2113,24 @@ def split_geojson_into_tiles(
                         _, importance = classify_feature_importance(props, geom_type)
 
                         if clip_to_tiles and len(feature_tiles) > 1:
+                            _shapely_geom = _try_build_shapely(tileset_feature.get("geometry"))
+                            _skip_clip = props.get("building") or props.get("railway") == "platform" or props.get("public_transport") == "platform"
+                            if _shapely_geom is not None and not _skip_clip:
+                                from shapely.geometry import mapping as _shapely_mapping
                             for tile_coords in feature_tiles:
                                 ts, x, y = tile_coords
-                                clipped = clip_feature_to_tile(
-                                    copy.deepcopy(tileset_feature),
-                                    x, y, tile_size_m, clip_buffer_pct,
-                                )
-                                if clipped is None:
-                                    continue
+                                if _shapely_geom is not None and not _skip_clip:
+                                    clipped_geom = _clip_geom_to_tile(_shapely_geom, x, y, tile_size_m, clip_buffer_pct)
+                                    if clipped_geom is None:
+                                        continue
+                                    clipped = {
+                                        "type": "Feature",
+                                        "geometry": _shapely_mapping(clipped_geom),
+                                        "properties": tileset_feature["properties"],
+                                        "_render": tileset_feature["_render"],
+                                    }
+                                else:
+                                    clipped = tileset_feature
                                 clipped_json = orjson.dumps(clipped, default=decimal_default).decode()
                                 append_to_tile(ts, x, y, f"{importance}\t{clipped_json}\n")
                                 tile_files_written[ts].add((x, y))

@@ -214,6 +214,7 @@ def main() -> None:
     land_args = [
         "--land-polygons-only",
         "--data-dir", str(args.data_dir),
+        "--max-file-age", str(args.max_tile_age),
     ]
     if args.land_polygon_url:
         land_args += ["--land-polygon-url", args.land_polygon_url]
@@ -244,6 +245,7 @@ def main() -> None:
         run(SCRIPTS_DIR / "step_1_download.py", [
             "--add-region", name, url,
             "--data-dir", str(args.data_dir),
+            "--max-file-age", str(args.max_tile_age),
         ])
 
         # ── b) Convert PBF → GeoJSON ──────────────────────────────────────────

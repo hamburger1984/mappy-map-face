@@ -18,6 +18,7 @@ import sys
 import urllib.request
 import zipfile
 from datetime import datetime, timedelta
+from functools import partial
 from multiprocessing import Pool
 from pathlib import Path
 
@@ -235,13 +236,13 @@ def download_with_progress(url, output_path, desc):
         raise e
 
 
-def download_osm_file(args):
+def download_osm_file(args, max_age_days=30):
     """Download a single OSM PBF file."""
     name, url, data_dir = args
     pbf_file = data_dir / f"{name}-latest.osm.pbf"
 
     # Check if already up-to-date
-    if pbf_file.exists() and check_file_age(pbf_file, max_age_days=30):
+    if pbf_file.exists() and check_file_age(pbf_file, max_age_days=max_age_days):
         size_mb = pbf_file.stat().st_size / (1024 * 1024)
         return {
             "name": name,
@@ -258,13 +259,13 @@ def download_osm_file(args):
         return {"name": name, "status": "failed", "error": str(e)}
 
 
-def download_and_convert_land_polygons(args):
+def download_and_convert_land_polygons(args, max_age_days=30):
     """Download and convert land polygon shapefile to GeoJSON."""
     name, url, data_dir = args
     output_file = data_dir / f"{name}-land-polygons.geojson"
 
     # Check if already up-to-date
-    if output_file.exists() and check_file_age(output_file, max_age_days=30):
+    if output_file.exists() and check_file_age(output_file, max_age_days=max_age_days):
         size_mb = output_file.stat().st_size / (1024 * 1024)
         return {
             "name": name,
@@ -379,6 +380,13 @@ def main():
         metavar="URL",
         help="Override the default land polygon download URL.",
     )
+    parser.add_argument(
+        "--max-file-age",
+        type=int,
+        default=30,
+        metavar="DAYS",
+        help="Re-download PBF/land-polygon files older than this many days (default: 30).",
+    )
 
     args = parser.parse_args()
     args.data_dir.mkdir(parents=True, exist_ok=True)
@@ -394,7 +402,7 @@ def main():
         print(f"Step 1: Download Region — {pbf_name}")
         print("=" * 70)
         print()
-        result = download_osm_file((raw_name, url, args.data_dir))
+        result = download_osm_file((raw_name, url, args.data_dir), max_age_days=args.max_file_age)
         if result["status"] == "cached":
             print(f"  ✓ {result['name']}: {result['size_mb']:.1f} MB ({result['age']})")
         elif result["status"] == "downloaded":
@@ -414,7 +422,7 @@ def main():
         print("=" * 70)
         print()
         for item in land_sources.items():
-            result = download_and_convert_land_polygons((*item, args.data_dir))
+            result = download_and_convert_land_polygons((*item, args.data_dir), max_age_days=args.max_file_age)
             if result["status"] == "cached":
                 print(f"  ✓ {result['name']}: {result['size_mb']:.1f} MB ({result['age']})")
             elif result["status"] == "downloaded":
@@ -466,7 +474,7 @@ def main():
     with Pool(args.jobs) as pool:
         osm_results = list(
             tqdm(
-                pool.imap_unordered(download_osm_file, osm_args),
+                pool.imap_unordered(partial(download_osm_file, max_age_days=args.max_file_age), osm_args),
                 total=len(osm_args),
                 desc="OSM files",
                 unit="file",
@@ -492,7 +500,7 @@ def main():
     land_args = [(name, url, args.data_dir) for name, url in land_sources.items()]
     land_results = []
     for land_arg in land_args:
-        land_results.append(download_and_convert_land_polygons(land_arg))
+        land_results.append(download_and_convert_land_polygons(land_arg, max_age_days=args.max_file_age))
 
     _log("Land Polygons:")
     for result in land_results:

@@ -425,6 +425,12 @@ class MapRenderer {
       maxLat: 54.45,
     };
 
+    // Enhanced tile cache with LRU eviction and metrics
+    this._tileCacheMaxSize = 100; // Maximum number of tiles to keep in memory
+    this._tileCacheHits = 0;
+    this._tileCacheMisses = 0;
+    this._tileCacheEvictions = 0;
+
     // Object pools to reduce GC pressure
     this._pointPool = []; // Reusable {x, y} objects
     this._pointPoolIndex = 0;
@@ -452,6 +458,10 @@ class MapRenderer {
     this._baseCanvas = null;
     this._baseCtx = null;
     this._baseImageValid = false;
+
+    // Performance metrics
+    this._renderTimes = [];
+    this._frameCount = 0;
   }
 
   resizeCanvas() {
@@ -2785,21 +2795,23 @@ class MapRenderer {
     try { sessionStorage.setItem(this._404storageKey, JSON.stringify([...cache])); } catch {}
   }
 
-  async loadTile(tileset, x, y) {
+    async loadTile(tileset, x, y) {
     const key = this.getTileKey(tileset, x, y);
 
     // Check in-memory cache first
     if (this.tileCache.has(key)) {
-      return this.tileCache.get(key);
+      // Update LRU: move to end (most recently used)
+      const value = this.tileCache.get(key);
+      this.tileCache.delete(key);
+      this.tileCache.set(key, value);
+      this._tileCacheHits++;
+      return value;
     }
-
-    // Already cached — return immediately
-    if (this.tileCache.has(key)) return this.tileCache.get(key);
 
     // Skip tiles known to be missing (persisted across reloads until tiles are regenerated)
     if (this._get404Cache().has(key)) {
       const empty = { type: "FeatureCollection", features: [] };
-      this.tileCache.set(key, empty);
+      this._addToTileCache(key, empty);
       return empty;
     }
 
@@ -2831,7 +2843,7 @@ class MapRenderer {
         this.loadingTiles.delete(key);
         this._mark404(key);
         const empty = { type: "FeatureCollection", features: [] };
-        this.tileCache.set(key, empty);
+        this._addToTileCache(key, empty);
         return empty;
       }
 
@@ -2844,7 +2856,7 @@ class MapRenderer {
         features: result.features,
       });
 
-      this.tileCache.set(key, result.data);
+      this._addToTileCache(key, result.data);
       this.loadingTiles.delete(key);
       // Only trigger re-render if this tile is actually in the current viewport.
       // Ring prefetch tiles and tiles from other zoom levels are silently cached
@@ -2858,10 +2870,41 @@ class MapRenderer {
     } catch (error) {
       console.warn(`Failed to load tile ${key}:`, error);
       this.loadingTiles.delete(key);
-      this.tileCache.set(key, { type: "FeatureCollection", features: [] });
+      this._addToTileCache(key, { type: "FeatureCollection", features: [] });
       this._lastTileSetSig = null;
       return this.tileCache.get(key);
     }
+  }
+
+  /**
+   * Add item to tile cache with LRU eviction if needed
+   * @param {string} key - Tile key
+   * @param {*} value - Tile data
+   * @private
+   */
+  _addToTileCache(key, value) {
+    // Evict least recently used items if cache is full
+    if (this.tileCache.size >= this._tileCacheMaxSize) {
+      // Prefer evicting a non-visible tile to avoid blinking currently-rendered tiles
+      let evicted = false;
+      for (const firstKey of this.tileCache.keys()) {
+        if (!this._visibleTileKeys?.has(firstKey)) {
+          this.tileCache.delete(firstKey);
+          this._tileCacheEvictions++;
+          evicted = true;
+          break;
+        }
+      }
+      // Fallback: evict oldest if all cached tiles happen to be visible
+      if (!evicted) {
+        const firstKey = this.tileCache.keys().next().value;
+        this.tileCache.delete(firstKey);
+        this._tileCacheEvictions++;
+      }
+    }
+
+    this.tileCache.set(key, value);
+    this._tileCacheMisses++;
   }
 
   analyzeTileContent(tileData, tileKey) {
@@ -3440,11 +3483,22 @@ class MapRenderer {
     // Schedule background prefetch of surrounding ring tiles
     this.schedulePrefetch(adjustedBounds);
 
-    // Update tile stats
+     // Update tile stats
     document.getElementById("tileCount").textContent = visibleTiles.length;
     document.getElementById("cachedTiles").textContent = cachedCount;
     document.getElementById("tileLoadTime").textContent =
       perfTimings.tileLoad.toFixed(2);
+      
+    // Update cache stats
+    const cacheTotalRequests = this._tileCacheHits + this._tileCacheMisses;
+    const hitRate = cacheTotalRequests > 0 
+      ? (this._tileCacheHits / cacheTotalRequests * 100).toFixed(1) + '%'
+      : '0%';
+    document.getElementById("cacheHits").textContent = this._tileCacheHits;
+    document.getElementById("cacheMisses").textContent = this._tileCacheMisses;
+    document.getElementById("cacheHitRate").textContent = hitRate;
+    document.getElementById("cacheSize").textContent = this.tileCache.size;
+    document.getElementById("cacheEvictions").textContent = this._tileCacheEvictions;
 
     // Tile loading stats available in UI
 
@@ -4048,6 +4102,8 @@ class MapRenderer {
 
     document.getElementById("featureCount").textContent = featureCount;
     document.getElementById("renderTime").textContent = renderTime;
+    
+
     document.getElementById("stats").querySelector("div").textContent =
       "Status: Rendered";
 
@@ -9268,6 +9324,7 @@ document.getElementById("exportBtn").addEventListener("click", () => {
   // Auto-render on load
   renderer.renderMap();
   renderer.updateStats();
+  window.renderer = renderer; // exposed for benchmark/test access
 }
 
 // Start the app when page loads
