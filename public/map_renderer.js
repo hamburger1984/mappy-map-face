@@ -2148,6 +2148,20 @@ class MapRenderer {
     this.ctx.drawImage(this._offscreenCanvas, 0, 0);
 
     this.ctx.restore();
+
+    // Pre-warm: kick off tile loads for the target zoom level while the 300ms
+    // debounce timer counts down. Uses the last rendered bounds (pan unchanged).
+    // Passes targetWidth as an override so getTilesetForView/getVisibleTiles
+    // compute the right tileset without mutating state.
+    if (targetWidth !== currentWidth && this._lastAdjustedBounds) {
+      const targetTiles = this.getVisibleTiles(this._lastAdjustedBounds, targetWidth);
+      for (const tile of targetTiles) {
+        const key = this.getTileKey(tile.tileset, tile.x, tile.y);
+        if (!this.tileCache.has(key) && !this.loadingTiles.has(key)) {
+          this.loadTile(tile.tileset, tile.x, tile.y); // fire and forget
+        }
+      }
+    }
   }
 
   finalizeZoom() {
@@ -2665,22 +2679,23 @@ class MapRenderer {
     return false;
   }
 
-  getTilesetForView() {
+  getTilesetForView(viewWidthOverride) {
+    const w = viewWidthOverride ?? this.viewWidthMeters;
     // Find tileset whose view range contains current view width
     for (const tileset of this.tilesets) {
       const [min, max] = tileset.view_range_meters;
-      if (this.viewWidthMeters >= min && this.viewWidthMeters <= max) {
+      if (w >= min && w <= max) {
         return tileset.id;
       }
     }
 
     // Fallback to closest tileset
-    if (this.viewWidthMeters < 2000) return "t1";
-    if (this.viewWidthMeters < 7500) return "t2";
-    if (this.viewWidthMeters < 20000) return "t2b";
-    if (this.viewWidthMeters < 150000) return "t3";
-    if (this.viewWidthMeters < 400000) return "t4";
-    if (this.viewWidthMeters < 750000) return "t5";
+    if (w < 2000) return "t1";
+    if (w < 7500) return "t2";
+    if (w < 20000) return "t2b";
+    if (w < 150000) return "t3";
+    if (w < 400000) return "t4";
+    if (w < 750000) return "t5";
     return "t6";
   }
 
@@ -2725,18 +2740,24 @@ class MapRenderer {
       }
     }
 
-    for (const tile of ringTiles) {
+    // Load in parallel batches of 4 (matches worker pool size).
+    // A short gap between batches keeps the network polite.
+    const BATCH = 4;
+    for (let i = 0; i < ringTiles.length; i += BATCH) {
       if (this._prefetchGeneration !== generation) return;
-      this.loadTile(tile.tileset, tile.x, tile.y);
-      await new Promise(resolve => setTimeout(resolve, 80));
+      const batch = ringTiles.slice(i, i + BATCH);
+      await Promise.all(batch.map(t => this.loadTile(t.tileset, t.x, t.y)));
+      if (i + BATCH < ringTiles.length) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
     }
   }
 
-  getVisibleTiles(bounds) {
+  getVisibleTiles(bounds, viewWidthOverride) {
     // Calculate which tiles are visible in the current viewport using custom tile sizes.
     // Tile width in degrees varies by latitude (tile generator uses each row's own center
     // latitude), so we compute per-row X ranges to match tile boundaries exactly.
-    const tilesetId = this.getTilesetForView();
+    const tilesetId = this.getTilesetForView(viewWidthOverride);
     const tileset = this.tilesets.find((ts) => ts.id === tilesetId);
     const tileSizeM = tileset.tile_size_meters;
 
@@ -3438,6 +3459,7 @@ class MapRenderer {
       minLat: centerLat - latRange / 2 + latOffset,
       maxLat: centerLat + latRange / 2 + latOffset,
     };
+    this._lastAdjustedBounds = adjustedBounds; // used by previewZoom pre-warming
 
     // Load visible tiles
     const tileLoadStart = performance.now();
