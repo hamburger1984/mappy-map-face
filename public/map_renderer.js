@@ -4049,6 +4049,7 @@ class MapRenderer {
       if (val > s.max) s.max = val;
     };
     _accumStat(_fs, 'total', perfTimings.totalRender);
+    _accumStat(_fs, 'tileLoad', perfTimings.tileLoad);
     for (const { name, time } of layerRows) _accumStat(_fs.layers, name, time);
     const _statStr = (s, n) => {
       if (!s || n < 2) return '';
@@ -4131,6 +4132,8 @@ class MapRenderer {
 
     document.getElementById("featureCount").textContent = featureCount;
     document.getElementById("renderTime").textContent = renderTime;
+    document.getElementById("renderStats").textContent = _statStr(_fs.total, _fs.n);
+    document.getElementById("tileLoadStats").textContent = _statStr(_fs.tileLoad, _fs.n);
     
 
     document.getElementById("stats").querySelector("div").textContent =
