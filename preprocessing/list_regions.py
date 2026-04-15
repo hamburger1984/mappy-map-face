@@ -112,11 +112,21 @@ def list_local(data_dir: Path, tiles_dir: Path) -> None:
         right = pad - left
         return " " * left + mark + " " * right
 
+    def is_disabled_no_tiles(region: dict) -> bool:
+        if region.get("enabled", True):
+            return False
+        name = region["name"]
+        raw  = name[: -len("-latest")] if name.endswith("-latest") else name
+        return raw not in tiled
+
+    disabled_summary = [r["name"] for r in regions if is_disabled_no_tiles(r)]
+    active_regions   = [r for r in regions if not is_disabled_no_tiles(r)]
+
     # Pre-group regions so we know which countries have multiple entries
     from itertools import groupby
     grouped = {
         g: list(members)
-        for g, members in groupby(regions, key=country_group)
+        for g, members in groupby(active_regions, key=country_group)
     }
 
     def row(region: dict, indent: int) -> None:
@@ -154,6 +164,9 @@ def list_local(data_dir: Path, tiles_dir: Path) -> None:
             for region in members:
                 row(region, indent=4)
         first = False
+
+    if disabled_summary:
+        print(f"\n  Disabled (no tiles): {', '.join(disabled_summary)}")
 
     print(f"\n{len(regions)} region(s) in preprocessing/regions.json")
 
