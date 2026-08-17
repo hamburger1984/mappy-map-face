@@ -3600,6 +3600,16 @@ class MapRenderer {
       const currentViewWidth = this.viewWidthMeters;
       const currentLOD = this.getLOD();
 
+      // Fast-path: cached classify says LOD-culled at current LOD → skip re-classify entirely.
+      // Style doesn't matter for culled features, so stale cache is fine.
+      // Exception: prominentThemeKey features shown until LOD < 2 (mirrors check at line ~3650).
+      if (featureInfo && featureInfo.minLOD > lod) {
+        if (!featureInfo.prominentThemeKey || lod >= 2) {
+          lodCulledCount++;
+          continue;
+        }
+      }
+
       // Invalidate cache if view width changed by >20% OR LOD changed
       // (LOD change covers the prominent→subtle color switch at LOD 2)
       if (featureInfo && feature._cachedViewWidth) {

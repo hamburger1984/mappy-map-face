@@ -3041,13 +3041,35 @@ def main():
                     swapped += 1
             print(f"  Swapped {swapped:,} tiles ({_format_size(total_bytes)})")
 
-            # Update regions.json and per-region tile indices
+            # Update regions.json, per-region tile indices, and index.json
             _write_regions_json(args.output_dir, write_results)
             for r in write_results:
                 if r["status"] == "success" and r.get("tile_files_written") and "land-polygon" not in r["name"]:
                     rname = r["name"].replace(".geojson", "").replace("-latest.osm", "")
                     _write_region_tile_index(args.output_dir, rname, r["tile_files_written"])
-            print("  ✓ Updated regions.json and tile indices")
+
+            # Update index.json with current generated timestamp and tile count
+            index_path = args.output_dir / "index.json"
+            if index_path.exists():
+                try:
+                    with open(index_path) as f:
+                        index_data = json.load(f)
+                except Exception:
+                    index_data = {}
+            else:
+                index_data = {}
+            all_config_tileset_ids = [ts["id"] for ts in TILESET_CONFIG["tilesets"]]
+            tile_count = sum(
+                len(list((args.output_dir / ts_id).rglob("*.json.gz")))
+                for ts_id in all_config_tileset_ids
+                if (args.output_dir / ts_id).exists()
+            )
+            index_data["tile_count"] = tile_count
+            index_data["generated"] = int(time.time() * 1000)
+            with open(index_path, "w", encoding="utf-8") as f:
+                json.dump(index_data, f, indent=2)
+
+            print("  ✓ Updated regions.json, tile indices, and index.json")
 
             fail_count = sum(1 for r in write_results if r["status"] != "success")
             if fail_count:
