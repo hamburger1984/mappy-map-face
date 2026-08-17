@@ -446,8 +446,8 @@ def main():
     meta_files = list(args.data_dir.glob("*.partial.meta"))
     if args.clean_partial and (partial_files or meta_files):
         print(f"Cleaning {len(partial_files)} partial download(s)...")
-        for partial in partial_files:
-            partial.unlink()
+        for pf in partial_files:
+            pf.unlink()
         for meta in meta_files:
             meta.unlink()
         print()
