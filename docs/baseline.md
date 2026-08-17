@@ -21,13 +21,17 @@ Coordinate counts reflect total vertices across all geometry rings/lines.
    ```bash
    just build
    ```
-2. Run the tile statistics script against the generated tiles:
+2. Run the tile statistics script:
    ```bash
    venv/bin/python scripts/tile_stats.py public/tiles/
    ```
-   (If this script doesn't exist yet, create one — see below.)
-3. Append a new row to `baseline.csv` with the summary stats
-4. Add a note below about what changed since the last datapoint
+   Options:
+   - `--csv` — append summary to `docs/baseline.csv`
+   - `--csv-only` — print CSV rows to stdout only
+   - `--tilesets t2 t3` — only scan specific tilesets
+   - `--regions "Hamburg, SH"` — region description for CSV
+   - `--dp N` — datapoint number (auto-detected from existing CSV)
+3. Add a note in the Changes section below about what changed since the last datapoint
 
 ## Datapoint Summary
 
