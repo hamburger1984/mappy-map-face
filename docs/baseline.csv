@@ -1,0 +1,33 @@
+dp,date,regions,tileset,tiles,disk_mb,sampled,est_feature_mb
+1,2026-02-22 14:12,"Hamburg, Schleswig-Holstein (2 regions)",T1,308184,2795.5,1000,2764.8
+1,2026-02-22 14:12,"Hamburg, Schleswig-Holstein (2 regions)",T2,9236,1607.7,1000,1556.5
+1,2026-02-22 14:12,"Hamburg, Schleswig-Holstein (2 regions)",T3,159,197.9,159,197.9
+1,2026-02-22 14:12,"Hamburg, Schleswig-Holstein (2 regions)",T4,47,28.5,47,28.5
+2,2026-03-03 04:42,All (full Europe+ regen with ACTIVE_REGIONS = None),T1,1717469,28047.4,1000,26910.7
+2,2026-03-03 04:42,All (full Europe+ regen with ACTIVE_REGIONS = None),T2,48996,18288.6,1000,18616.3
+2,2026-03-03 04:42,All (full Europe+ regen with ACTIVE_REGIONS = None),T3,697,654.6,697,653.1
+2,2026-03-03 04:42,All (full Europe+ regen with ACTIVE_REGIONS = None),T4,205,250.1,205,249.6
+3,2026-02-22 15:10,"Hamburg, Schleswig-Holstein, Mecklenburg-Vorpommern (3 regions)",T1,469057,4843.5,1000,5130.2
+3,2026-02-22 15:10,"Hamburg, Schleswig-Holstein, Mecklenburg-Vorpommern (3 regions)",T2,12684,1556.5,1000,1577.0
+3,2026-02-22 15:10,"Hamburg, Schleswig-Holstein, Mecklenburg-Vorpommern (3 regions)",T3,180,190.4,180,189.9
+3,2026-02-22 15:10,"Hamburg, Schleswig-Holstein, Mecklenburg-Vorpommern (3 regions)",T4,56,28.2,56,28.2
+4,2026-02-22 19:40,"Hamburg, Schleswig-Holstein, Mecklenburg-Vorpommern (3 regions)",T1,469057,4853.8,1000,4679.7
+4,2026-02-22 19:40,"Hamburg, Schleswig-Holstein, Mecklenburg-Vorpommern (3 regions)",T2,12684,1556.5,1000,1505.3
+4,2026-02-22 19:40,"Hamburg, Schleswig-Holstein, Mecklenburg-Vorpommern (3 regions)",T3,180,190.4,180,189.9
+4,2026-02-22 19:40,"Hamburg, Schleswig-Holstein, Mecklenburg-Vorpommern (3 regions)",T4,56,28.2,56,28.2
+5,2026-02-23 05:43,"Hamburg, Schleswig-Holstein, Mecklenburg-Vorpommern, Niedersachsen, Denmark (5 regions)",T1,1006190,15206.4,1000,16455.7
+5,2026-02-23 05:43,"Hamburg, Schleswig-Holstein, Mecklenburg-Vorpommern, Niedersachsen, Denmark (5 regions)",T2,49977,5867.5,1000,6584.3
+5,2026-02-23 05:43,"Hamburg, Schleswig-Holstein, Mecklenburg-Vorpommern, Niedersachsen, Denmark (5 regions)",T3,606,709.6,606,707.6
+5,2026-02-23 05:43,"Hamburg, Schleswig-Holstein, Mecklenburg-Vorpommern, Niedersachsen, Denmark (5 regions)",T4,177,82.5,177,82.3
+6,2026-03-01 09:19,"Hamburg, Schleswig-Holstein (2 regions)",T1,146302,2345.0,1000,2304.0
+6,2026-03-01 09:19,"Hamburg, Schleswig-Holstein (2 regions)",T2,10982,978.4,1000,1065.0
+6,2026-03-01 09:19,"Hamburg, Schleswig-Holstein (2 regions)",T3,146,110.6,146,110.2
+6,2026-03-01 09:19,"Hamburg, Schleswig-Holstein (2 regions)",T4,45,15.9,45,15.8
+7,2026-03-01 13:43,"Hamburg, Schleswig-Holstein, Mecklenburg-Vorpommern, Niedersachsen (4 regions)",T1,647533,9482.2,1000,8878.1
+7,2026-03-01 13:43,"Hamburg, Schleswig-Holstein, Mecklenburg-Vorpommern, Niedersachsen (4 regions)",T2,33076,4321.3,1000,4669.4
+7,2026-03-01 13:43,"Hamburg, Schleswig-Holstein, Mecklenburg-Vorpommern, Niedersachsen (4 regions)",T3,412,502.0,412,500.5
+7,2026-03-01 13:43,"Hamburg, Schleswig-Holstein, Mecklenburg-Vorpommern, Niedersachsen (4 regions)",T4,124,63.6,124,63.4
+8,2026-03-02 11:47,"Hamburg, Schleswig-Holstein (2 regions — same as DP1)",T1,141397,2406.4,1000,2201.6
+8,2026-03-02 11:47,"Hamburg, Schleswig-Holstein (2 regions — same as DP1)",T2,10928,1218.6,1000,1218.6
+8,2026-03-02 11:47,"Hamburg, Schleswig-Holstein (2 regions — same as DP1)",T3,146,120.0,146,119.7
+8,2026-03-02 11:47,"Hamburg, Schleswig-Holstein (2 regions — same as DP1)",T4,45,16.8,45,16.8
