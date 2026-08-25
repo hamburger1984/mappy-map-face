@@ -281,6 +281,12 @@ def main() -> None:
         ]
         run(SCRIPTS_DIR / "step_3_generate_tiles.py", step3_args, extra_env=step3_env)
 
+        # ── e) Clean up GeoJSON (can be re-generated from PBF if needed) ────
+        if geojson_path.exists():
+            size_mb = geojson_path.stat().st_size / (1024 * 1024)
+            geojson_path.unlink()
+            _log(f"  Cleaned up GeoJSON ({size_mb:.0f} MB)")
+
         # ── d) Gap before next region ─────────────────────────────────────────
         if args.gap_seconds > 0 and i < len(regions) - 1:
             next_name = regions[i + 1]["name"]

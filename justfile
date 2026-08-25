@@ -51,7 +51,8 @@ default:
     "Write-Host ''; " +
     "Write-Host 'CLEANUP'; " +
     "Write-Host '  just clean                           Remove generated tiles'; " +
-    "Write-Host '  just clean-data                      Remove tiles and downloaded data'; " +
+    "Write-Host '  just clean-geojson                   Remove intermediate GeoJSON files (keeps PBFs and tiles)'; " +
+    "Write-Host '  just clean-data                      Remove tiles and all downloaded/intermediate data'; " +
     "Write-Host '  just clean-all                       Remove everything (tiles, data, venv)'\"" }
     else {
     "echo 'OSM Map Renderer - Available Commands' && " +
@@ -90,7 +91,8 @@ default:
     "echo '' && " +
     "echo 'CLEANUP' && " +
     "echo '  just clean                           Remove generated tiles' && " +
-    "echo '  just clean-data                      Remove tiles and downloaded data' && " +
+    "echo '  just clean-geojson                   Remove intermediate GeoJSON files (keeps PBFs and tiles)' && " +
+    "echo '  just clean-data                      Remove tiles and all downloaded/intermediate data' && " +
     "echo '  just clean-all                       Remove everything (tiles, data, venv)'"
     } }}
 
@@ -200,9 +202,13 @@ regen-tileset jobs="" *tilesets: setup config-export
 clean:
     @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'Cleaning tiles...'; " + "if (Test-Path public/tiles) { Remove-Item -Recurse -Force public/tiles }; " + "Write-Host 'Tiles cleaned'\"" } else { "echo 'Cleaning tiles...' && " + "rm -rf public/tiles && " + "echo 'Tiles cleaned'" } }}
 
-# Clean tiles and downloaded data
+# Clean intermediate GeoJSON files (PBFs and tiles are kept)
+clean-geojson:
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'Cleaning GeoJSON files...'; " + "Get-ChildItem preprocessing/data -Recurse -Filter *.geojson | Remove-Item -Force; " + "Write-Host 'GeoJSON cleaned'\"" } else { "echo 'Cleaning GeoJSON files...' && " + "find preprocessing/data -name '*.geojson' -delete && " + "echo 'GeoJSON cleaned'" } }}
+
+# Clean tiles and all downloaded/intermediate data
 clean-data:
-    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'Cleaning tiles and data...'; " + "if (Test-Path public/tiles) { Remove-Item -Recurse -Force public/tiles }; " + "Get-ChildItem preprocessing/data/*.geojson -ErrorAction SilentlyContinue | Remove-Item -Force; " + "Write-Host 'Tiles and data cleaned'\"" } else { "echo 'Cleaning tiles and data...' && " + "rm -rf public/tiles && " + "rm -f preprocessing/data/*.geojson && " + "echo 'Tiles and data cleaned'" } }}
+    @{{ if os() == "windows" { "pwsh -NoProfile -Command \"" + "Write-Host 'Cleaning tiles and data...'; " + "if (Test-Path public/tiles) { Remove-Item -Recurse -Force public/tiles }; " + "Get-ChildItem preprocessing/data -Recurse -Filter *.geojson | Remove-Item -Force; " + "Write-Host 'Tiles and data cleaned'\"" } else { "echo 'Cleaning tiles and data...' && " + "rm -rf public/tiles && " + "find preprocessing/data -name '*.geojson' -delete && " + "echo 'Tiles and data cleaned'" } }}
 
 # Clean everything including build artifacts and virtual environment
 clean-all: clean-data

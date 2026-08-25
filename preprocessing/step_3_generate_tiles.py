@@ -2573,6 +2573,39 @@ def _load_region_tile_index(output_dir, region_name):
         return None
 
 
+def _ensure_geojson(geojson_path, region_name):
+    """Ensure GeoJSON exists, re-converting from PBF if it was cleaned up."""
+    if geojson_path.exists():
+        return geojson_path
+
+    # Try resolving under _DATA_DIR (path may be stale after project move)
+    candidate = _DATA_DIR / geojson_path.parent.name / geojson_path.name
+    if candidate.exists():
+        return candidate
+
+    # GeoJSON was cleaned up — re-convert from PBF
+    pbf_name = geojson_path.parent.name
+    pbf_path = _DATA_DIR / f"{pbf_name}.osm.pbf"
+    if not pbf_path.exists():
+        print(f"Error: Neither GeoJSON nor PBF found for region '{region_name}'")
+        print(f"  GeoJSON: {geojson_path}")
+        print(f"  PBF:     {pbf_path}")
+        sys.exit(1)
+
+    import subprocess
+    print(f"  GeoJSON not found for '{region_name}' — re-converting from PBF...")
+    subprocess.run(
+        [sys.executable, str(Path(__file__).parent / "step_2_convert_to_geojson.py"),
+         str(pbf_path), "--data-dir", str(_DATA_DIR)],
+        check=True,
+    )
+    result = _DATA_DIR / pbf_name / f"{pbf_name}.osm.geojson"
+    if not result.exists():
+        print(f"Error: Re-conversion produced no GeoJSON at {result}")
+        sys.exit(1)
+    return result
+
+
 def _run_add_mode(args, geojson_files, regions_data):
     """Add/update regions into the live output dir without a full rebuild.
 
@@ -2891,12 +2924,7 @@ def main():
                 print(f"Error: Region '{name}' not found in regions.json")
                 sys.exit(1)
             entry = regions[name]
-            geojson_path = Path(entry["geojson"])
-            if not geojson_path.exists():
-                # Stored path may be stale (project moved). Try resolving under _DATA_DIR.
-                candidate = _DATA_DIR / geojson_path.parent.name / geojson_path.name
-                if candidate.exists():
-                    geojson_path = candidate
+            geojson_path = _ensure_geojson(Path(entry["geojson"]), name)
             target_geojsons.append(geojson_path)
             b = entry["bounds"]
             union_bounds["minLon"] = min(union_bounds["minLon"], b["minLon"])
@@ -2920,7 +2948,8 @@ def main():
                 if name in target_names:
                     continue
                 if bounds_overlap(entry["bounds"], union_bounds):
-                    neighbor_geojsons.append(Path(entry["geojson"]))
+                    neighbor_path = _ensure_geojson(Path(entry["geojson"]), name)
+                    neighbor_geojsons.append(neighbor_path)
                     print(f"  Including overlapping neighbor: {name}")
             print(f"\nDeleting tiles in bounds of updated region(s)...")
             deleted = 0
