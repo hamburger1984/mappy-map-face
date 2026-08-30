@@ -4378,9 +4378,18 @@ class MapRenderer {
     // Aeroway lines: compute pixel width from real-world OSM data (view-dependent)
     if (r.layer === "aeroways" && !r.fill) {
       const mpp = this.viewWidthMeters / this.canvasWidth;
+      const fw = this.viewWidthMeters;
       if (r.isRunway) {
         const widthM = this.parseMeters(props.width) || 45;
-        width = Math.max(4, widthM / mpp);
+        const natural = widthM / mpp;
+        if (fw > 70000) {
+          // Far zoom (70km+): a runway is sub-pixel on screen, but the 4px floor
+          // below turned it into a wide black blob. Render it as a thin line.
+          width = Math.max(1, Math.min(natural, 2.5));
+        } else {
+          // Close/mid zoom: true physical width (min 4px) — original behavior
+          width = Math.max(4, natural);
+        }
       } else if (props.aeroway === "taxiway") {
         const widthM = this.parseMeters(props.width) || 15;
         width = Math.max(2, widthM / mpp);
@@ -4491,8 +4500,8 @@ class MapRenderer {
       return result;
     }
 
-    // Beach / Sand (sandy areas and sandbanks)
-    if (props.natural === "beach" || props.natural === "sand") {
+    // Beach / Sand / Shoal (sandy areas and sandbanks)
+    if (props.natural === "beach" || props.natural === "sand" || props.natural === "shoal") {
       return {
         layer: "natural_background",
         color: getColor("natural", "beach"),

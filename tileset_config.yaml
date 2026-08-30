@@ -124,7 +124,7 @@ feature_templates:
     osm_match:
       geometry: ["Polygon", "MultiPolygon"]
       tags:
-        natural: ["sand"]
+        natural: ["sand", "shoal"]
     render:
       layer: "natural_background"
       themeKey: "natural.beach"

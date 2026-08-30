@@ -759,6 +759,18 @@ def augment_render_from_props(render, props, geom_type):
         }
         return
 
+    # ── Named sandbanks / shoals → waterLabel (like islands and lakes) ───────
+    if (
+        props.get("natural") in ("sand", "shoal", "beach")
+        and props.get("name")
+        and is_poly
+    ):
+        render["waterLabel"] = {
+            "name": props["name"],
+            "waterType": props["natural"],
+        }
+        return
+
     # ── Wetland sub-type overrides ────────────────────────────────────────────
     if props.get("natural") == "wetland":
         wtype = props.get("wetland")
@@ -1774,8 +1786,10 @@ _tile_handles: dict = {}
 try:
     import resource as _resource
     _soft, _ = _resource.getrlimit(_resource.RLIMIT_NOFILE)
-    # Reserve ~50 fds for Python internals, pools, etc.
-    _MAX_OPEN_HANDLES = max(32, _soft - 50)
+    # Reserve ~50 fds for Python internals, pools, etc. Cap the LRU cache to a
+    # sane upper bound so an inflated ulimit (e.g. macOS spawn) can't hold more
+    # open file handles than the OS actually allows (kern.maxfiles).
+    _MAX_OPEN_HANDLES = min(max(32, _soft - 50), 256)
 except Exception:
     _MAX_OPEN_HANDLES = 200
 
