@@ -7,6 +7,7 @@ Conversion can be parallelized across multiple files.
 """
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -68,19 +69,28 @@ def convert_pbf_to_geojson(args):
         return {"name": pbf_path.name, "status": "failed", "error": "osmium not found"}
 
     try:
+        # Write to a temp file first: an interrupted conversion must never
+        # leave a truncated GeoJSON behind that later looks "up to date".
+        tmp_path = work_dir / f"{pbf_path.stem}.partial.geojson"
         cmd = [
             "osmium",
             "export",
             str(pbf_path),
             "-o",
-            str(geojson_path),
+            str(tmp_path),
             "--overwrite",
         ]
 
         if config_file and Path(config_file).exists():
             cmd.extend(["--config", str(config_file)])
 
-        subprocess.run(cmd, check=True, capture_output=True)
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
+
+        os.replace(tmp_path, geojson_path)
 
         size_mb = geojson_path.stat().st_size / (1024 * 1024)
         return {

@@ -29,6 +29,10 @@
 # (This takes several hours for large regions.)
 #
 # Subsequent automatic updates run on the schedule set by `updateCalendar`.
+# Each run only processes regions that are actually due (tiles older than
+# `max-tile-age` *and* newer upstream data / a changed tileset config),
+# oldest first, and stops on its own once `updateTimeBudget` seconds have
+# elapsed — the next timer firing continues with the remaining regions.
 
 flakeSrc: { config, lib, pkgs, ... }:
 
@@ -82,6 +86,8 @@ let
   # ── Build / update script ────────────────────────────────────────────────
   # Regions are processed one at a time in the order listed, with an optional
   # gap between them.  Land polygons are fetched once before the loop starts.
+  # Extra arguments (time budget, region limit, ...) are appended by the
+  # service units that call this script.
   buildScript = pkgs.writeShellApplication {
     name = "osm-renderer-build";
     runtimeInputs = [ pythonEnv pkgs.osmium-tool pkgs.gdal ];
@@ -93,7 +99,8 @@ let
         --tileset-config  ${tilesetConfig}          \
         --land-polygon-url ${cfg.landPolygonUrl}    \
         --gap-seconds     ${toString cfg.regionGapSeconds} \
-        -j                ${toString cfg.jobs}
+        -j                ${toString cfg.jobs}      \
+        "$@"
     '';
   };
 
@@ -195,12 +202,36 @@ in {
 
     updateCalendar = mkOption {
       type        = types.nullOr types.str;
-      default     = "weekly";
+      default     = "daily";
       description = ''
         Systemd OnCalendar spec for automatic tile refresh.
+        The run itself stops when `updateTimeBudget` is reached, so a short
+        frequent schedule is preferred over one long weekly pass: due regions
+        are handled oldest-first and picked up over the following runs.
         Set to null to disable the timer (manual builds only).
       '';
       example = "Mon 03:00";
+    };
+
+    updateTimeBudget = mkOption {
+      type        = types.int;
+      default     = 14400;
+      description = ''
+        Wall-clock seconds a single periodic update run may spend on regions.
+        Once the budget is reached the run stops cleanly (no cancellation of
+        work in flight) and the remaining due regions are processed by the
+        next timer firing.  0 disables the budget.
+      '';
+      example = 4 * 60 * 60;
+    };
+
+    updateMaxRegions = mkOption {
+      type        = types.int;
+      default     = 0;
+      description = ''
+        Maximum number of regions a single periodic update run may process.
+        0 means only `updateTimeBudget` limits the run.
+      '';
     };
 
     nginx = {
@@ -263,11 +294,20 @@ in {
       # Not in wantedBy — start manually with:  systemctl start osm-renderer-build
       # Or let the timer drive it via osm-renderer-update.
       serviceConfig = {
-        Type             = "oneshot";
-        User             = "osm-renderer";
-        Group            = "osm-renderer";
-        ExecStart        = "${buildScript}/bin/osm-renderer-build";
-        TimeoutStartSec  = "24h";
+        Type      = "oneshot";
+        User      = "osm-renderer";
+        Group     = "osm-renderer";
+        ExecStart = "${buildScript}/bin/osm-renderer-build";
+        # A full pass over all regions legitimately takes many hours — there
+        # must be no start timeout, otherwise systemd SIGTERMs a healthy run
+        # mid-region.  Stopping stays fast and clean instead: SIGTERM goes to
+        # the runner only (KillMode=mixed), which then stops its own children,
+        # cleans up staging dirs and exits.
+        TimeoutStartSec  = "infinity";
+        TimeoutStopSec   = "1min";
+        KillMode         = "mixed";
+        Nice             = 10;
+        IOSchedulingClass = "idle";
       };
     };
 
@@ -277,11 +317,19 @@ in {
       after       = [ "network-online.target" ];
       wants       = [ "network-online.target" ];
       serviceConfig = {
-        Type            = "oneshot";
-        User            = "osm-renderer";
-        Group           = "osm-renderer";
-        ExecStart       = "${buildScript}/bin/osm-renderer-build";
-        TimeoutStartSec = "24h";
+        Type      = "oneshot";
+        User      = "osm-renderer";
+        Group     = "osm-renderer";
+        # The run stops itself when the budget is exhausted; remaining due
+        # regions are picked up by the next timer firing.
+        ExecStart = "${buildScript}/bin/osm-renderer-build"
+          + " --time-budget ${toString cfg.updateTimeBudget}"
+          + " --max-regions ${toString cfg.updateMaxRegions}";
+        TimeoutStartSec  = "infinity";
+        TimeoutStopSec   = "1min";
+        KillMode         = "mixed";
+        Nice             = 10;
+        IOSchedulingClass = "idle";
       };
     };
 
@@ -289,7 +337,11 @@ in {
       description = "OSM Renderer: periodic tile refresh timer";
       wantedBy    = [ "timers.target" ];
       timerConfig = {
-        OnCalendar = cfg.updateCalendar;
+        OnCalendar         = cfg.updateCalendar;
+        # Catch up after downtime instead of skipping the missed run.
+        Persistent         = true;
+        RandomizedDelaySec = "15min";
+        AccuracySec        = "1min";
       };
     };
 

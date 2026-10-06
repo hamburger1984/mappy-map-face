@@ -11,10 +11,13 @@ All downloads are parallelized with progress bars.
 
 import argparse
 import json
+import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
+import urllib.error
 import urllib.request
 import zipfile
 from datetime import datetime, timedelta
@@ -25,19 +28,116 @@ from pathlib import Path
 try:
     from tqdm import tqdm
 except ImportError:
-    print("Error: tqdm is required for progress bars")
-    print("Install with: pip install tqdm")
-    sys.exit(1)
+    # Keep this module importable as a library (run_staggered imports
+    # probe_remote) even when the progress-bar dependency is missing.
+    def tqdm(iterable=None, *args, **kwargs):
+        return iterable if iterable is not None else []
 
 from progress import is_interactive
 
+# Sidecar file next to a downloaded PBF recording which upstream extract it is.
+SRC_SUFFIX = ".src"
+
 
 def _log(msg: str) -> None:
-    """Print a line. In non-interactive mode, prefix with [step_1] and flush."""
+    """Print a line; in non-interactive mode, prefix with [step_1] and flush."""
     if is_interactive():
         print(msg)
     else:
         print(f"[step_1] {msg}", flush=True)
+
+
+def _basename(url: str) -> str:
+    return (url or "").split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
+
+
+def _version_of(url: str, final_url: str | None, etag: str | None, last_modified: str | None) -> str:
+    """Stable identifier for the remote content behind `url`.
+
+    Prefers the final filename after a redirect (Geofabrik redirects
+    `-latest.osm.pbf` to a dated file like `hamburg-261004.osm.pbf`),
+    then ETag, then Last-Modified.  Must be used on both the probe and the
+    download path so the two always agree.
+    """
+    final = _basename(final_url or "")
+    if final and final != _basename(url):
+        return final
+    if etag:
+        return f"etag:{etag}"
+    if last_modified:
+        return f"lm:{last_modified}"
+    return final_url or url
+
+
+_REAL_GETADDRINFO = socket.getaddrinfo
+
+
+def _ipv4_getaddrinfo(*args, **kwargs):
+    return [r for r in _REAL_GETADDRINFO(*args, **kwargs) if r[0] == socket.AF_INET]
+
+
+def probe_remote(url: str, timeout: int = 15) -> dict | None:
+    """HEAD `url` and report what it currently points at.
+
+    Geofabrik's `-latest.osm.pbf` URLs redirect to a dated file
+    (`hamburg-261004.osm.pbf`), so the final URL uniquely identifies the
+    current extract — and no body is ever transferred.  Returns
+    {"version": ..., "final_url": ...}, or None when the server cannot be
+    probed.  Retries once over IPv4 in case IPv6 routing hangs.
+    """
+    for attempt in (0, 1):
+        if attempt == 1:
+            _orig = socket.getaddrinfo
+            socket.getaddrinfo = _ipv4_getaddrinfo
+        try:
+            req = urllib.request.Request(url, method="HEAD")
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                final_url = resp.geturl()
+                return {
+                    "version": _version_of(url, final_url, resp.headers.get("ETag"), resp.headers.get("Last-Modified")),
+                    "final_url": final_url,
+                }
+        except Exception:
+            if attempt == 0:
+                continue  # IPv6 hung/failed — retry over IPv4
+            if attempt == 1:
+                socket.getaddrinfo = _orig
+            return None
+        finally:
+            if attempt == 1:
+                socket.getaddrinfo = _orig
+    return None
+
+
+def src_path(pbf_file: Path) -> Path:
+    return Path(str(pbf_file) + SRC_SUFFIX)
+
+
+def read_src_version(pbf_file: Path) -> str | None:
+    """Read the upstream version recorded next to a downloaded PBF."""
+    try:
+        with open(src_path(pbf_file)) as f:
+            for line in f:
+                if line.startswith("Version:"):
+                    return line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    return None
+
+
+def write_src_version(pbf_file: Path, version: str | None) -> None:
+    """Atomically record which upstream extract `pbf_file` came from."""
+    path = src_path(pbf_file)
+    if not version:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        return
+    tmp = Path(str(path) + ".tmp")
+    tmp.write_text(f"Version: {version}\n")
+    os.replace(tmp, path)
+
 
 
 # Land polygon sources (pre-computed land polygons for accurate coastline backgrounds)
@@ -163,6 +263,7 @@ def download_with_progress(url, output_path, desc):
             req.add_header("Range", f"bytes={resume_pos}-")
 
         with urllib.request.urlopen(req) as response:
+            final_url = response.geturl()
             # Get ETag and Last-Modified from GET response if HEAD failed
             if current_etag is None:
                 current_etag = response.headers.get("ETag")
@@ -229,7 +330,7 @@ def download_with_progress(url, output_path, desc):
         temp_file.rename(output_path)
         if meta_file.exists():
             meta_file.unlink()
-        return True
+        return _version_of(url, final_url, current_etag, current_last_modified)
     except Exception as e:
         # Keep partial file and metadata for resume
         print("  → Partial download saved for resume")
@@ -241,18 +342,33 @@ def download_osm_file(args, max_age_days=30):
     name, url, data_dir = args
     pbf_file = data_dir / f"{name}-latest.osm.pbf"
 
-    # Check if already up-to-date
-    if pbf_file.exists() and check_file_age(pbf_file, max_age_days=max_age_days):
-        size_mb = pbf_file.stat().st_size / (1024 * 1024)
-        return {
-            "name": name,
-            "status": "cached",
-            "size_mb": size_mb,
-            "age": format_file_age(pbf_file),
-        }
+    # Cheap HEAD first: when the remote extract is the one we already have
+    # locally, skip the download entirely — no matter how old the file is.
+    probe = probe_remote(url)
+    remote_version = probe["version"] if probe else None
+
+    if pbf_file.exists():
+        local_version = read_src_version(pbf_file)
+        if remote_version and local_version == remote_version:
+            return {
+                "name": name,
+                "status": "cached",
+                "size_mb": pbf_file.stat().st_size / (1024 * 1024),
+                "age": format_file_age(pbf_file),
+                "reason": "upstream extract unchanged",
+            }
+        if check_file_age(pbf_file, max_age_days=max_age_days):
+            size_mb = pbf_file.stat().st_size / (1024 * 1024)
+            return {
+                "name": name,
+                "status": "cached",
+                "size_mb": size_mb,
+                "age": format_file_age(pbf_file),
+            }
 
     try:
-        download_with_progress(url, pbf_file, f"Downloading {name}")
+        version = download_with_progress(url, pbf_file, f"Downloading {name}")
+        write_src_version(pbf_file, version or remote_version)
         size_mb = pbf_file.stat().st_size / (1024 * 1024)
         return {"name": name, "status": "downloaded", "size_mb": size_mb}
     except Exception as e:

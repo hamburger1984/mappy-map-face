@@ -2560,8 +2560,9 @@ def _write_regions_json(output_dir, all_results):
             "geojson_mtime": mtime,
         }
 
-    with open(regions_path, "w", encoding="utf-8") as f:
+    with open(str(regions_path) + ".tmp", "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+    os.replace(str(regions_path) + ".tmp", regions_path)
 
 
 def _write_region_tile_index(output_dir, region_name, tile_files_written):
@@ -2570,8 +2571,10 @@ def _write_region_tile_index(output_dir, region_name, tile_files_written):
     regions_dir.mkdir(parents=True, exist_ok=True)
     index = {ts: [[x, y] for x, y in sorted(coords)] for ts, coords in tile_files_written.items()}
     out_path = regions_dir / f"{region_name}.tiles.json.gz"
-    with gzip.open(out_path, "wt", encoding="utf-8") as f:
+    tmp_path = str(out_path) + ".tmp"
+    with gzip.open(tmp_path, "wt", encoding="utf-8") as f:
         json.dump(index, f, separators=(",", ":"))
+    os.replace(tmp_path, out_path)
 
 
 def _load_region_tile_index(output_dir, region_name):
