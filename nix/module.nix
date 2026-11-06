@@ -181,7 +181,9 @@ in {
 
     landPolygonUrl = mkOption {
       type        = types.str;
-      default     = "https://osmdata.openstreetmap.de/download/land-polygons-split-4326.zip";
+      # Default to mirror while osmdata.openstreetmap.de is unreliable; original kept as comment.
+      # "global": "https://osmdata.openstreetmap.de/download/land-polygons-split-4326.zip",
+      default     = "https://www.osmdata.org/download/land-polygons-split-4326.zip";
       description = ''
         URL for the global land polygon shapefile (zip containing a shapefile).
         Used to distinguish land from ocean in tile backgrounds.
