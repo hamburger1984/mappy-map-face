@@ -142,7 +142,9 @@ def write_src_version(pbf_file: Path, version: str | None) -> None:
 
 # Land polygon sources (pre-computed land polygons for accurate coastline backgrounds)
 LAND_POLYGON_SOURCES = {
-    "global": "https://osmdata.openstreetmap.de/download/land-polygons-split-4326.zip"
+    # Default to mirror while osmdata.openstreetmap.de is unreliable; original kept as comment.
+    # "global": "https://osmdata.openstreetmap.de/download/land-polygons-split-4326.zip",
+    "global": "https://www.osmdata.org/download/land-polygons-split-4326.zip",
 }
 
 # OSM data sources
