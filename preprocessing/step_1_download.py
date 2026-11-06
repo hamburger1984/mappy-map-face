@@ -33,6 +33,12 @@ except ImportError:
     def tqdm(iterable=None, *args, **kwargs):
         return iterable if iterable is not None else []
 
+
+try:
+    import ijson
+except ImportError:
+    ijson = None
+
 from progress import is_interactive
 
 # Sidecar file next to a downloaded PBF recording which upstream extract it is.
@@ -377,13 +383,40 @@ def download_osm_file(args, max_age_days=30):
         return {"name": name, "status": "failed", "error": str(e)}
 
 
+def land_polygons_complete(path: Path) -> bool:
+    """Return True only when `path` exists and holds a complete land polygon GeoJSON.
+
+    Streams the feature collection with ijson and treats any parse error (e.g. a
+    download or conversion that was cut short) as an invalid file. A fresh mtime
+    alone cannot distinguish a good file from a half-written one, so without this
+    check a truncated GeoJSON would be cached and later tile runs would silently
+    build on top of it.
+    """
+    if not path.exists() or path.stat().st_size <= 0:
+        return False
+    if ijson is None:
+        return False
+    try:
+        feature_count = 0
+        with open(path, "rb") as f:
+            for _feat in ijson.items(f, "features.item"):
+                feature_count += 1
+        return feature_count > 0
+    except Exception:
+        return False
+
+
 def download_and_convert_land_polygons(args, max_age_days=30):
     """Download and convert land polygon shapefile to GeoJSON."""
     name, url, data_dir = args
     output_file = data_dir / f"{name}-land-polygons.geojson"
 
-    # Check if already up-to-date
-    if output_file.exists() and check_file_age(output_file, max_age_days=max_age_days):
+    # Check if already up-to-date and intact
+    if (
+        output_file.exists()
+        and check_file_age(output_file, max_age_days=max_age_days)
+        and land_polygons_complete(output_file)
+    ):
         size_mb = output_file.stat().st_size / (1024 * 1024)
         return {
             "name": name,
@@ -405,7 +438,9 @@ def download_and_convert_land_polygons(args, max_age_days=30):
         download_with_progress(url, zip_file, f"Downloading {name} land polygons")
 
         # Extract
-        temp_dir.mkdir(exist_ok=True)
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+        temp_dir.mkdir(parents=True)
         with zipfile.ZipFile(zip_file, "r") as zip_ref:
             zip_ref.extractall(temp_dir)
 
@@ -431,6 +466,11 @@ def download_and_convert_land_polygons(args, max_age_days=30):
         if proc.returncode != 0:
             err = proc.stderr.decode(errors="replace").strip()
             raise RuntimeError(f"ogr2ogr failed (exit {proc.returncode}):\n{err}")
+
+        # Never cache a truncated GeoJSON — the download may have completed but
+        # the conversion been cut short.
+        if not land_polygons_complete(output_file):
+            raise RuntimeError("Land polygon GeoJSON output is truncated or invalid")
 
         # Cleanup
         shutil.rmtree(temp_dir)
